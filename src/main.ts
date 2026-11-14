@@ -75,6 +75,8 @@ import { UpdateService } from "@/main/updates/UpdateService";
 import { UpdateHandlers } from "@/main/updates/UpdateHandlers";
 import { AgentService } from "@/main/agent/AgentService";
 import { AgentHandlers } from "@/main/agent/AgentHandlers";
+import { AutoService } from "@/main/auto/AutoService";
+import { AutoHandlers } from "@/main/auto/AutoHandlers";
 import { loginShellPath } from "@/main/agent/loginPath";
 import { runAgentFile, spawnAgent } from "@/main/agent/nodeProcesses";
 import { runningBuild } from "@/main/updates/buildIdentity";
@@ -649,6 +651,27 @@ const agentService = new AgentService({
 });
 const agentHandlers = new AgentHandlers({ ipc: ipcMain, service: agentService });
 
+// Auto: the service on another machine that runs agent threads. Opal is a
+// screen for it. The address comes from <userData>/auto.json alone, and
+// every request to it is made here, never by the page.
+const autoService = new AutoService({
+  userData: userDataDir,
+  fs: fsPromises,
+  fetch: (url, init) => net.fetch(url, init),
+  onStream: (message) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("auto:stream", message);
+  },
+});
+const autoHandlers = new AutoHandlers({
+  ipc: ipcMain,
+  service: autoService,
+  pages: {
+    registry: rootRegistry,
+    vaults: async () => (await vaultService.discover()).map((vault) => vault.path),
+  },
+});
+
 // --- Primary Initialization and Cleanup ---
 app.whenReady().then(async () => {
   try {
@@ -683,6 +706,7 @@ app.whenReady().then(async () => {
     filesHandlers.registerAll();
     updateHandlers.registerAll();
     agentHandlers.registerAll();
+    autoHandlers.registerAll();
     void filesService.cleanup();
     log.info("Disk explorer IPC handlers and file protocols registered");
 
@@ -717,6 +741,7 @@ app.on("will-quit", () => {
   filesService.removeCopies();
   // Running comments end their turn rather than carry on after Opal.
   agentService.stopAll();
+  autoService.stopAll();
 });
 
 app.on("before-quit", async () => {

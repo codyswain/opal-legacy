@@ -3,6 +3,7 @@ import type { PinsAPI } from "./types/pins";
 import type { HiddenAPI, HiddenState } from "./types/hidden";
 import type { UpdatesAPI, UpdateState } from "./types/updates";
 import type { AgentAPI, CommentRun } from "./types/agent";
+import type { AutoAPI, AutoStreamMessage } from "./types/auto";
 import type { VaultDayChange } from "./types/day";
 import type { VaultTestChange } from "./types/dailyTest";
 import type { TouchedWeekChange } from "./types/touched";
@@ -242,6 +243,23 @@ const agentAPI: AgentAPI = {
   },
 };
 contextBridge.exposeInMainWorld("agentAPI", agentAPI);
+
+// Auto: the page asks, the main process talks to the service. The page names
+// a route and its fields, never an address or a path.
+const autoAPI: AutoAPI = {
+  config: () => ipcRenderer.invoke("auto:config"),
+  setAddress: (url) => ipcRenderer.invoke("auto:set-address", url),
+  request: (route) => ipcRenderer.invoke("auto:request", route),
+  follow: (target) => ipcRenderer.invoke("auto:follow", target),
+  unfollow: (stream) => ipcRenderer.invoke("auto:unfollow", stream),
+  resolvePage: (path) => ipcRenderer.invoke("auto:resolve-page", path),
+  onStream: (callback) => {
+    const listener = (_event: IpcRendererEvent, message: AutoStreamMessage) => callback(message);
+    ipcRenderer.on("auto:stream", listener);
+    return () => ipcRenderer.removeListener("auto:stream", listener);
+  },
+};
+contextBridge.exposeInMainWorld("autoAPI", autoAPI);
 
 const filesAPI: FilesAPI = {
   // A file from Finder goes by its path; File.path is gone in Electron 32.
