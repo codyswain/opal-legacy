@@ -15,7 +15,7 @@ import { guardedLineMoves } from './firstLine';
 import { codeBlocks } from './codeBlocks';
 import { docModeExtensions } from './docMode';
 import { indentInQuote, toggleMarker } from './formatCommands';
-import { nestListItems, withoutRenumbering } from './listKeys';
+import { nestListItems, withTaskBox } from './listKeys';
 import { listNumbers, prefixEnd } from './listNumbers';
 import { fileObjects } from './fileWidgets';
 import { fileInserts } from './imageInsert';
@@ -147,8 +147,8 @@ function withMarkerSpaces(tr: Transaction): Transaction {
  * Enter in a list or quote, as in Obsidian. A non-empty item continues, split
  * at the caret. An empty nested item moves out one level, and an empty
  * top-level item loses its marker, so the list ends and the caret starts a
- * paragraph below a blank line. Numbered lists renumber, and no line is left
- * holding only spaces. Returns false outside lists and quotes, so a plain
+ * paragraph below a blank line. Numbered lists renumber (listNumbers.ts), and
+ * no line is left holding only spaces. Returns false outside lists and quotes, so a plain
  * newline runs.
  */
 export const insertNewlineInList: StateCommand = ({ state, dispatch }) => {
@@ -157,7 +157,7 @@ export const insertNewlineInList: StateCommand = ({ state, dispatch }) => {
     state,
     dispatch: (tr) => {
       if (tr.newDoc.eq(state.doc)) unchanged = true;
-      else if (state.facet(docMode)) dispatch(withoutRenumbering(withMarkerSpaces(blankLinesAroundEnd(withoutSpaceLines(tr)))));
+      else if (state.facet(docMode)) dispatch(withTaskBox(withMarkerSpaces(blankLinesAroundEnd(withoutSpaceLines(tr)))));
       else dispatch(withMarkerSpaces(blankLinesAroundEnd(withoutSpaceLines(tr))));
     },
   });

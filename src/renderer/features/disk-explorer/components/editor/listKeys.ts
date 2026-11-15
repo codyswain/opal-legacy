@@ -12,7 +12,7 @@ import { docMode } from './livePreview';
  * character: a tab where the list already indents with tabs, otherwise
  * spaces to the parent's text. Only the moved item's line changes. In a
  * document Tab does nothing outside lists, since four spaces would turn a
- * paragraph into code, and Enter never renumbers the items below.
+ * paragraph into code. Numbers are put in order by listNumbers.ts.
  */
 
 const TAB = 4;
@@ -339,48 +339,23 @@ export const docListKeys: Extension = [
 const ITEM = /^([\s>]*)(\d+)([.)])/;
 
 /**
- * Enter in a document's numbered list, from the transaction the list
- * command made: its new line stays, and its renumbering of the items below
- * goes, so no other line changes. The new item takes the number after the
- * one above it, or the same number in a list numbered "1.", "1.", "1.".
+ * Enter in a document's numbered task, from the transaction the list command
+ * made: the new item goes on with an empty box, which the command leaves
+ * out. Every other Enter is returned as it is, so the edit is worked out
+ * once. The numbers are put in order by the edit itself (listNumbers.ts).
  */
-export function withoutRenumbering(tr: Transaction): Transaction {
+export function withTaskBox(tr: Transaction): Transaction {
   const state = tr.startState;
   const line = state.doc.lineAt(state.selection.main.head);
-  const kept: { from: number; to: number; insert: string }[] = [];
-  let dropped = false;
-  tr.changes.iterChanges((from, to, _fromB, _toB, inserted) => {
-    const text = inserted.toString();
-    if (from > line.to && /^\d*$/.test(state.sliceDoc(from, to)) && /^\d*$/.test(text)) dropped = true;
-    else kept.push({ from, to, insert: text });
-  });
   const item = itemOn(state, line);
-  if (!item || !ordered(item.node)) return dropped ? state.update({ changes: kept, selection: tr.newSelection, scrollIntoView: true, userEvent: 'input' }) : tr;
-  // A lazily numbered list repeats its number.
-  let previous = item.node.prevSibling;
-  while (previous && previous.name !== 'ListItem') previous = previous.prevSibling;
-  let next = item.node.nextSibling;
-  while (next && next.name !== 'ListItem') next = next.nextSibling;
-  const own = number(state, item.mark);
-  const neighbour = previous ?? next;
-  const neighbourMark = neighbour?.getChild('ListMark');
-  const lazy = neighbourMark !== null && neighbourMark !== undefined && number(state, neighbourMark) === own;
-  const set = ChangeSet.of(kept, state.doc.length);
-  const after = set.apply(state.doc);
+  if (!item || !ordered(item.node) || !item.node.getChild('Task')) return tr;
+  const after = tr.newDoc;
   const head = tr.newSelection.main.head;
   const newLine = after.lineAt(Math.min(head, after.length));
   const match = ITEM.exec(newLine.text);
-  if (match && newLine.number !== after.lineAt(set.mapPos(line.from)).number) {
-    const want = String(lazy ? own : own + 1);
-    const at = newLine.from + match[1].length;
-    const fixes: ChangeSpec[] = match[2] === want ? [] : [{ from: at, to: at + match[2].length, insert: want }];
-    // A numbered task goes on with a box.
-    const boxAt = at + match[2].length + match[3].length;
-    if (item.node.getChild('Task') && !/^ \[[ xX]\]/.test(after.sliceString(boxAt, boxAt + 4))) fixes.push({ from: boxAt, insert: after.sliceString(boxAt, boxAt + 1) === ' ' ? ' [ ]' : ' [ ] ' });
-    if (fixes.length > 0) {
-      const fix = ChangeSet.of(fixes, after.length);
-      return state.update({ changes: set.compose(fix), selection: { anchor: fix.mapPos(head, 1) }, scrollIntoView: true, userEvent: 'input' });
-    }
-  }
-  return dropped ? state.update({ changes: set, selection: tr.newSelection, scrollIntoView: true, userEvent: 'input' }) : tr;
+  if (!match || newLine.number === after.lineAt(tr.changes.mapPos(line.from)).number) return tr;
+  const boxAt = newLine.from + match[1].length + match[2].length + match[3].length;
+  if (/^ \[[ xX]\]/.test(after.sliceString(boxAt, boxAt + 4))) return tr;
+  const fix = ChangeSet.of([{ from: boxAt, insert: after.sliceString(boxAt, boxAt + 1) === ' ' ? ' [ ]' : ' [ ] ' }], after.length);
+  return state.update({ changes: tr.changes.compose(fix), selection: { anchor: fix.mapPos(head, 1) }, scrollIntoView: true, userEvent: 'input' });
 }

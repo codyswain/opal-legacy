@@ -361,15 +361,16 @@
   align-items: baseline;
   padding-right: 0.55em;
   text-indent: 0;
-  color: var(--editor-muted);
+  /* Bullets and numbers take the text's own colour, as a word processor draws them. */
+  color: inherit;
   white-space: nowrap;
   overflow-wrap: normal;
 }
 
 .opal-editor .cm-editor .cm-md-bullet {
   display: inline-block;
-  width: 0.3em;
-  height: 0.3em;
+  width: 0.36em;
+  height: 0.36em;
   border-radius: 50%;
   background-color: currentColor;
   transform: translateY(-0.2em);
