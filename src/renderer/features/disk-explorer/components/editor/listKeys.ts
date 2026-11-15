@@ -1,4 +1,4 @@
-import { ChangeSet, Prec, type ChangeSpec, type EditorState, type Extension, type Line, type StateCommand, type Transaction } from '@codemirror/state';
+import { ChangeSet, EditorState, Prec, type ChangeSpec, type Extension, type Line, type StateCommand, type Transaction } from '@codemirror/state';
 import { keymap } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { deleteHandlers, latestTree, protectedIn } from './extensionPoints';
@@ -394,10 +394,36 @@ const listJoin = deleteHandlers.of({
   },
 });
 
+/**
+ * A word typed on the empty line right under a list starts a paragraph, as
+ * in a word processor: in Markdown that takes a blank line above it, or the
+ * text would read as more of the last item. Typed marks and numbers are
+ * left alone, since they may be starting the list's next item.
+ */
+const paragraphUnderList = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !tr.isUserEvent('input.type') || tr.isUserEvent('input.type.compose')) return tr;
+  const state = tr.startState;
+  const { main } = state.selection;
+  if (!state.facet(docMode) || !main.empty || state.selection.ranges.length > 1) return tr;
+  const line = state.doc.lineAt(main.head);
+  if (line.number === 1 || main.head !== line.to || line.text !== quoteOf(line.text)) return tr;
+  const above = state.doc.line(line.number - 1);
+  if (!hasText(above) || !itemAround(state, above.to)) return tr;
+  let typed = '';
+  let edits = 0;
+  tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    edits += 1;
+    if (fromA === main.head && toA === fromA) typed = inserted.toString();
+  });
+  if (edits !== 1 || !/^\p{L}/u.test(typed)) return tr;
+  return [tr, { changes: { from: line.from, insert: `${quoteOf(line.text).replace(/[ \t]+$/, '')}\n` }, sequential: true }];
+});
+
 export const docListKeys: Extension = [
   leaveNumberedList,
   listBackspace,
   listJoin,
+  paragraphUnderList,
   Prec.high(keymap.of([
     { key: 'Tab', run: docTab(true), shift: docTab(false) },
     { key: 'Enter', run: enterAfterParagraph },

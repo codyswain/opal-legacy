@@ -50,6 +50,8 @@ export const ROWS = [
   { id: 'B24', area: 'Bullets', does: 'Type "- " in front of a line with text right under it: only that line becomes a bullet', start: 'Alpha\n‸Beta\nGamma', keys: ['t:- '], expect: 'Alpha\n- ‸Beta\n\nGamma', shows: ['bullet::0'] },
   { id: 'B25', area: 'Bullets', does: 'Delete at the end of a list pulls the paragraph under it up', start: '- one‸\n\nPara', keys: ['Delete'], expect: '- one‸Para' },
   { id: 'B26', area: 'Bullets', does: 'After Backspace took a bullet off, Enter at the end of that line goes on without a bullet', start: '- one\n- ‸two', keys: ['Backspace', 'Meta+ArrowRight', 'Enter', 't:x'], expect: '- one\n  two\n  x‸', shows: ['bullet::0'] },
+  { id: 'B27', area: 'Bullets', does: 'A word typed on the empty line right under a list starts a paragraph, not more of the last item', start: '- one\n- two\n‸', keys: ['t:after'], expect: '- one\n- two\n\nafter‸', shows: ['bullet::0', 'bullet::0'] },
+  { id: 'B28', area: 'Bullets', does: 'After a list is ended, typing "- " carries it on with no empty row', start: '- one‸', keys: ['Enter', 'Enter', 't:- x'], expect: '- one\n- x‸', shows: ['bullet::0', 'bullet::0'] },
 
   // ---- Numbered lists
   { id: 'N1', area: 'Numbers', does: 'Type "1. " on an empty line', start: '‸', keys: ['t:1. '], expect: '1. ‸', shows: ['number:1.:0'] },

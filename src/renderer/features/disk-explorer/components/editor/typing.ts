@@ -5,6 +5,7 @@ import { EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/vie
 import type { SyntaxNode } from '@lezer/common';
 import { latestTree, nodeDecorators, protectedIn } from './extensionPoints';
 import { inlineSpans, typingStyle } from './formatCommands';
+import { withListNumbers } from './listNumbers';
 import { docMode, hiddenRanges } from './livePreview';
 import { OBJECT as OBJECT_CHARACTER, visibleLine, visibleOffset, visibleSlice } from './visibleText';
 
@@ -157,12 +158,15 @@ const justFormatted = StateField.define<boolean>({
 function format(view: EditorView, doc: Text, removals: readonly { from: number; to: number; insert?: string }[]): void {
   if (view.state.doc !== doc) return;
   const changes = ChangeSet.of(removals.map(({ from, to, insert }) => ({ from, to, insert })), doc.length);
-  view.dispatch({
+  const spec: TransactionSpec = {
     changes,
     selection: { anchor: changes.mapPos(view.state.selection.main.head, 1) },
     annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.autoformat')],
     filter: false,
-  });
+  };
+  // The formatting is what makes a typed "1. " an item, so the list it starts or joins is numbered in this same step.
+  const numbered = withListNumbers(view.state.update(spec));
+  view.dispatch(spec, ...(Array.isArray(numbered) ? numbered.slice(1) as TransactionSpec[] : []));
 }
 
 function formatting(tr: Transaction): readonly { from: number; to: number; insert?: string }[] | undefined {
@@ -179,6 +183,21 @@ const QUOTE_ONLY = /^(?:[ \t]*>[ \t]?)*[ \t]*$/;
 function inTable(node: SyntaxNode): boolean {
   for (let at: SyntaxNode | null = node; at; at = at.parent) if (at.name === 'Table') return true;
   return false;
+}
+
+/**
+ * The blank line over a list item typed on `line`, when the line above that
+ * blank line is a list item too: an item typed one empty line under a list
+ * carries the list on, so the empty line between them goes, and the list
+ * stays as tight as it was. Null when there is none.
+ */
+function gapOver(state: EditorState, line: { number: number; from: number; text: string }): { from: number; to: number } | null {
+  if (line.number < 3) return null;
+  const gap = state.doc.line(line.number - 1);
+  const above = state.doc.line(line.number - 2);
+  const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '';
+  if (/[^\s>]/.test(gap.text) || !/^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(above.text.slice(quote.length))) return null;
+  return { from: gap.from, to: line.from };
 }
 
 /** Typed text that finishes a shortcut is written, then formatted, in two dispatches straight away. */
@@ -378,7 +397,11 @@ function escapeTyped(tr: Transaction): TransactionSpec | null {
     const numbered = mark.name === 'ListMark' && /\d/.test(after.sliceDoc(mark.from, mark.from + 1));
     // A list item typed right over a line of text: that line stays a paragraph. The backslash moves the line's end by one.
     const gap = mark.name === 'ListMark' ? gapUnder(after, line) : null;
-    return autoformatSpec(at, text.length, [numbered ? mark.to - 1 : mark.from], [], gap ? [{ from: gap.at + 1, to: gap.at + 1, insert: gap.insert }] : []);
+    const over = mark.name === 'ListMark' ? gapOver(after, line) : null;
+    return autoformatSpec(at, text.length, [numbered ? mark.to - 1 : mark.from], [], [
+      ...(over ? [{ from: over.from, to: over.to }] : []),
+      ...(gap ? [{ from: gap.at + 1, to: gap.at + 1, insert: gap.insert }] : []),
+    ]);
   }
 
   // "<!--" would hide the rest of the page in Obsidian. In a wiki link or a URL the backslash would show, and nothing is hidden there.

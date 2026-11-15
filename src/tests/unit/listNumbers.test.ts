@@ -370,6 +370,37 @@ describe('what the fresh review found', () => {
     expect(text(view)).toBe('- one\n  two\n  x\n- three\n');
   });
 
+  it('gives the blank line under a list no room when the list sits right under text, and the caret steps over it', () => {
+    const tight = mount('Intro\n- one\n- two\n\nAfter‸\n');
+    expect(tight.contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+    // Left from the start of "After" lands at the end of "two".
+    tight.dispatch({ selection: { anchor: tight.state.doc.toString().indexOf('After') }, userEvent: 'select' });
+    press(tight, 'ArrowLeft');
+    expect(marked(tight)).toBe('Intro\n- one\n- two‸\n\nAfter\n');
+    // A list with a blank line above it keeps the one below, and a note that is only read keeps every line.
+    expect(mount('Intro\n\n- one\n\nAfter‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
+    expect(mount('Intro\n- one\n\n\nAfter‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+  });
+
+  it('starts a paragraph for a word typed on the empty line right under a list', () => {
+    const view = mount('- one\n- two\n‸');
+    type(view, 'after');
+    expect(text(view)).toBe('- one\n- two\n\nafter');
+    // A mark or a number typed there may be the next item, so nothing is added.
+    const item = mount('- one\n- two\n‸');
+    type(item, '- x');
+    expect(text(item)).toBe('- one\n- two\n- x');
+  });
+
+  it('carries the list on, with no empty row, for an item typed one blank line under it', () => {
+    const view = mount('- one\n- two\n\n‸');
+    type(view, '- x');
+    expect(text(view)).toBe('- one\n- two\n- x');
+    const numbers = mount('1. one\n2. two\n\n‸');
+    type(numbers, '1. x');
+    expect(text(numbers)).toBe('1. one\n2. two\n3. x');
+  });
+
   it('redoes on Cmd+Y', () => {
     const view = mount('- one\n- ‸two\n');
     press(view, 'Tab');

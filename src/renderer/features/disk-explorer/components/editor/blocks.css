@@ -6,6 +6,8 @@
  */
 
 /* A document's setext underline takes no room: the heading reads as one. */
+/* So does the blank line a list needs under it, when the list sits right under the text above it. */
+.opal-editor .cm-editor .cm-line.cm-md-gap-hidden,
 .opal-editor .cm-editor .cm-line.cm-md-setext-hidden {
   height: 0;
   padding: 0;

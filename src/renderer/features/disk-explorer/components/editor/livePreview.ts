@@ -718,6 +718,24 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
           }
           return false;
         }
+        case 'BulletList':
+        case 'OrderedList': {
+          // The blank line Markdown needs between a list and the text after it takes no room in a document, when
+          // the list sits right under the text above it, so a page typed without empty rows shows none, as in a
+          // word processor. The caret steps over it. A list with a blank line above it keeps the one below.
+          if (!state.facet(docMode) || node.parent?.name === 'ListItem') return true;
+          const first = doc.lineAt(ref.from);
+          const last = lastLine(doc, node);
+          if (last.number + 2 > doc.lines) return true;
+          const gap = doc.line(last.number + 1);
+          const set = first.number === 1 || /[^\s>]/.test(doc.line(first.number - 1).text);
+          if (set && !/[^\s>]/.test(gap.text) && gap.from >= top && gap.from <= bottom && !covered(gap.from)) {
+            if (gap.to > gap.from) hide(gap.from, gap.to);
+            lineClass(gap.from, 'cm-md-gap-hidden');
+            units?.push({ from: gap.from - 1, to: Math.min(doc.length, gap.to + 1) });
+          }
+          return true;
+        }
         case 'HorizontalRule':
           if (!reveal.lines(ref.from, ref.to)) out.push(Decoration.replace({ widget: state.facet(docMode) ? horizontalRuleObject : horizontalRule }).range(ref.from, ref.to));
           return false;

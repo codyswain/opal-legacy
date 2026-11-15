@@ -243,12 +243,26 @@ function widened(tr: Transaction): ChangeSpec[] {
   return changes;
 }
 
+/**
+ * Whether `tr` only types characters that are not spaces at a caret: a "-",
+ * a digit or a "." on its way to being a marker. No list is numbered for
+ * them. The space that finishes the marker is the edit that makes the item.
+ */
+function typedMark(tr: Transaction): boolean {
+  if (!tr.isUserEvent('input.type')) return false;
+  let plain = true;
+  tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    if (fromA !== toA || /\s/.test(inserted.toString())) plain = false;
+  });
+  return plain;
+}
+
 const EDITS = ['input', 'delete', 'move'];
 
 /** The person's edit with the numbers of the lists it touched put in order. */
 export function withListNumbers(tr: Transaction): Transaction | readonly (Transaction | { changes: ChangeSpec[]; sequential: true })[] {
   if (!tr.docChanged || tr.annotation(Transaction.remote) || !EDITS.some((event) => tr.isUserEvent(event))) return tr;
-  if (!changesItems(tr)) return tr;
+  if (typedMark(tr) || !changesItems(tr)) return tr;
   // First the lines under markers the edit made wider, so the lists read as they will be; then their numbers.
   const indents = widened(tr);
   const indented = indents.length > 0 ? tr.startState.update({ changes: tr.changes.compose(ChangeSet.of(indents, tr.newDoc.length)), filter: false }) : tr;

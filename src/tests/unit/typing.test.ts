@@ -131,11 +131,11 @@ describe('typing in a document', () => {
     at(after, 7);
     type(after, '3. x');
     expect(text(after)).toBe('Intro\n\n3\\. x');
+    // On the empty line right under the list, the page's last line.
     const list = mount('1. a\n2. b\n');
-    at(list, 9);
-    act(() => { list.dispatch({ changes: { from: 9, insert: '\n' }, selection: { anchor: 10 } }); });
+    at(list, 10);
     type(list, '3. c');
-    expect(text(list)).toBe('1. a\n2. b\n3. c\n');
+    expect(text(list)).toBe('1. a\n2. b\n3. c');
     const one = mount('\n');
     at(one, 0);
     type(one, '1. go');
