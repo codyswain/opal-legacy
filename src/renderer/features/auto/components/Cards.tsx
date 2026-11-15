@@ -4,24 +4,11 @@ import type { AutoQuestion, AutoQuestionPart } from '@/types/auto';
 import { Button } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
-import {
-  answerAllow,
-  answerDeny,
-  answerOption,
-  answerPicks,
-  answerTyped,
-  isPicked,
-  isSingle,
-  pick,
-  picksReady,
-  splitQuestion,
-} from '../model/questionModel';
+import { answerAllow, answerDeny, answerOption, answerPicks, isPicked, isSingle, pick, picksReady, splitQuestion } from '../model/questionModel';
 import type { EntryCard } from '../model/threadModel';
 import { useThreadStore } from '../store/threadStore';
 
 const card = 'rounded-card border border-border-strong p-4';
-const field =
-  'h-control min-w-0 flex-1 rounded-control border border-border-strong bg-canvas px-2 text-ui text-foreground outline-none placeholder:text-icon focus-visible:ring-2 focus-visible:ring-focus';
 
 /** What the service said to an answer it did not take, such as a question that has closed. */
 function CardProblem() {
@@ -65,11 +52,13 @@ function OptionButton({ question, part, label, description, first }: { question:
 
 /**
  * A question: its first sentence in semibold, the rest in regular weight,
- * the options as buttons, and a field for his own words.
+ * and the options as buttons. His own words go in the box below the thread,
+ * which is the answer field while a question waits. One question with one
+ * choice is answered by a click; with several parts or several choices the
+ * clicks pick, and Send posts the picks once every part has one.
  */
 export function QuestionCard({ question }: { question: Ask }) {
   const picks = useThreadStore((state) => state.picks);
-  const [own, setOwn] = React.useState('');
   const single = isSingle(question);
   const { answer } = useThreadStore.getState();
   return (
@@ -93,32 +82,22 @@ export function QuestionCard({ question }: { question: Ask }) {
           );
         })}
       </div>
-      <form
-        className="mt-3 flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const words = own.trim();
-          if (words) void answer(answerTyped(question, words, picks)).then((took) => took && setOwn(''));
-          else if (!single && picksReady(question, picks)) void answer(answerPicks(question, picks));
-        }}
-      >
-        <input aria-label="Your own answer" placeholder="Something else" value={own} onChange={(event) => setOwn(event.target.value)} className={field} />
-        <Button type="submit" variant={single ? 'outline' : 'default'} disabled={!own.trim() && (single || !picksReady(question, picks))}>
-          Answer
+      {single ? null : (
+        <Button className="mt-3" data-testid="auto-send-picks" disabled={!picksReady(question, picks)} onClick={() => void answer(answerPicks(question, picks))}>
+          Send
         </Button>
-      </form>
+      )}
       <CardProblem />
     </div>
   );
 }
 
-/** A tool that needs his yes: its title, its detail, Allow, and Deny with an optional message. */
+/**
+ * A tool that needs his yes: its title, its detail, Allow and Deny. Words
+ * typed in the box below deny it and go back to Auto as the reason.
+ */
 export function PermissionCard({ question }: { question: Extract<AutoQuestion, { kind: 'permission' }> }) {
-  const [message, setMessage] = React.useState('');
   const { answer } = useThreadStore.getState();
-  const deny = () => {
-    void answer(answerDeny(question, message));
-  };
   return (
     <div data-testid="auto-permission" className={card}>
       <p className="text-reply font-semibold text-foreground">{question.title || question.tool || 'Allow this?'}</p>
@@ -128,17 +107,7 @@ export function PermissionCard({ question }: { question: Extract<AutoQuestion, {
       {question.reason ? <p className="mt-2 text-ui text-foreground-secondary">{question.reason}</p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button onClick={() => void answer(answerAllow(question))}>Allow</Button>
-        <Button variant="outline" onClick={deny}>Deny</Button>
-        <input
-          aria-label="Message with the denial"
-          placeholder="Say why (optional)"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && message.trim()) deny();
-          }}
-          className={cn(field, 'min-w-40')}
-        />
+        <Button variant="outline" onClick={() => void answer(answerDeny(question, ''))}>Deny</Button>
       </div>
       <CardProblem />
     </div>
@@ -156,7 +125,13 @@ export function EntryCardView({ entry, title }: { entry: EntryCard; title: strin
   return (
     <div data-testid="auto-entry" className="rounded-card border border-border-subtle bg-surface-sunken p-4">
       <p className="text-metadata text-foreground-tertiary">Digest, {entry.source}</p>
-      {named ? null : <p className="mt-1 text-reply font-semibold text-foreground">{entry.title}</p>}
+      {/* The priority is a quiet word before the title, as the queue sets it. */}
+      {named && !entry.priority ? null : (
+        <p className="mt-1 text-reply font-semibold text-foreground">
+          {entry.priority ? <span data-testid="auto-entry-priority" className="font-normal text-foreground-tertiary">{entry.priority} </span> : null}
+          {entry.title}
+        </p>
+      )}
       {entry.body ? <Markdown text={entry.body} className="mt-2 text-foreground" /> : null}
       {from ? (
         <p className="mt-3 text-control text-foreground-tertiary">

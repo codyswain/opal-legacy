@@ -233,16 +233,42 @@
 }
 
 /*
- * The thread keeps its scrollbar's gutter at all times, and the header above
- * it and the box below it leave the same 10px, so all three line up whether
- * or not the thread scrolls.
+ * One reading column. A pane's header, its scrolling part and what sits
+ * under it each hold a column of the same width at the same place, so the
+ * title, the text, the cards and the box share their left and right edges
+ * at every width. The scrolling part keeps its scrollbar's gutter at all
+ * times, and the parts beside it leave the same 10px.
  */
 .auto-talk {
   scrollbar-gutter: stable;
 }
 
 .auto-beside-talk {
-  padding-right: calc(1.5rem + 10px);
+  padding-right: 10px;
+}
+
+.auto-column {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--reading-width);
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+/*
+ * A table or a code block wider than the column scrolls sideways in its own
+ * box. The edge it is cut at fades, so the cut does not read as the end.
+ */
+[data-fade='end'] {
+  mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent);
+}
+
+[data-fade='start'] {
+  mask-image: linear-gradient(to left, black calc(100% - 2rem), transparent);
+}
+
+[data-fade='both'] {
+  mask-image: linear-gradient(to right, transparent, black 2rem, black calc(100% - 2rem), transparent);
 }
 
 /*

@@ -62,8 +62,42 @@ export function listView(threads: readonly AutoThread[]): ListView {
   };
 }
 
-/** How many threads wait on him, for the sidebar's count. */
+/** How many threads wait on him. */
 export const needsCount = (threads: readonly AutoThread[]): number => listView(threads).needs;
+
+/**
+ * The sidebar's count: the threads that wait on him and the ones with a
+ * reply he has not read. Snoozed and archived threads are left out.
+ */
+export function attentionCount(threads: readonly AutoThread[]): number {
+  return threads.filter((thread) => !thread.archived && thread.snoozed === null && (thread.status === 'waiting' || thread.unread)).length;
+}
+
+/** The threads' ids in the order the list shows them: each group in turn, then the snoozed ones when their line is open. */
+export function shownOrder(threads: readonly AutoThread[], snoozedOpen: boolean): string[] {
+  const view = listView(threads);
+  return [...view.groups.flatMap((group) => group.threads), ...(snoozedOpen ? view.snoozed : [])].map((thread) => thread.id);
+}
+
+/** What takes a row's place when it leaves: the one below it, else the one above, else nothing. */
+export function nextAfter(order: readonly string[], id: string): string | null {
+  const at = order.indexOf(id);
+  if (at === -1) return null;
+  return order[at + 1] ?? order[at - 1] ?? null;
+}
+
+/**
+ * A row moved one place up or down with the keyboard, as a drag would move
+ * it: the thread it now sits above, or null for the end. Null when it is
+ * already at that end, or cannot be moved.
+ */
+export function moveBy(threads: readonly AutoThread[], id: string, delta: -1 | 1): { id: string; before: string | null } | null {
+  const group = listView(threads).groups.find((each) => each.movable && each.threads.some((thread) => thread.id === id));
+  if (!group) return null;
+  const at = group.threads.findIndex((thread) => thread.id === id);
+  if (delta === -1 ? at === 0 : at === group.threads.length - 1) return null;
+  return moveTarget(group.threads, id, delta === -1 ? at - 1 : at + 2);
+}
 
 /** A new or changed entry: replaced where it is, added on top, or taken out once archived. */
 export function upsertThread(threads: readonly AutoThread[], thread: AutoThread): AutoThread[] {
@@ -71,6 +105,18 @@ export function upsertThread(threads: readonly AutoThread[], thread: AutoThread)
   if (thread.archived) return at === -1 ? [...threads] : threads.filter((candidate) => candidate.id !== thread.id);
   if (at === -1) return [thread, ...threads];
   return threads.map((candidate, index) => (index === at ? thread : candidate));
+}
+
+/**
+ * A thread put back where it was in an earlier list: above the first thread
+ * that followed it then and is still here, else at the end. A list that
+ * already holds it is left as it is.
+ */
+export function putBack(threads: readonly AutoThread[], earlier: readonly AutoThread[], thread: AutoThread): AutoThread[] {
+  if (threads.some((candidate) => candidate.id === thread.id)) return [...threads];
+  const after = earlier.slice(earlier.findIndex((candidate) => candidate.id === thread.id) + 1).map((candidate) => candidate.id);
+  const at = threads.findIndex((candidate) => after.includes(candidate.id));
+  return at === -1 ? [...threads, thread] : [...threads.slice(0, at), thread, ...threads.slice(at)];
 }
 
 /** The service's order. A thread it does not name stays on top, where it was. */
@@ -241,11 +287,19 @@ export function snoozeDateRange(now: number): { min: string; max: string } {
   return { min: iso(morning(now, 1)), max: iso(morning(now, 365)) };
 }
 
-/** The morning of a picked `YYYY-MM-DD`, in Unix seconds, or null when it is not a day inside the range. */
-export function snoozeDate(picked: string, now: number): number | null {
+/** The time a picked day starts with, as a time field holds it. */
+export const SNOOZE_TIME = `${String(MORNING_HOUR).padStart(2, '0')}:00`;
+
+/**
+ * A picked `YYYY-MM-DD` at a picked `HH:MM` (8 in the morning when none is
+ * given), in Unix seconds, or null when it is not a time on a day inside
+ * the range.
+ */
+export function snoozeDate(picked: string, now: number, time: string = SNOOZE_TIME): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(picked);
-  if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), MORNING_HOUR, 0, 0, 0);
+  const clock = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!match || !clock || Number(clock[1]) > 23 || Number(clock[2]) > 59) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(clock[1]), Number(clock[2]), 0, 0);
   const { min, max } = snoozeDateRange(now);
   if (Number.isNaN(date.getTime()) || picked < min || picked > max) return null;
   return date.getTime() / 1000;

@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { toast } from 'sonner';
 import type { AutoDigest, AutoStreamMessage } from '@/types/auto';
-import { stepDay, wordsKey, type QueueFilter } from '../model/digestModel';
+import { afterLeaving, allEntries, entryName, queueOrder, queueSections, stepDay, withState, wordsKey, type QueueFilter } from '../model/digestModel';
 import { cidFor, type Failed } from '../model/outbox';
 import { autoApi, useAutoStore } from './autoStore';
+import { useSaidStore } from './saidStore';
 import { useThreadStore } from './threadStore';
 
 /*
@@ -30,6 +30,10 @@ export interface DigestStore {
   /** The entry whose words did not go, by the same key. */
   notSent: string | null;
   failed: Failed | null;
+  /** The entry that takes the keyboard focus once the queue has drawn it; `:top` is the queue's first control. */
+  focusEntry: string | null;
+  /** The entry whose note takes the caret once it is open. */
+  noteWanted: string | null;
 
   /** Reads the latest digest and the days again, and the day he stepped to. */
   refresh: () => Promise<void>;
@@ -37,8 +41,15 @@ export interface DigestStore {
   step: (older: boolean) => Promise<void>;
   setFilter: (filter: QueueFilter) => void;
   open: (id: string | null) => void;
-  /** Resolves entries of the shown day, or reopens them. Resolving offers Undo for a few seconds. */
-  resolve: (ids: string[], resolved: boolean) => Promise<void>;
+  /** Opens an entry with the caret in its note. */
+  openNote: (id: string) => void;
+  requestFocus: (entry: string | null) => void;
+  /**
+   * Resolves entries of the shown day, or reopens them. They leave "Left"
+   * at once and come back with the service's sentence if it refuses.
+   * Resolving offers Undo for a few seconds; `section` names several.
+   */
+  resolve: (ids: string[], resolved: boolean, section?: string) => Promise<void>;
   /** Saves his note on an entry; empty text removes it. */
   setNote: (id: string, text: string) => Promise<boolean>;
   /** Makes an entry a thread that waits on top of the list. He stays in the queue. */
@@ -54,6 +65,10 @@ export interface DigestStore {
 export const selectDay = (state: Pick<DigestStore, 'latest' | 'past'>): AutoDigest | null => state.past ?? state.latest;
 
 const UNREACHABLE = "Can't reach Auto.";
+/** The queue's first control, for when no entry is left to hold the focus. */
+export const QUEUE_TOP = ':top';
+/** The entry that is the queue's Tab stop: where the keyboard goes when the queue opens. */
+export const QUEUE_FIRST = ':first';
 
 export const useDigestStore = create<DigestStore>((set, get) => {
   /** The service's answer for a day replaces the copy of that day. */
@@ -68,10 +83,17 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     if (result?.success) took(result.data);
   };
 
-  /** An entry that left "Left" is no longer open in place. */
-  const closeIfGone = (ids: readonly string[]) => {
+  /** An entry that left "Left" is no longer open in place, and the keyboard moves on to the next one. */
+  const moveOn = (day: AutoDigest, ids: readonly string[]) => {
     const { opened, filter } = get();
-    if (opened && filter === 'left' && ids.includes(opened)) set({ opened: null });
+    if (filter !== 'left') return;
+    if (opened && ids.includes(opened)) set({ opened: null });
+    set({ focusEntry: afterLeaving(queueOrder(queueSections(day, filter)), ids) ?? QUEUE_TOP });
+  };
+  const said = () => useSaidStore.getState();
+  const named = (day: AutoDigest, id: string): string => {
+    const entry = allEntries(day).find((candidate) => candidate.id === id);
+    return entry ? entryName(entry) : '';
   };
 
   return {
@@ -84,6 +106,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     words: {},
     notSent: null,
     failed: null,
+    focusEntry: null,
+    noteWanted: null,
 
     refresh: async () => {
       const api = autoApi();
@@ -118,34 +142,43 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       }
       const result = await api.request({ kind: 'digest', date: target }).catch((): null => null);
       if (result?.success) set({ past: result.data, filter: 'all', opened: null });
-      else toast.error(result?.error.message ?? UNREACHABLE);
+      else said().refuse(result?.error.message ?? UNREACHABLE);
     },
 
     setFilter: (filter) => set({ filter, opened: null }),
 
     open: (id) => set({ opened: id }),
 
-    resolve: async (ids, resolved) => {
+    openNote: (id) => set({ opened: id, noteWanted: id }),
+
+    requestFocus: (entry) => set({ focusEntry: entry }),
+
+    resolve: async (ids, resolved, section) => {
       const day = selectDay(get());
       if (!day || ids.length === 0) return;
       const date = day.date;
+      const name = ids.length === 1 ? named(day, ids[0]) : section ?? '';
+      // The rows change at once; the service's answer then takes the place of this guess.
+      took(withState(day, ids, (entry) => (resolved ? 'resolved' : entry.thread ? 'thread' : 'open')));
+      if (resolved) moveOn(day, ids);
       const result = await autoApi()?.request({ kind: 'digest-resolve', date, ids, resolved }).catch((): null => null);
       if (!result?.success) {
-        toast.error(result?.error.message ?? UNREACHABLE);
+        took(day);
+        said().refuse(result?.error.message ?? UNREACHABLE, name);
         return;
       }
       took(result.data);
       if (!resolved) return;
-      closeIfGone(ids);
-      toast(ids.length === 1 ? 'Resolved' : `${ids.length} resolved`, {
-        action: {
-          label: 'Undo',
-          onClick: () => {
-            void autoApi()?.request({ kind: 'digest-resolve', date, ids, resolved: false }).then((undone) => {
-              if (undone.success) took(undone.data);
-              else toast.error(undone.error.message);
-            });
-          },
+      said().say({
+        text: ids.length === 1 ? 'Resolved' : `Resolved ${ids.length} in`,
+        name,
+        undo: () => {
+          void autoApi()?.request({ kind: 'digest-resolve', date, ids, resolved: false }).catch((): null => null).then((undone) => {
+            if (undone?.success) {
+              took(undone.data);
+              if (selectDay(get())?.date === date) set({ focusEntry: ids[0] });
+            } else said().refuse(undone?.error.message ?? UNREACHABLE, name);
+          });
         },
       });
     },
@@ -155,7 +188,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       if (!day) return false;
       const result = await autoApi()?.request({ kind: 'digest-note', date: day.date, id, text: text.trim() }).catch((): null => null);
       if (!result?.success) {
-        toast.error(result?.error.message ?? UNREACHABLE);
+        said().refuse(result?.error.message ?? UNREACHABLE, named(day, id));
         return false;
       }
       took(result.data);
@@ -165,14 +198,38 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     makeThread: async (id) => {
       const day = selectDay(get());
       if (!day) return;
-      const result = await autoApi()?.request({ kind: 'digest-thread', date: day.date, id, words: null, cid: null }).catch((): null => null);
+      const date = day.date;
+      const name = named(day, id);
+      // The entry leaves "Left" at once.
+      took(withState(day, [id], () => 'thread'));
+      moveOn(day, [id]);
+      const api = autoApi();
+      const result = await api?.request({ kind: 'digest-thread', date, id, words: null, cid: null }).catch((): null => null);
       if (!result?.success) {
-        toast.error(result?.error.message ?? UNREACHABLE);
+        took(day);
+        said().refuse(result?.error.message ?? UNREACHABLE, name);
         return;
       }
-      useAutoStore.getState().upsert(result.data.thread);
-      closeIfGone([id]);
-      await reload(day.date);
+      const thread = result.data.thread;
+      useAutoStore.getState().upsert(thread);
+      await reload(date);
+      said().say({
+        text: 'Made a thread',
+        name,
+        open: () => useThreadStore.getState().open(thread.id),
+        // A thread nobody has started, archived, leaves its entry open again.
+        undo: () => {
+          void api?.request({ kind: 'archive', id: thread.id, archived: true }).catch((): null => null).then(async (undone) => {
+            if (!undone?.success) {
+              said().refuse(undone?.error.message ?? UNREACHABLE, name);
+              return;
+            }
+            useAutoStore.getState().upsert(undone.data.thread);
+            await reload(date);
+            if (selectDay(get())?.date === date) set({ focusEntry: id });
+          });
+        },
+      });
     },
 
     setWords: (id, text) => {
@@ -209,7 +266,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     },
 
     handle: (message) => {
-      if (message.token !== useAutoStore.getState().listToken) return;
+      // With no tab open nobody looks at the digest: it is read when one opens.
+      if (message.token !== useAutoStore.getState().listToken || !useAutoStore.getState().tabOpen) return;
       if (message.type !== 'event' || message.stream !== 'list' || message.event.kind !== 'digest') return;
       const { date } = message.event;
       const { latest, past } = get();
@@ -224,7 +282,9 @@ export const useDigestStore = create<DigestStore>((set, get) => {
 // opening, a reset, a reconnect), and forgotten with the address it came from.
 useAutoStore.subscribe((state, before) => {
   if (state.address !== before.address) {
-    useDigestStore.setState({ latest: null, status: 'unknown', days: [], past: null, filter: 'left', opened: null, words: {}, notSent: null, failed: null });
+    useDigestStore.setState({ latest: null, status: 'unknown', days: [], past: null, filter: 'left', opened: null, words: {}, notSent: null, failed: null, focusEntry: null });
   }
-  if (state.refreshedAt !== before.refreshedAt && state.reachable && state.following) void useDigestStore.getState().refresh();
+  // Read while a tab is open: when the list is read, and when the tab opens on a list read before.
+  const read = state.refreshedAt !== before.refreshedAt || (state.tabOpen && !before.tabOpen);
+  if (read && state.reachable && state.tabOpen) void useDigestStore.getState().refresh();
 });

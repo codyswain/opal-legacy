@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronsDownUp, Clock, Inbox, Settings } from "lucide-react";
-import { needsCount, openAutoTab, useAutoStore } from "@/renderer/features/auto";
+import { attentionCount, openAutoTab, useAutoStore } from "@/renderer/features/auto";
 import { browseRecent, isAutoLocation } from "@/renderer/features/disk-explorer/navigation";
 import { useDiskStore } from "@/renderer/features/disk-explorer/store/diskStore";
 import { canCollapseTree } from "@/renderer/features/disk-explorer/store/treeExpansion";
@@ -61,8 +61,8 @@ export function WorkspaceSidebar({
     return shown?.mode === "browse" && shown.collection.kind === "recent";
   });
   const isAuto = useTabsStore((state) => isAutoLocation(selectCurrentLocation(state)));
-  // The threads that wait on him.
-  const autoNeeds = useAutoStore((state) => needsCount(state.threads));
+  // The threads that wait on him, and the ones with a reply he has not read.
+  const autoNeeds = useAutoStore((state) => attentionCount(state.threads));
   const { navigateFiles } = useShell();
 
   const goToRecent = (newTab: boolean) => {

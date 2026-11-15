@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { toast } from 'sonner';
 import { recordOpened } from '@/renderer/features/disk-explorer/activity/recordActivity';
 import { filesLocationKey, focusFile } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
@@ -8,9 +7,13 @@ import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import { Button } from '@/renderer/shared/ui';
 import { MarkdownLinksContext, type MarkdownLinks } from '../markdown/Markdown';
 import { DIGEST_QUEUE } from '../model/pane';
+import { turnRuns } from '../model/threadModel';
 import { autoApi, signInProblem, useAutoStore } from '../store/autoStore';
+import { useSaidStore } from '../store/saidStore';
 import { useThreadStore } from '../store/threadStore';
+import { inField } from './focus';
 import { QueuePane } from './QueuePane';
+import { SnoozeDateDialog } from './SnoozeMenu';
 import { ThreadList } from './ThreadList';
 import { ThreadPane } from './ThreadPane';
 
@@ -50,6 +53,32 @@ function useWatching(): void {
 }
 
 /**
+ * The tab's own keys, while it is in front and the keyboard is in it (or
+ * nowhere): Cmd+. stops the open thread's running turn, and Cmd+Z undoes
+ * when an Undo is on offer and the caret is not in a field, where it undoes
+ * typing. Neither acts in the palette, a dialog or another part of the app.
+ */
+function useTabKeys(frame: React.RefObject<HTMLElement>): void {
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      const target = event.target as Node | null;
+      if (target !== document.body && !(target && frame.current?.contains(target))) return;
+      if (event.key === '.') {
+        const { view, stop } = useThreadStore.getState();
+        if (!turnRuns(view)) return;
+        event.preventDefault();
+        void stop();
+      } else if (event.key.toLowerCase() === 'z' && !inField(event.target)) {
+        if (useSaidStore.getState().undo()) event.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [frame]);
+}
+
+/**
  * How links in replies are followed. A vault path is looked up by the main
  * process inside the opened folders, and the file opens in a tab of its
  * own, or in the tab that already shows it, so the thread stays where it is.
@@ -66,7 +95,7 @@ function useLinks(): MarkdownLinks {
     (path: string) => {
       void autoApi()?.resolvePage(path).then((result) => {
         if (!result.success) {
-          toast(result.error.message);
+          useSaidStore.getState().refuse(result.error.message);
           return;
         }
         recordOpened(result.data.path);
@@ -202,6 +231,7 @@ export function AutoView() {
   const narrow = useNarrow(frame);
   const links = useLinks();
   useWatching();
+  useTabKeys(frame);
 
   let body: React.ReactNode = null;
   if (configured && (!address || editing)) body = <AddressForm />;
@@ -215,6 +245,7 @@ export function AutoView() {
           {/* One pane beside the list: a thread, or the digest's queue. Narrow, either one hides the list. */}
           {narrow && openId === null ? null : openId === DIGEST_QUEUE ? <QueuePane narrow={narrow} /> : <ThreadPane narrow={narrow} />}
         </div>
+        <SnoozeDateDialog />
       </MarkdownLinksContext.Provider>
     );
   }

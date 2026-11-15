@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { toast } from 'sonner';
 import type { AutoAPI, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
-import { applyOrder, fromDigest, moved, upsertThread } from '../model/listModel';
+import { applyOrder, moved, upsertThread } from '../model/listModel';
+import { useSaidStore } from './saidStore';
 
 /*
  * What the page knows about Auto as a whole: its address, whether it
@@ -26,30 +26,36 @@ export interface AutoStore {
   status: AutoStatus | null;
   /** Every thread not archived, in the service's order. */
   threads: AutoThread[];
-  /** An Auto tab is open, so the list stream is followed. */
-  following: boolean;
+  /** An Auto tab is open: the digest is read too, and a service out of reach is asked again sooner. */
+  tabOpen: boolean;
   listToken: number | null;
   /** When the list was last read, in ms. */
   refreshedAt: number;
   snoozedOpen: boolean;
+  /**
+   * The row that takes the keyboard focus once the list has drawn it: a
+   * thread's id, or a pane's name for New thread and Digest.
+   */
+  focusRow: string | null;
+  /** The thread whose snooze is being given a day and a time of his own, and where the action came from. */
+  picking: { thread: AutoThread; from: 'row' | 'pane' } | null;
 
   /** Reads the address, and the list when there is one. */
   start: () => Promise<void>;
   /** Saves a typed address. Answers the sentence to show when it is refused. */
   saveAddress: (typed: string) => Promise<string | null>;
   editAddress: (editing: boolean) => void;
-  /** Reads the status and the list again, and follows the list from there while a tab is open. */
+  /** Reads the status and the list again, and follows the list's stream from there. */
   refresh: () => Promise<boolean>;
-  setFollowing: (following: boolean) => void;
+  setTabOpen: (open: boolean) => void;
+  requestFocus: (row: string | null) => void;
+  pickSnooze: (picking: AutoStore['picking']) => void;
   /** A message of the list stream. */
   handle: (message: AutoStreamMessage) => void;
   upsert: (thread: AutoThread) => void;
   toggleSnoozed: () => void;
   checkStatus: () => Promise<void>;
 
-  snooze: (id: string, until: number | null) => Promise<void>;
-  /** Archives a thread; `done` also marks the digest entry it came from as done. */
-  archive: (thread: AutoThread, done?: boolean) => Promise<void>;
   move: (id: string, before: string | null) => Promise<void>;
   /** An option of a waiting row, clicked. */
   answer: (thread: AutoThread, label: string) => Promise<void>;
@@ -63,15 +69,28 @@ const UNREACHABLE = "Can't reach Auto.";
 
 let refreshing: Promise<boolean> | null = null;
 
-export const useAutoStore = create<AutoStore>((set, get) => {
-  /** A write whose failure is said in one line. */
-  const said = (message: string) => toast.error(message);
+/** The row last asked to take the focus, and when. */
+let wanted: { row: string; at: number } | null = null;
 
+/**
+ * The row an action asked to focus within the last second, or null. A menu
+ * or a dialog that closes after the action hands the keyboard to it, where
+ * its own way of returning focus would point at a row that has left.
+ */
+export const wantedRow = (): string | null => (wanted && Date.now() - wanted.at < 1_000 ? wanted.row : null);
+
+export const useAutoStore = create<AutoStore>((set, get) => {
+  /** A write whose failure is said in one line, at the foot of the list. */
+  const said = (message: string) => useSaidStore.getState().refuse(message);
+
+  // The list's stream is followed whenever an address is set, with a tab
+  // open or not: it holds back no ping, and it keeps the sidebar's count true.
   const follow = async (cursor: string | null) => {
     const api = autoApi();
-    if (!api || !get().following) return;
+    const address = get().address;
+    if (!api || !address) return;
     const result = await api.follow({ stream: 'list', cursor }).catch((): null => null);
-    if (result?.success && get().following) set({ listToken: result.data.token });
+    if (result?.success && get().address === address) set({ listToken: result.data.token });
   };
 
   const read = async (): Promise<boolean> => {
@@ -109,10 +128,12 @@ export const useAutoStore = create<AutoStore>((set, get) => {
     problem: null,
     status: null,
     threads: [],
-    following: false,
+    tabOpen: false,
     listToken: null,
     refreshedAt: 0,
     snoozedOpen: false,
+    focusRow: null,
+    picking: null,
 
     start: async () => {
       const api = autoApi();
@@ -129,6 +150,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       if (!result?.success) return result?.error.message ?? 'Opal could not save the address.';
       // Another address is another service: nothing of the old one stays.
       set({ address: result.data.url, editing: false, loaded: false, reachable: false, problem: null, threads: [], status: null, listToken: null });
+      if (!result.data.url) void api.unfollow('list').catch(() => undefined);
       if (result.data.url) await get().refresh();
       return null;
     },
@@ -142,16 +164,19 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       return refreshing;
     },
 
-    setFollowing: (following) => {
-      if (get().following === following) return;
-      set({ following });
-      if (following) {
-        if (get().address) void get().refresh();
-        return;
-      }
-      set({ listToken: null });
-      void autoApi()?.unfollow('list').catch(() => undefined);
+    setTabOpen: (open) => {
+      if (get().tabOpen === open) return;
+      set({ tabOpen: open });
+      // A tab opened on a service that did not answer asks again at once.
+      if (open && get().address && !get().reachable) void get().refresh();
     },
+
+    requestFocus: (row) => {
+      if (row) wanted = { row, at: Date.now() };
+      set({ focusRow: row });
+    },
+
+    pickSnooze: (picking) => set({ picking }),
 
     handle: (message) => {
       if (message.token !== get().listToken) return;
@@ -177,34 +202,6 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       const result = await autoApi()?.request({ kind: 'check-status' }).catch((): null => null);
       if (result?.success) set({ status: result.data });
       else if (result) said(result.error.message);
-    },
-
-    snooze: async (id, until) => {
-      const result = await autoApi()?.request({ kind: 'snooze', id, until }).catch((): null => null);
-      if (result?.success) get().upsert(result.data.thread);
-      else if (result) said(result.error.message);
-    },
-
-    archive: async (thread, done = false) => {
-      const api = autoApi();
-      const result = await api?.request({ kind: 'archive', id: thread.id, archived: true, ...(done && fromDigest(thread) ? { done: true } : {}) }).catch((): null => null);
-      if (!result) return;
-      if (!result.success) {
-        said(result.error.message);
-        return;
-      }
-      get().upsert(result.data.thread);
-      toast(done ? 'Done' : 'Archived', {
-        action: {
-          label: 'Undo',
-          onClick: () => {
-            void api?.request({ kind: 'archive', id: thread.id, archived: false }).then((undone) => {
-              if (undone.success) get().upsert(undone.data.thread);
-              else said(undone.error.message);
-            });
-          },
-        },
-      });
     },
 
     move: async (id, before) => {

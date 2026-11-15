@@ -187,13 +187,50 @@ export function stepLines(steps: readonly AutoStep[]): StepLine[] {
     }));
 }
 
-/** How many of a group's last lines show while it is folded. */
-export const STEPS_SHOWN = 3;
+const count = (many: number, one: string, more: string): string => (many === 1 ? one : `${many} ${more}`);
 
-/** A group of steps folded to its last three lines, with the count of earlier ones. */
-export function foldSteps(lines: readonly StepLine[], open: boolean): { earlier: number; shown: StepLine[] } {
-  if (open || lines.length <= STEPS_SHOWN) return { earlier: 0, shown: [...lines] };
-  return { earlier: lines.length - STEPS_SHOWN, shown: lines.slice(-STEPS_SHOWN) };
+/**
+ * A group of steps as one line, which opens to all of them: "Read 3 files,
+ * searched the web, 2 more steps". One step alone is its own line.
+ */
+export function stepsSummary(steps: readonly AutoStep[]): string {
+  const shown = steps.filter((step) => step.g !== 'quiet');
+  if (shown.length === 0) return '';
+  if (shown.length === 1) {
+    const [line] = stepLines(shown);
+    return `${line.lead}${line.text}`;
+  }
+  const kinds = new Map<string, number>();
+  for (const step of shown) {
+    const kind = step.g.startsWith('skill:') ? 'skill' : step.g in STEP_LEAD ? step.g : 'other';
+    kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+  }
+  const parts = [...kinds].map(([kind, many]) => {
+    if (kind === 'read') return `read ${count(many, '1 file', 'files')}`;
+    if (kind === 'change') return `changed ${count(many, '1 file', 'files')}`;
+    if (kind === 'search') return many === 1 ? 'searched' : `searched ${many} times`;
+    if (kind === 'websearch') return many === 1 ? 'searched the web' : `searched the web ${many} times`;
+    if (kind === 'agent') return count(many, 'a helper', 'helpers');
+    if (kind === 'skill') return count(many, 'a skill', 'skills');
+    return kinds.size === 1 ? `${many} steps` : count(many, '1 more step', 'more steps');
+  });
+  const line = parts.join(', ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+/**
+ * Where a thread with a reply he has not read opens: his last message that
+ * has a reply under it, counted in the finished history, so a long reply is
+ * read from its start. Null while a turn runs or a question waits, and when
+ * there is no such message: the thread then opens at its end.
+ */
+export function turnStart(view: ThreadView): number | null {
+  if (view.live || view.question) return null;
+  for (let at = view.history.length - 1; at >= 0; at -= 1) {
+    if (view.history[at].role !== 'user') continue;
+    return view.history.slice(at + 1).some((item) => item.role === 'assistant' && item.text !== '') ? at : null;
+  }
+  return null;
 }
 
 /** One line for a message that went out: who to, the subject. */
@@ -206,6 +243,8 @@ export interface EntryCard {
   /** "Friday November 13, item 2". */
   source: string;
   title: string;
+  /** A to-do's priority ("High"), or '' for none. */
+  priority: string;
   /** The entry, as Markdown. */
   body: string;
   /** The file it came from, a path from the vault's top. */
@@ -241,5 +280,13 @@ export function parseEntry(text: string): EntryCard | null {
     }
     break;
   }
-  return { source: head[1], title: head[2].trim(), body: body.join('\n').trim(), from, says };
+  // A to-do with a priority says so on a line of its own under the title.
+  let priority = '';
+  const first = body.findIndex((line) => line.trim() !== '');
+  const marked = first === -1 ? null : /^Priority: (\S.{0,39})$/.exec(body[first].trim());
+  if (marked) {
+    priority = marked[1].trim();
+    body = body.slice(first + 1);
+  }
+  return { source: head[1], title: head[2].trim(), priority, body: body.join('\n').trim(), from, says };
 }
