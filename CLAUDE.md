@@ -227,8 +227,9 @@ not exist.
   Daily, then two sections that fold (`SidebarFold.tsx`, kept in
   `shell.layout` as `threadsOpen` and `libraryOpen`): Threads
   (`ThreadsSection.tsx`: the heading with the count and New thread, the
-  Digest row, the threads, the put-away lines; at most half the sidebar
-  while Library is open) and Library (pinned pages, then the tree); then the
+  Digest row, the threads, the put-away lines; the height its rows need, up
+  to 70% of the room it shares with Library, scrolling inside that with
+  faded cut edges; a put-away line opened scrolls its first rows into view) and Library (pinned pages, then the tree); then the
   Undo line, Update ready and Settings. Recent has no row; the palette's
   "Go to Recent" opens it. A thread picked in Threads shows in the one Auto
   tab, or in one opened beside the page (`showInAuto` in

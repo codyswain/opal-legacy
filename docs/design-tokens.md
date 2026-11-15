@@ -252,8 +252,11 @@ page's row has. The first line is an icon-wide slot for the unread dot, the
 title in `text-ui` (`font-semibold` when the thread needs him), and the
 time in `text-metadata` `tabular-nums`; the second line, only when the
 thread needs him, is `text-control` and lines up under the title. A row's
-actions take its time's place on hover and focus, and that place is kept
-as wide as the actions, so the title is cut at the same point either way.
+time slot is only as wide as its time. On hover and focus the actions sit
+at the row's end, over the time or the end of the title, and the first
+line fades out under them (`.auto-row-line`, as far in as
+`--auto-row-hide`), so they sit on the row's own fill; the title is cut at
+the same point either way.
 A row's "Your move: …" and "Not started" are in `text-foreground`, as words
 and never as a button; a row has no answer buttons. There is no line of
 counts: the Threads heading carries one number, `text-metadata` in
@@ -261,9 +264,12 @@ counts: the Threads heading carries one number, `text-metadata` in
 headings (`SidebarFold.tsx`) are `h-row-compact` buttons in
 `font-sidebar-group-label` `text-foreground-tertiary` with a chevron that
 turns when the section folds. The Digest row is the first row of Threads,
-one line, with its count where a thread's time goes. Threads scrolls in
-`sidebar-tree-scroll`, as the tree does, and is at most half the sidebar
-while Library is open. Cards (a question, a permission request, a send to allow)
+one line, with its count where a thread's time goes. Threads takes the
+height its rows need, up to 70% of the room it shares with Library, and
+scrolls inside that (`.auto-threads-scroll`): the scrollbar's gutter is
+always kept and is `--sidebar-inset` wide, so no row moves when the rows
+start to scroll, and a cut edge fades over 1.5rem, the bottom while more
+is below and the top once scrolled. Cards (a question, a permission request, a send to allow)
 are `rounded-card` with a `border-border-strong` ring and no fill. No
 option of a question is filled: every one is an outline button, with its
 number, 1 to 3, in `text-foreground-tertiary` beside it, shown only while

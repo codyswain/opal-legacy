@@ -109,8 +109,9 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
         label="Threads"
         trailing={trailing}
         marks={{ 'data-auto-list': true, 'data-auto-keys': true, 'data-palette-return': true }}
-        // With Library open, Threads takes the height its rows need up to about half the sidebar; folded, all of it.
-        className={cn('shrink pt-2', libraryOpen && 'max-h-[50%]')}
+        // With Library open, Threads takes the height its rows need, up to 70% of the room the two sections share,
+        // and Library the rest; with Library folded, all of it.
+        className={cn('shrink pt-2', libraryOpen && 'max-h-[70%]')}
         wrapHeading={(heading) =>
           address ? (
             <ContextMenu>

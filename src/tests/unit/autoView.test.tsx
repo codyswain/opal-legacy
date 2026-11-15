@@ -273,6 +273,12 @@ describe('the list', () => {
     expect(row('ask').textContent).toContain('Which bed?');
     expect(row('mine').textContent).toContain('Your move: Read it');
     expect(row('broke').textContent).toContain('Failed: it stopped');
+    // A row with no time gives its title the room: the time's slot holds only the time, and on hover or focus the
+    // first line fades out under the actions, as far in as they reach.
+    const slot = (id: string) => within(row(id)).getAllByRole('button')[0].querySelector('.tabular-nums') as HTMLElement;
+    expect(slot('broke').getAttribute('style')).toBeNull();
+    expect(row('broke').querySelector('.auto-row-line')).not.toBeNull();
+    expect(row('broke').style.getPropertyValue('--auto-row-hide')).toBe('3rem');
   });
 
   it('shows a send he is asked to allow on its row as a waiting thread, with its title and nothing to press', async () => {

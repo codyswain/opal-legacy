@@ -213,12 +213,15 @@ describe("WorkspaceSidebar", () => {
     expect(within(section).getByRole("tree", { name: "Files" })).toBeInTheDocument();
     expect(screen.getByTestId("pinned-section").compareDocumentPosition(screen.getByRole("tree", { name: "Files" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
+    // With Library open, Threads takes what its rows need up to 70% of the room the two share; folded, all of it.
+    expect(screen.getByTestId("sidebar-threads").className).toContain("max-h-[70%]");
     // A click folds Library: its pins and its tree go with it, and the fold is kept.
     await user.click(library);
     expect(library).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("pinned-section")).toBeNull();
     expect(screen.queryByRole("tree", { name: "Files" })).toBeNull();
     expect(useShellStore.getState().hydrate()).toMatchObject({ libraryOpen: false, threadsOpen: true });
+    expect(screen.getByTestId("sidebar-threads").className).not.toContain("max-h-");
     // Right opens it, Left folds it, Enter and Space toggle it.
     fireEvent.keyDown(library, { key: "ArrowRight" });
     expect(library).toHaveAttribute("aria-expanded", "true");

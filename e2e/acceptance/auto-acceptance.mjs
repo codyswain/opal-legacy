@@ -331,8 +331,14 @@ async function tour() {
     check('hovering a row leaves its title as wide as it was', (await titleWidth()) === widthAtRest && (await row(BREAD).evaluate((element) => {
       const title = element.querySelector('[data-auto-row] .truncate')?.getBoundingClientRect();
       const icons = [...element.querySelectorAll('button[data-testid^="auto-snooze-"], button[data-testid^="auto-archive-"]')].map((button) => button.getBoundingClientRect());
-      return !!title && icons.length === 2 && icons.every((icon) => icon.left >= title.right - 0.5);
+      const line = element.querySelector('.auto-row-line');
+      // The icons sit at the row's end, over the time or the end of the title, which fades out under them.
+      return !!title && !!line && icons.length === 2 && getComputedStyle(line).maskImage.includes('gradient');
     })), `${widthAtRest} -> ${await titleWidth()}`);
+    check('a row with no time gives its title the room: the time’s slot is no wider than the time', await row(INSPECTION).evaluate((element) => {
+      const slot = element.querySelector('[data-auto-row] .tabular-nums');
+      return !!slot && slot.getBoundingClientRect().width < 1;
+    }));
     await page.mouse.move(WIDTH - 20, HEIGHT - 12);
     await shot(43, 'list-his');
     check('a waiting row shows its question, with no answer buttons', (await row(BEDS).getByRole('button', { name: 'Cedar' }).count()) === 0 && ((await row(BEDS).textContent()) ?? '').includes('Which wood for the frames?'));
@@ -1729,10 +1735,37 @@ async function tour() {
       }
       await rightSidebar(true);
     }
-    // --- Threads when it scrolls: at most about half the sidebar while Library is open, all of it when Library is folded.
+    // --- Threads when it scrolls: up to 70% of the room it shares with Library, all of it when Library is folded.
+    const listRows = page.getByTestId('auto-list-rows');
+    // The right edges of a row and of the Digest row's count, before Threads overflows and after.
+    const rowEnds = () => page.evaluate(() => {
+      const right = (selector) => Math.round((document.querySelector(selector)?.getBoundingClientRect().right ?? -1) * 10) / 10;
+      return `${right('[data-testid="auto-list-rows"] [data-thread-id]')} ${right('[data-testid="auto-digest-left"]')}`;
+    });
+    await hideLine('snoozed');
+    await hideLine('waiting');
+    await hideLine('archived');
+    await listRows.evaluate((element) => { element.scrollTop = 0; });
+    const edgesAtRest = await rowEnds();
+    const restOverflow = await listRows.evaluate((element) => element.scrollHeight - element.clientHeight);
     await page.setViewportSize({ width: WIDTH, height: 520 });
     await wait(400);
-    const listRows = page.getByTestId('auto-list-rows');
+    check('nothing moves sideways when Threads starts to scroll: a row and the Digest count keep their right edges', restOverflow <= 0 && (await listRows.evaluate((element) => element.scrollHeight - element.clientHeight)) > 0 && (await rowEnds()) === edgesAtRest, `${restOverflow}: ${edgesAtRest} -> ${await rowEnds()}`);
+    check('a cut edge fades: the bottom while more is below', (await listRows.getAttribute('data-fade-y')) === 'bottom', String(await listRows.getAttribute('data-fade-y')));
+    // Opening a put-away line brings its first rows into view.
+    await page.getByTestId('auto-snoozed-line').click();
+    await page.getByTestId('auto-snoozed').waitFor({ timeout: 5_000 });
+    const inView = (selector) => page.evaluate((target) => {
+      const element = document.querySelector(target)?.getBoundingClientRect();
+      const view = document.querySelector('[data-testid="auto-list-rows"]')?.getBoundingClientRect();
+      return !!element && !!view && element.top >= view.top - 1 && element.bottom <= view.bottom + 1;
+    }, selector);
+    check('opening Snoozed scrolls its line and first row into view', await until(async () => (await inView('[data-testid="auto-snoozed-line"]')) && (await inView('[data-testid="auto-snoozed"] [data-thread-id]'))));
+    check('scrolled, the top edge fades too', ['top', 'both'].includes(await listRows.getAttribute('data-fade-y')), String(await listRows.getAttribute('data-fade-y')));
+    await hideLine('snoozed');
+    await page.getByTestId('auto-archived-line').click();
+    check('opening Archived scrolls its first rows into view once they are read', await until(async () => (await inView('[data-testid="auto-archived-line"]')) && (await inView('[data-testid="auto-archived"] li'))));
+    await hideLine('archived');
     const heights = () => page.evaluate(() => {
       const height = (id) => Math.round(document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().height ?? -1);
       const rows = document.querySelector('[data-testid="auto-list-rows"]');
@@ -1741,7 +1774,7 @@ async function tour() {
     await listRows.evaluate((element) => { element.scrollTop = 0; });
     await wait(200);
     const withLibrary = await heights();
-    check('with Library open, Threads is at most half the sidebar and its rows scroll inside it', withLibrary.threads <= withLibrary.column / 2 + 1 && withLibrary.overflow > 60, JSON.stringify(withLibrary));
+    check('with Library open, Threads is at most 70% of the room it shares with Library and its rows scroll inside it', withLibrary.threads <= withLibrary.column * 0.7 + 1 && withLibrary.overflow > 60, JSON.stringify(withLibrary));
     const sameWidth = () => page.evaluate(() => {
       const digest = document.querySelector('[data-testid="auto-digest-row"]')?.getBoundingClientRect();
       const first = document.querySelector('[data-testid="auto-list-rows"] [data-thread-id]')?.getBoundingClientRect();
@@ -1762,7 +1795,7 @@ async function tour() {
     const expanded = async (heading) => (await heading.getAttribute('aria-expanded')) === 'true';
     await libraryHeading.click();
     const withoutLibrary = await heights();
-    check('a click folds Library: its tree and pinned pages go, and Threads may take the whole sidebar', !(await expanded(libraryHeading)) && (await page.getByTestId('sidebar-library').locator('[role="tree"], [data-testid="pinned-section"]').count()) === 0 && withoutLibrary.threads > withLibrary.column / 2 + 1, JSON.stringify(withoutLibrary));
+    check('a click folds Library: its tree and pinned pages go, and Threads may take the whole sidebar', !(await expanded(libraryHeading)) && (await page.getByTestId('sidebar-library').locator('[role="tree"], [data-testid="pinned-section"]').count()) === 0 && withoutLibrary.threads > withLibrary.column * 0.7 + 1, JSON.stringify(withoutLibrary));
     await shot(80, 'library-folded');
     await threadsHeading.focus();
     await key('ArrowLeft');
@@ -1786,6 +1819,35 @@ async function tour() {
     check('and both open again', await until(async () => (await expanded(threadsHeading)) && (await expanded(libraryHeading)) && (await page.getByTestId('auto-list').count()) === 1));
     await page.setViewportSize({ width: WIDTH, height: HEIGHT });
     await wait(400);
+
+    // --- Thirteen threads and a short tree: Threads takes what it needs, and the put-away lines are in view.
+    for (let made = 0; (await listedIds()).length < 13 && made < 13; made += 1) {
+      await fromPhone('/api/threads', { text: `Extra thread ${made + 1} for the height check`, cid: `h${made}` });
+      await until(async () => (await listedIds()).length > 0, 2_000);
+    }
+    await until(async () => (await listedIds()).length >= 13);
+    await until(() => service.entries().every((thread) => thread.status !== 'working'), 15_000);
+    await listRows.evaluate((element) => { element.scrollTop = 0; });
+    await wait(300);
+    const thirteen = await heights();
+    const linesInView = () => page.evaluate(() => {
+      const view = document.querySelector('[data-testid="auto-list-rows"]')?.getBoundingClientRect();
+      const lines = ['auto-waiting-line', 'auto-snoozed-line', 'auto-archived-line'].map((id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect()).filter(Boolean);
+      return !!view && lines.length >= 2 && lines.every((line) => line.top >= view.top - 1 && line.bottom <= view.bottom + 1);
+    });
+    check('with thirteen threads and a short tree the put-away lines are in view, and Threads takes no more than it needs', (await listedIds()).length >= 13 && (await linesInView()) && thirteen.overflow <= 0, `${(await listedIds()).length} threads, ${JSON.stringify(thirteen)}`);
+    await shot(82, 'thirteen-threads');
+    // A long tree: Threads stops at 70% and Library keeps the rest, at least 30%.
+    await Promise.all(Array.from({ length: 60 }, (_, at) => writeFile(path.join(vault, `Long page ${String(at + 1).padStart(2, '0')}.md`), `# Long page ${at + 1}\n`)));
+    await until(async () => (await page.getByRole('treeitem', { name: /Long page 60/ }).count()) === 1, 15_000);
+    await showLine('archived');
+    await wait(300);
+    const longTree = await page.evaluate(() => {
+      const height = (id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().height ?? -1;
+      return { threads: height('sidebar-threads'), library: height('sidebar-library'), column: document.querySelector('[data-testid="sidebar-threads"]')?.parentElement?.getBoundingClientRect().height ?? -1 };
+    });
+    check('with a long tree and Archived open, Threads stops at 70% and Library keeps at least 30%', longTree.threads <= longTree.column * 0.7 + 1 && longTree.library >= longTree.column * 0.3 - 1, JSON.stringify(longTree));
+    await hideLine('archived');
 
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);

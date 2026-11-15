@@ -22,6 +22,7 @@ import { useAutoStore } from '../store/autoStore';
 import { useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
 import { focusRowAfterClose, rovingTarget, rowElement } from './focus';
+import { fadeOf, revealIn, type Fade } from './listScroll';
 import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
 import { ThreadLine } from './ThreadLine';
 
@@ -68,7 +69,8 @@ interface RowProps {
 }
 
 const rowButton = 'rounded-sidebar-row text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus';
-// Hidden by opacity, not display, so an open menu keeps the button it hangs from.
+// Hidden by opacity, not display, so an open menu keeps the button it hangs from. They sit over the time, or over the
+// end of the title when the time is shorter than they are; the line fades out under them (`.auto-row-line`).
 const rowActions =
   'pointer-events-none absolute right-0 top-0 flex h-row-compact items-center opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[[data-auto-row]:focus-visible]:pointer-events-auto group-has-[[data-auto-row]:focus-visible]:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100';
 const timeHides =
@@ -101,7 +103,7 @@ function ThreadRow({ thread, now, current, tabStop, show, away, drop = null, dra
   // Put away with a time on it: snoozed to a time, or until someone replies.
   const snoozed = away === 'snoozed' || away === 'waiting';
   const digestEntry = !archived && fromDigest(thread);
-  // The icons that take the time's place: the slot is at least as wide as they are, so they never sit on the title.
+  // How far in from the first line's end the icons reach: each is 1.75rem, less the row's own 0.5rem padding.
   const icons = archived ? 1 : 2 + (snoozed ? 1 : 0);
   // A waiting row says its give-up time in its line, and an archived row says when it was archived there.
   const time = away === 'snoozed' && thread.snoozed ? snoozedUntil(thread.snoozed, now) : away ? '' : rowTime(thread, now);
@@ -162,6 +164,7 @@ function ThreadRow({ thread, now, current, tabStop, show, away, drop = null, dra
             data-testid={`auto-row-${thread.id}`}
             data-thread-id={thread.id}
             data-status={thread.status}
+            style={{ '--auto-row-hide': `${icons * 1.75 - 0.5}rem` } as React.CSSProperties}
             data-drop={drop ?? undefined}
             draggable={drag ? true : undefined}
             onDragStart={drag ? (event) => drag.onStart(event, thread.id) : undefined}
@@ -181,14 +184,14 @@ function ThreadRow({ thread, now, current, tabStop, show, away, drop = null, dra
               onKeyDown={onKeyDown}
               className={cn(rowButton, 'flex min-h-row-compact w-full min-w-0 flex-col justify-center px-2 py-1')}
             >
-              <span className="flex w-full min-w-0 items-center gap-sidebar-icon-gap">
+              <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
                 <span className="flex w-sidebar-icon shrink-0 justify-center">
                   {dot ? <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 rounded-full bg-foreground" /> : null}
                 </span>
                 <span className={cn('min-w-0 flex-1 truncate text-ui', heavy ? 'font-semibold text-foreground' : current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label')}>
                   {title}
                 </span>
-                <span style={{ minWidth: `${icons * 1.75 - 0.5}rem` }} className={cn('shrink-0 text-right text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{time}</span>
+                <span className={cn('shrink-0 text-right text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{time}</span>
               </span>
               {away === 'waiting' || archived ? (
                 <ThreadLine thread={thread} className={cn('mt-0.5', underTitle)} away={away} now={now} />
@@ -327,7 +330,7 @@ function DigestAwayRow({ date, tabStop, show }: { date: string; tabStop: boolean
   };
   return (
     <li>
-      <div data-testid={`auto-archived-digest-${date}`} className="auto-row group relative rounded-sidebar-row transition-hover hover:bg-surface-hover">
+      <div data-testid={`auto-archived-digest-${date}`} style={{ '--auto-row-hide': '1.25rem' } as React.CSSProperties} className="auto-row group relative rounded-sidebar-row transition-hover hover:bg-surface-hover">
         <button
           type="button"
           data-auto-row
@@ -340,13 +343,13 @@ function DigestAwayRow({ date, tabStop, show }: { date: string; tabStop: boolean
             event.preventDefault();
             bringBack();
           }}
-          className={cn(rowButton, 'flex h-row-compact w-full min-w-0 items-center gap-sidebar-icon-gap px-2')}
+          className={cn(rowButton, 'auto-row-line flex h-row-compact w-full min-w-0 items-center gap-sidebar-icon-gap px-2')}
         >
           <span className="flex w-sidebar-icon shrink-0 justify-center">
             <Newspaper aria-hidden className="h-3.5 w-3.5 text-icon" />
           </span>
           <span className="min-w-0 flex-1 truncate text-ui font-sidebar-label text-sidebar-label">Digest</span>
-          <span style={{ minWidth: '1.25rem' }} className={cn('shrink-0 text-right text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{shortDay(date)}</span>
+          <span className={cn('shrink-0 text-right text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{shortDay(date)}</span>
         </button>
         <div className={rowActions}>
           <IconButton label="Bring back" shortcut="E" tabIndex={-1} data-testid={`auto-restore-digest-${date}`} onClick={bringBack}>
@@ -457,6 +460,25 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
   const view = React.useMemo(() => listView(threads), [threads]);
   const empty = loaded ? emptyList(view, now) : null;
   const scroller = React.useRef<HTMLDivElement>(null);
+  const content = React.useRef<HTMLDivElement>(null);
+  // Which edge of the rows is cut: it fades, so a cut row does not read as the last one.
+  const [fade, setFade] = React.useState<Fade>(null);
+  React.useEffect(() => {
+    const element = scroller.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const update = () => setFade(fadeOf(element));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    if (content.current) observer.observe(content.current);
+    return () => observer.disconnect();
+  }, []);
+  // A put-away line just opened: its first rows are brought into view once they are drawn.
+  const [reveal, setReveal] = React.useState<string | null>(null);
+  const opening = (id: string, open: boolean, toggle: () => void) => () => {
+    if (!open) setReveal(id);
+    toggle();
+  };
 
   // An archived digest is off the list until the next one. It stays readable from the archive.
   const showsDigest = !digest?.archived;
@@ -519,6 +541,16 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
     element.scrollTop = placeOf(LIST_PLACE)?.top ?? 0;
   }, [threads.length]);
 
+  React.useLayoutEffect(() => {
+    if (!reveal) return;
+    const element = scroller.current;
+    const section = rowElement(reveal)?.closest('section');
+    // Clear of the top edge's fade, 1.5rem (auto.css).
+    if (element && section) revealIn(element, section, 1.5 * parseFloat(getComputedStyle(document.documentElement).fontSize || '16'));
+    // The archive's rows come with its read; the others are drawn at once.
+    if (reveal !== ARCHIVED_LINE || archive.loaded || archive.problem) setReveal(null);
+  });
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     if (!target.hasAttribute('data-auto-row') || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -554,10 +586,14 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
       <div
         ref={scroller}
         data-testid="auto-list-rows"
-        className="sidebar-tree-scroll min-h-0 flex-1 overflow-y-auto pb-1"
-        onScroll={(event) => keepPlace(LIST_PLACE, placeIn(event.currentTarget))}
+        data-fade-y={fade ?? undefined}
+        className="auto-threads-scroll min-h-0 flex-1 overflow-y-auto pb-1"
+        onScroll={(event) => {
+          keepPlace(LIST_PLACE, placeIn(event.currentTarget));
+          setFade(fadeOf(event.currentTarget));
+        }}
       >
-        <div className="ml-sidebar-inset mr-tree-row-end flex flex-col gap-0.5">
+        <div ref={content} className="ml-sidebar-inset flex flex-col gap-0.5">
           {/* The digest, as a queue. Not a thread: it does not drag or snooze. Archived, it is off the list until the next one. */}
           {showsDigest ? (
             <div className={cn('rounded-sidebar-row transition-hover', rowFill(openId === DIGEST_QUEUE))}>
@@ -601,7 +637,7 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
           <div className="mt-2 flex flex-col gap-0.5">
             {view.waiting.length > 0 ? (
               <section aria-label="Waiting on a reply">
-                <AwayLine id={WAITING_LINE} label="Waiting on a reply" count={view.waiting.length} open={waitingOpen} tabStop={tabStop === WAITING_LINE} onToggle={toggleWaiting} testId="auto-waiting-line" />
+                <AwayLine id={WAITING_LINE} label="Waiting on a reply" count={view.waiting.length} open={waitingOpen} tabStop={tabStop === WAITING_LINE} onToggle={opening(WAITING_LINE, waitingOpen, toggleWaiting)} testId="auto-waiting-line" />
                 {waitingOpen ? (
                   <ul className="mt-0.5 flex flex-col gap-0.5" data-testid="auto-waiting">
                     {view.waiting.map((thread) => (
@@ -614,7 +650,7 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
 
             {view.snoozed.length > 0 ? (
               <section aria-label="Snoozed">
-                <AwayLine id={SNOOZED_LINE} label="Snoozed" count={view.snoozed.length} open={snoozedOpen} tabStop={tabStop === SNOOZED_LINE} onToggle={toggleSnoozed} testId="auto-snoozed-line" />
+                <AwayLine id={SNOOZED_LINE} label="Snoozed" count={view.snoozed.length} open={snoozedOpen} tabStop={tabStop === SNOOZED_LINE} onToggle={opening(SNOOZED_LINE, snoozedOpen, toggleSnoozed)} testId="auto-snoozed-line" />
                 {snoozedOpen ? (
                   <ul className="mt-0.5 flex flex-col gap-0.5" data-testid="auto-snoozed">
                     {view.snoozed.map((thread) => (
@@ -628,7 +664,7 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
             {/* The archive only grows, so its line carries no count. It is read when the line is opened. */}
             {loaded ? (
               <section aria-label="Archived">
-                <AwayLine id={ARCHIVED_LINE} label="Archived" count={null} open={archive.open} tabStop={tabStop === ARCHIVED_LINE} onToggle={toggleArchive} testId="auto-archived-line" />
+                <AwayLine id={ARCHIVED_LINE} label="Archived" count={null} open={archive.open} tabStop={tabStop === ARCHIVED_LINE} onToggle={opening(ARCHIVED_LINE, archive.open, toggleArchive)} testId="auto-archived-line" />
                 {archive.open ? (
                   <ul className="mt-0.5 flex flex-col gap-0.5" data-testid="auto-archived">
                     {archivedDays.map((date) => (
