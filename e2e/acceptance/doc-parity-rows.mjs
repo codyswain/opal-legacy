@@ -121,6 +121,14 @@ export const ROWS = [
   { id: 'E12', area: 'List edges', does: 'Type "[] " right after a bulleted list was ended: a box under the list', start: '- one\n- two‸', keys: ['Enter', 'Enter', 't:[] '], expect: '- one\n- two\n- [ ] ‸', rows: 3 },
   { id: 'E13', area: 'List edges', does: 'Type "[x] done" on the line right under a list: a paragraph at the margin', start: '- one\n- two\n‸', keys: ['t:[x] done'], expect: '- one\n- two\n\n[x] done‸', shows: ['bullet::0', 'bullet::0'], rows: 3 },
   { id: 'E14', area: 'List edges', does: 'Delete at the end of the text above a list pulls the first item\'s text up', start: 'Text‸\n\n- a\n- b', keys: ['Delete'], expect: 'Text‸a\n\n- b', shows: ['bullet::0'], rows: 2 },
+  { id: 'E15', area: 'List edges', does: 'A second Backspace at the start of a list\'s last item moves its text out and opens no row under it', start: 'Text\n\n- a\n- ‸b\n\nMore', keys: ['Backspace', 'Backspace'], expect: 'Text\n\n- a\n\n‸b\nMore', shows: ['bullet::0'], rows: 4 },
+  { id: 'E16', area: 'List edges', does: 'Backspace at the start of a first item with a box takes the box off and opens no row', start: 'Text\n\n- [ ] ‸a\n- [ ] b', keys: ['Backspace'], expect: 'Text\n‸a\n\n- [ ] b', rows: 3 },
+  { id: 'E17', area: 'List edges', does: 'Delete at the end of the text above a one-item list joins the item and leaves no empty row', start: 'Text‸\n\n- a\n\nMore', keys: ['Delete'], expect: 'Text‸a\nMore', rows: 2 },
+  { id: 'E18', area: 'List edges', does: 'Backspace over a selection from the text above a list to the list\'s end leaves no empty row', start: 'Text«\n\n- a\n- b»\n\nMore', keys: ['Backspace'], expect: 'Text‸\nMore', rows: 2 },
+  { id: 'E19', area: 'List edges', does: 'Enter in a list written with a blank line between its items adds one row', start: '- a\n\n- b‸\n\nMore', keys: ['Enter'], expect: '- a\n\n- b\n\n- ‸\n\nMore', rows: 4 },
+  { id: 'E20', area: 'List edges', does: 'A list written with a blank line between its items is drawn with no empty rows', start: '- a\n\n- b\n\n- c‸', keys: ['t:x'], expect: '- a\n\n- b\n\n- cx‸', shows: ['bullet::0', 'bullet::0', 'bullet::0'], rows: 3 },
+  { id: 'E21', area: 'List edges', does: 'A line of digits typed right under a list, then Enter: two paragraphs at the margin', start: '- one\n- two\n‸', keys: ['t:2024', 'Enter', 't:x'], expect: '- one\n- two\n\n2024\nx‸', shows: ['bullet::0', 'bullet::0'], rows: 4 },
+  { id: 'E22', area: 'List edges', does: 'Emptying the first line of the page, over a list, changes no row', start: 'T‸\n\n- a\n- b', keys: ['Backspace'], expect: '‸\n\n- a\n- b', rows: 3 },
 
   // ---- Caret and selection across items
   { id: 'S1', area: 'Caret', does: 'Left at the start of an item goes to the end of the item above', start: '- one\n- ‸two', keys: ['ArrowLeft'], expect: '- one‸\n- two' },

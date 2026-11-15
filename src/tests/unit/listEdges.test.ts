@@ -56,27 +56,24 @@ describe('the blank lines beside a list that get no room', () => {
     expect(gaps('Text\n\n- a\n\nMore')).toEqual([2, 4]);
     expect(gaps('Text\n\n\n- a\n\n\nMore')).toEqual([3, 5]);
     expect(gaps('Text\n\n\n\n- a')).toEqual([4]);
-    // Blank lines that open the page are no gap: nothing stands above them.
-    expect(gaps('\n\n- a')).toEqual([]);
+    // Blank lines that open the page: the first is the page's own empty line, the last the gap.
+    expect(gaps('\n- a')).toEqual([]);
+    expect(gaps('\n\n- a')).toEqual([2]);
   });
 
-  it('shows a single blank line between a list\'s own items, and one row for an empty line between two halves of a list', () => {
-    expect(gaps('- a\n\n- b')).toEqual([]);
+  it('draws a list tight whether or not its items are a blank line apart, and one row for an empty line between two halves of it', () => {
+    expect(gaps('- a\n\n- b')).toEqual([2]);
     expect(gaps('- a\n\n\n- b')).toEqual([2]);
     expect(gaps('1. a\n\n\n\n2. b')).toEqual([2, 4]);
-    expect(gaps('- a\n\n  more')).toEqual([]);
+    expect(gaps('- a\n\n  more\n\n- b')).toEqual([2, 4]);
+    // An indent typed for an item's next line, between two list lines, is that line being started.
+    expect(gaps('- a\n  b\n  \n- c')).toEqual([]);
   });
 
-  it('gives the blank line between two lists of different kinds no room', () => {
+  it('gives the blank line between two lists no room, whatever their kinds', () => {
     expect(gaps('- a\n- b\n\n1. c')).toEqual([3]);
     expect(gaps('1. a\n2. b\n\n- c')).toEqual([3]);
-    expect(gaps('- a\n\n* b')).toEqual([2]);
-    expect(gaps('1. a\n\n1) b')).toEqual([2]);
-    // A nested list of another kind is its item's own: the blank line before it shows, as between items.
-    expect(gaps('- a\n\n  1. b')).toEqual([]);
-    // Past the deeper lines, the list at the margin is what the new item stands beside.
-    expect(gaps('- a\n  1. b\n\n- c')).toEqual([]);
-    expect(gaps('- a\n  - b\n\n1. c')).toEqual([3]);
+    expect(gaps('- a\n  1. b\n\n- c')).toEqual([3]);
   });
 
   it('finds the list an item would stand beside', () => {
@@ -166,15 +163,16 @@ for (const [name, page] of PAGES) {
       const paragraph = mount('- a\n\nMid‸', page);
       expect(rows(paragraph)).toBe(2);
       toggleList('bullet')(paragraph);
-      expect(marked(paragraph)).toBe('- a\n- Mid‸');
+      expect(marked(paragraph)).toBe('- a\n\n- Mid‸');
+      expect(rows(paragraph)).toBe(2);
       const numbered = mount('1. a\n\nMid‸', page);
       toggleList('number')(numbered);
-      expect(marked(numbered)).toBe('1. a\n2. Mid‸');
+      expect(marked(numbered)).toBe('1. a\n\n2. Mid‸');
       // A numbered list under a bulleted one, made bullets: one list, with no row opened between.
       const lists = mount('- a\n- b\n\n1. c‸\n2. d', page);
       expect(rows(lists)).toBe(4);
       toggleList('bullet')(lists);
-      expect(marked(lists)).toBe('- a\n- b\n- c‸\n- d');
+      expect(marked(lists)).toBe('- a\n- b\n\n- c‸\n- d');
       expect(rows(lists)).toBe(4);
       // A paragraph between two paragraphs keeps its blank lines, which the page gives no room.
       const between = mount('Top\nMid‸\nBottom', page);
@@ -309,6 +307,87 @@ for (const [name, page] of PAGES) {
       const nested = mount('Text‸\n\n- a\n  - c', page);
       press(nested, 'Delete');
       expect(marked(nested)).toBe('Text‸\n\n- a\n  - c');
+    });
+
+    it('moves the text of a list\'s last item out to the margin without opening a row under it', () => {
+      const view = mount('Text\n\n- a\n- ‸b\n\nMore', page);
+      expect(rows(view)).toBe(4);
+      press(view, 'Backspace');
+      expect(rows(view)).toBe(4);
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('Text\n\n- a\n\n‸b\nMore');
+      expect(rows(view)).toBe(4);
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('Text\n\n- a‸b\n\nMore');
+      expect(rows(view)).toBe(3);
+    });
+
+    it('takes a box off a list\'s first item, and pulls a box\'s text up with Delete, as it does a bullet\'s', () => {
+      const view = mount('Text\n\n- [ ] ‸a\n- [ ] b', page);
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('Text\n‸a\n\n- [ ] b');
+      expect(rows(view)).toBe(3);
+      const pulled = mount('Text‸\n\n- [ ] a\n- [ ] b', page);
+      press(pulled, 'Delete');
+      expect(marked(pulled)).toBe('Text‸a\n\n- [ ] b');
+    });
+
+    it('takes the blank line that parted a list from text away with a deletion that uses the list up', () => {
+      const pulled = mount('Text‸\n\n- a\n\nMore', page);
+      press(pulled, 'Delete');
+      expect(marked(pulled)).toBe('Text‸a\nMore');
+      expect(rows(pulled)).toBe(2);
+      // A selection from the text above to the end of the list.
+      const across = mount('Text\n\n- a\n- b\n\nMore', page);
+      across.dispatch({ selection: { anchor: 13, head: 4 }, userEvent: 'select' });
+      press(across, 'Backspace');
+      expect(marked(across)).toBe('Text‸\nMore');
+      expect(rows(across)).toBe(2);
+      // The whole list: its row becomes one empty line.
+      const whole = mount('Text\n\n- a\n- b\n\nMore', page);
+      whole.dispatch({ selection: { anchor: 6, head: 13 }, userEvent: 'select' });
+      press(whole, 'Backspace');
+      expect(marked(whole)).toBe('Text\n‸\nMore');
+      expect(rows(whole)).toBe(3);
+      // Typing over a selection that runs into the list.
+      const typed = mount('Text\n\n- ab\n\nMore', page);
+      typed.dispatch({ selection: { anchor: 3, head: 9 }, userEvent: 'select' });
+      typed.dispatch(typed.state.update({ changes: { from: 3, to: 9, insert: 'Z' }, selection: { anchor: 4 }, userEvent: 'input.type' }));
+      expect(marked(typed)).toBe('TexZ‸b\nMore');
+      expect(rows(typed)).toBe(2);
+    });
+
+    it('adds one row for Enter in a list written with a blank line between its items', () => {
+      const view = mount('- a\n\n- b‸\n\nMore', page);
+      expect(rows(view)).toBe(3);
+      press(view, 'Enter');
+      expect(rows(view)).toBe(4);
+      type(view, 'c');
+      expect(rows(view)).toBe(4);
+      press(view, 'Enter');
+      expect(rows(view)).toBe(5);
+      press(view, 'Backspace');
+      expect(rows(view)).toBe(5);
+      expect(caretShown(view)).toBe(true);
+    });
+
+    it('makes a line of digits typed right under a list a paragraph once Enter ends it', () => {
+      const view = mount('- one\n- two\n‸', page);
+      type(view, '2024');
+      press(view, 'Enter');
+      type(view, 'x');
+      expect(marked(view)).toBe('- one\n- two\n\n2024\nx‸');
+      expect(view.contentDOM.querySelectorAll('.cm-md-list-cont')).toHaveLength(0);
+    });
+
+    it('keeps the rows when the first line of the page, over a list, is emptied', () => {
+      const view = mount('T‸\n\n- a\n- b', page);
+      expect(rows(view)).toBe(3);
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('‸\n\n- a\n- b');
+      expect(rows(view)).toBe(3);
+      type(view, 'z');
+      expect(rows(view)).toBe(3);
     });
 
     it('redoes an edit that kept its rows as one step', () => {

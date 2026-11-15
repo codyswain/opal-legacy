@@ -110,12 +110,15 @@ not exist.
   `livePreview.ts` gives a single blank line between a list and text no
   room, on either side (`listGaps`), the caret stepping over it. Lines that
   already touched before the edit stay as written. Of several blank lines
-  beside a list one is that gap and the rest are rows; two lists of
-  different kinds, a bulleted and a numbered one, are parted by a gap too;
-  one blank line between a list's own items shows. A key that takes an item
-  out of its list or ends a list changes no row of the page: it dispatches
-  with the `keepsRows` annotation, and the same filter takes out the blank
-  lines it left showing and keeps the caret on a line that shows. Backspace at an
+  beside a list one is that gap and the rest are rows; the blank line
+  right under a list line is always the gap, so a list written with a
+  blank line between its items, and two lists one blank line apart, are
+  drawn tight. A key that takes an item out of its list or ends a list
+  changes no row of the page: it dispatches with the `keepsRows`
+  annotation, and the same filter takes out the blank lines it left
+  showing and keeps the caret on a line that shows. A deletion that runs
+  across a list's edge takes the blank line that only parted the list from
+  its neighbour with it. Backspace at an
   item's start takes three steps: marker off, text to the margin, text
   joined to the item above. Paste reads the clipboard's HTML into Markdown
   (`pasteHtml.ts`), and pasted lines become items (`clipboard.ts`). The

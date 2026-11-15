@@ -329,9 +329,8 @@ const listBackspace = deleteHandlers.of({
       }
       const held = holder && itemOf(state, holder);
       if (!held) {
-        // The first item of a list at the margin: its marker goes and its text stays, a paragraph where the item
-        // was, with the rows the page had. A task's box is its own step, taken off by the keys below this one.
-        if (item.node.getChild('Task')) return false;
+        // The first item of a list at the margin: its marker, and its box, go and its text stays, a paragraph where
+        // the item was, with the rows the page had.
         view.dispatch({ changes: { from: item.indentFrom, to: found.textFrom }, selection: { anchor: item.indentFrom }, annotations: keepsRows.of(true), scrollIntoView: true, userEvent: 'delete.backward' });
         return true;
       }
@@ -344,6 +343,7 @@ const listBackspace = deleteHandlers.of({
       view.dispatch({
         changes: { from: item.indentFrom, to: found.textFrom, insert },
         selection: { anchor: item.indentFrom + insert.length },
+        annotations: keepsRows.of(true),
         scrollIntoView: true,
         userEvent: 'delete.backward',
       });
@@ -362,9 +362,12 @@ const listBackspace = deleteHandlers.of({
       // A numbered item below stays a list only after a blank line; a bullet reads as one right under text.
       const below = !empty && next && /^[\s>]*\d+[.)](?:[ \t]|$)/.test(next.text) ? [{ from: line.to, insert: `\n${gap}` }] : [];
       const insert = `${gap}\n${quote}`;
+      // The text moves out and no row with it: under the list's last item, the blank line over the text below is
+      // the list's no longer, and goes (listEdges.ts).
       view.dispatch({
         changes: [{ from: line.from, to: main.head, insert }, ...below],
         selection: { anchor: line.from + insert.length },
+        annotations: keepsRows.of(true),
         scrollIntoView: true,
         userEvent: 'delete.backward',
       });
@@ -406,7 +409,7 @@ const listJoin = deleteHandlers.of({
         const item = itemOn(state, first);
         const found = item && listItemOf(state, first);
         if (hasText(gap) || !item || !found || blockAt(state, line.to)?.name !== 'Paragraph' || quoteOf(first.text) !== quoteOf(line.text)) return false;
-        if (item.node.parent?.parent?.name === 'ListItem' || item.node.getChild('Task') || state.doc.lineAt(Math.max(item.node.from, item.node.to - 1)).number !== first.number) return false;
+        if (item.node.parent?.parent?.name === 'ListItem' || state.doc.lineAt(Math.max(item.node.from, item.node.to - 1)).number !== first.number) return false;
         let next = item.node.nextSibling;
         while (next && next.name !== 'ListItem') next = next.nextSibling;
         const nextMark = next?.getChild('ListMark');
