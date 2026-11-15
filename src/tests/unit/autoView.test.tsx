@@ -132,6 +132,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('the address', () => {
@@ -332,6 +333,8 @@ describe('the list', () => {
   });
 
   it('snoozes from the row’s clock, with the times each choice means', async () => {
+    // The choices follow the clock: a Saturday evening offers neither Tonight nor This weekend, and Tomorrow is not yet Next week.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2031, 2, 8, 19, 0) });
     await open();
     await userEvent.setup().click(screen.getByTestId('auto-snooze-bread'));
     const menu = within(await screen.findByTestId('auto-snooze-menu'));
