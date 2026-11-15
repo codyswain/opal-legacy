@@ -14,6 +14,7 @@ import { setCellCaret, setOpenBlock } from '@/renderer/features/disk-explorer/co
 import { insertTable } from '@/renderer/features/disk-explorer/components/editor/tableInsert';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -35,7 +36,7 @@ afterEach(() => {
 function mount(marked: string, page = DOC) {
   const at = marked.indexOf('‸');
   const doc = at === -1 ? marked : marked.slice(0, at) + marked.slice(at + 1);
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: Math.max(at, 0) }, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: Math.max(at, 0) }, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   views.push(view);
   return view;
 }
@@ -234,7 +235,7 @@ const BLOCKS = 'Para one\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n***\n\n```\ncode\
 
 /** Runs `command` on `doc` with everything selected and gives back the new text. */
 function onAll(doc: string, command: StateCommand, page = DOC, parse = true): string {
-  const state = EditorState.create({ doc, selection: { anchor: 0, head: doc.length }, extensions: markdownEditorExtensions(page) });
+  const state = EditorState.create({ doc, selection: { anchor: 0, head: doc.length }, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) });
   if (parse) ensureSyntaxTree(state, doc.length, 5_000);
   let out = doc;
   command({ state, dispatch: (tr) => { out = tr.newDoc.toString(); } });
@@ -268,10 +269,10 @@ describe('formatting a selection that covers blocks', () => {
 
   it('takes no heading on a callout title, and the style menu says so', () => {
     const doc = '> [!tip]- Fold me\n> body\n';
-    const state = EditorState.create({ doc, selection: { anchor: 12 }, extensions: markdownEditorExtensions(DOC) });
+    const state = EditorState.create({ doc, selection: { anchor: 12 }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
     expect(formatState(state).headingDisabled).toBe(true);
     expect(onAll(doc, setHeading(1))).toBe('> [!tip]- Fold me\n> # body\n');
-    const body = EditorState.create({ doc, selection: { anchor: doc.length - 1 }, extensions: markdownEditorExtensions(DOC) });
+    const body = EditorState.create({ doc, selection: { anchor: doc.length - 1 }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
     expect(formatState(body).headingDisabled).toBe(false);
   });
 });
@@ -346,7 +347,7 @@ describe('Normal text on a heading next to other blocks', () => {
     expect(onAll('# A\n## B\n', setHeading(0))).toBe('A\nB\n');
     const onFirst = (doc: string, command: StateCommand) => {
       let out = doc;
-      command({ state: EditorState.create({ doc, selection: { anchor: 2 }, extensions: markdownEditorExtensions(DOC) }), dispatch: (tr) => { out = tr.newDoc.toString(); } });
+      command({ state: EditorState.create({ doc, selection: { anchor: 2 }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) }), dispatch: (tr) => { out = tr.newDoc.toString(); } });
       return out;
     };
     expect(onFirst(onFirst('# Title\nSome text\n', setHeading(0)), setHeading(1))).toBe('# Title\nSome text\n');
@@ -549,7 +550,7 @@ describe('tables that fit the page', () => {
 describe('formatting inside a table cell', () => {
   it('bolds text inside one cell, and never a whole row', () => {
     const doc = '| a | some words |\n|---|---|\n| 1 | 2 |\n';
-    const state = EditorState.create({ doc, selection: { anchor: doc.indexOf('some'), head: doc.indexOf('some') + 4 }, extensions: markdownEditorExtensions(NOTE) });
+    const state = EditorState.create({ doc, selection: { anchor: doc.indexOf('some'), head: doc.indexOf('some') + 4 }, extensions: markdownEditorExtensions(NOTE, undefined, plainUnlessDocument(NOTE)) });
     let out = doc;
     toggleMarker('**')({ state, dispatch: (tr) => { out = tr.newDoc.toString(); } });
     expect(out).toBe('| a | **some** words |\n|---|---|\n| 1 | 2 |\n');
@@ -608,7 +609,7 @@ describe('file inserts beside tables and rules', () => {
       for (const tr of update.transactions) for (const effect of tr.effects) if (effect.is(marker)) seen.push(effect.value);
     });
     for (const [doc, at] of [[`${TABLE}\n\nMore`, TABLE.length], ['Text\n\n---\n\nMore', 'Text\n\n---'.length]] as const) {
-      const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: 0 }, extensions: [markdownEditorExtensions(DOC), listen] }) });
+      const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: 0 }, extensions: [markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)), listen] }) });
       views.push(view);
       act(() => { view.dispatch({ changes: { from: at, insert: '\n\n![[files/x.png]]' }, effects: marker.of('drop'), annotations: isolateHistory.of('full'), userEvent: 'input.drop' }); });
       expect(text(view)).toBe(`${doc.slice(0, at)}\n\n![[files/x.png]]${doc.slice(at)}`);
@@ -785,7 +786,7 @@ describe('a table that starts on a list item\'s line', () => {
 describe('formatting in a table\'s delimiter row', () => {
   it('never writes marks there', () => {
     const doc = '| a | b |\n|---|---|\n| 1 | 2 |\n';
-    const state = EditorState.create({ doc, selection: { anchor: 11, head: 14 }, extensions: markdownEditorExtensions(DOC) });
+    const state = EditorState.create({ doc, selection: { anchor: 11, head: 14 }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
     let out = doc;
     toggleMarker('**')({ state, dispatch: (tr) => { out = tr.newDoc.toString(); } });
     expect(out).toBe(doc);

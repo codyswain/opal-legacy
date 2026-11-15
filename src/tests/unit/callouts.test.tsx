@@ -38,8 +38,8 @@ describe('callouts', () => {
   it('draws one grey icon per Obsidian type family, in any case, with a note\'s for an unknown type', () => {
     const view = mount('> [!WARNING] Careful\n> a\n\n> [!faq] Asked\n> b\n\n> [!custom] Mine\n> c\n\n> [!ai] AI\n> d\n', NOTE);
     expect([...view.contentDOM.querySelectorAll('[data-callout-icon]')].map((icon) => (icon as HTMLElement).dataset.calloutIcon)).toEqual(['warning', 'question', 'note', 'ai']);
-    // In a note a click opens no menu, so the icon is no button.
-    expect(view.contentDOM.querySelector('[data-callout-icon]')).not.toHaveAttribute('role');
+    // A note is edited as a document, so its icon opens the type menu too.
+    expect(view.contentDOM.querySelector('[data-callout-icon]')).toHaveAttribute('role', 'button');
   });
 
   it('rewrites only the type word, in its case, keeping the fold sign and title', () => {

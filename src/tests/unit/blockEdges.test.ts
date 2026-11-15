@@ -18,6 +18,7 @@ import { formatState } from '@/renderer/features/disk-explorer/components/editor
 import { mathNodes, mathSpan } from '@/renderer/features/disk-explorer/components/editor/math';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 /*
  * Edge cases around blocks in documents found after PR 1: what list and
@@ -46,7 +47,7 @@ afterEach(() => {
 function mount(marked: string, page = DOC) {
   const at = marked.indexOf('‸');
   const doc = at === -1 ? marked : marked.slice(0, at) + marked.slice(at + 1);
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: Math.max(at, 0) }, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: Math.max(at, 0) }, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   ensureSyntaxTree(view.state, doc.length, 1_000);
   views.push(view);
   return view;
@@ -71,7 +72,7 @@ function press(view: EditorView, key: string, init: KeyboardEventInit = {}) {
 
 /** Runs `command` on a state with `from` to `to` selected, and returns the page after it, or null when it refused. */
 function after(doc: string, from: number, to: number, command: StateCommand, page = DOC): string | null {
-  const state = EditorState.create({ doc, selection: EditorSelection.single(from, to), extensions: markdownEditorExtensions(page) });
+  const state = EditorState.create({ doc, selection: EditorSelection.single(from, to), extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) });
   ensureSyntaxTree(state, doc.length, 1_000);
   let result: Transaction | null = null;
   command({ state: state.update({}).state, dispatch: (tr) => { result = tr; } });
@@ -79,7 +80,7 @@ function after(doc: string, from: number, to: number, command: StateCommand, pag
 }
 
 const tex = (doc: string) => {
-  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(DOC) });
+  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
   const tree = ensureSyntaxTree(state, doc.length, 1_000);
   return tree ? mathNodes(tree, 0, doc.length).map((node) => mathSpan(state.doc, node).tex) : [];
 };
@@ -118,7 +119,7 @@ describe('headings and lists on headings and tasks', () => {
 
   it('takes no heading on a task, and the style menu says so', () => {
     expect(after('- [ ] Brown rice\n', 8, 8, setHeading(2))).toBe('- [ ] Brown rice\n');
-    const state = EditorState.create({ doc: '- [ ] Brown rice\n', selection: { anchor: 8 }, extensions: markdownEditorExtensions(DOC) });
+    const state = EditorState.create({ doc: '- [ ] Brown rice\n', selection: { anchor: 8 }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
     ensureSyntaxTree(state, 20, 1_000);
     expect(formatState(state.update({}).state).headingDisabled).toBe(true);
   });
@@ -387,7 +388,7 @@ describe('a wiki link split by its alias pipe in a drawn table', () => {
 describe('a list pasted on an empty list item', () => {
   it('takes the empty item\'s place at its level, never nesting under it', () => {
     const state = (doc: string) => {
-      const created = EditorState.create({ doc, selection: { anchor: doc.length }, extensions: markdownEditorExtensions(DOC) });
+      const created = EditorState.create({ doc, selection: { anchor: doc.length }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
       ensureSyntaxTree(created, doc.length, 1_000);
       return created.update({}).state;
     };

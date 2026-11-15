@@ -13,6 +13,7 @@ import {
   writeLink,
 } from '@/renderer/features/disk-explorer/components/editor/formatCommands';
 import { formatState } from '@/renderer/features/disk-explorer/components/editor/formatState';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -23,7 +24,7 @@ function stateOf(marked: string, path = DOC): EditorState {
   const anchor = caret === -1 ? marked.indexOf('‹') : caret;
   const doc = marked.replace(/[‹›‸]/g, '');
   const head = caret === -1 ? marked.replace('‹', '').indexOf('›') : caret;
-  return EditorState.create({ doc, selection: EditorSelection.single(anchor === -1 ? 0 : anchor, head === -1 ? 0 : head), extensions: markdownEditorExtensions(path) });
+  return EditorState.create({ doc, selection: EditorSelection.single(anchor === -1 ? 0 : anchor, head === -1 ? 0 : head), extensions: markdownEditorExtensions(path, undefined, plainUnlessDocument(path)) });
 }
 
 /** The text with the selection marked the same way. */

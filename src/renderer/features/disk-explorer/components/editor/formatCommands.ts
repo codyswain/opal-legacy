@@ -717,8 +717,11 @@ export function toggleList(kind: ListKind): StateCommand {
         // Numbers carry on from the item above and over blank lines, and start again at 1 after other text, so a list never starts at 2.
         const gap = index > 0 ? state.doc.sliceString(lines[index - 1].to, line.from) : null;
         if (gap === null || /[^\s>]/.test(gap)) {
-          const previous = line.number > 1 ? listItemOf(state, state.doc.line(line.number - 1)) : null;
-          number = previous?.kind === 'number' ? previous.number + 1 : 1;
+          // Only an item at the same indent is the same list: one nested under a numbered item starts at 1.
+          const lineAbove = line.number > 1 ? state.doc.line(line.number - 1) : null;
+          const previous = lineAbove ? listItemOf(state, lineAbove) : null;
+          const own = (item ? item.markFrom : textStart(state, line, QUOTE_MARK)) - line.from;
+          number = lineAbove && previous?.kind === 'number' && previous.markFrom - lineAbove.from === own ? previous.number + 1 : 1;
         }
         let mark = kind === 'bullet' ? '- ' : kind === 'task' ? '- [ ] ' : `${number++}. `;
         if (item) {

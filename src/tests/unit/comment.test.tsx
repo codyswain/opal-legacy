@@ -459,10 +459,12 @@ describe('undo after a comment\'s run edits the page', () => {
 
   it('keeps every other disk edit out of undo, as before', async () => {
     const { api, view } = await openEditor(NOTE);
-    typeAt(view, 0, 'X');
-    await waitFor(() => expect(api.documents.get(NOTE)?.body).toBe(`X${TEXT}`));
-    fromDisk(api, `X${RUN}`);
-    await waitFor(() => expect(view.state.doc.toString()).toBe(`X${RUN}`));
+    // Typed in the heading's text, where a caret can be: a note hides the "# " before it.
+    const typed = (text: string) => text.replace('# ', '# X');
+    typeAt(view, 2, 'X');
+    await waitFor(() => expect(api.documents.get(NOTE)?.body).toBe(typed(TEXT)));
+    fromDisk(api, typed(RUN));
+    await waitFor(() => expect(view.state.doc.toString()).toBe(typed(RUN)));
     press(undo, view);
     expect(view.state.doc.toString()).toBe(RUN);
   });

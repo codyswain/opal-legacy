@@ -224,7 +224,7 @@ const enterAfterParagraph: StateCommand = ({ state, dispatch }) => {
   return true;
 };
 
-/** Cmd+Enter: checks or unchecks the task on the caret's line. */
+/** Cmd+Option+Enter, as in a word processor, or Cmd+Enter: checks or unchecks the task on the caret's line. */
 const toggleTaskHere: StateCommand = ({ state, dispatch }) => {
   const line = state.doc.lineAt(state.selection.main.head);
   const item = itemOn(state, line);
@@ -269,12 +269,70 @@ const leaveNumberedList = deleteHandlers.of({
   },
 });
 
+/** Whether the innermost list item holding the end of `line` is `node`. */
+function lastLineOf(state: EditorState, line: Line, node: SyntaxNode): boolean {
+  const inner = itemAround(state, line.to);
+  return inner !== null && inner.from === node.from && inner.to === node.to;
+}
+
+/**
+ * Backspace at the start of a list item's text, as in a word processor. The
+ * marker goes and the text stays, as one more line of the item above it. A
+ * second Backspace, at the start of such a line, joins it to the line above.
+ * The first item of a top-level list is left to the commands that turn it
+ * into a paragraph.
+ */
+const listBackspace = deleteHandlers.of({
+  priority: 11,
+  run: (view, dir) => {
+    const { state } = view;
+    const { main } = state.selection;
+    if (dir > 0 || !state.facet(docMode) || state.readOnly || !main.empty || state.selection.ranges.length > 1) return false;
+    const line = state.doc.lineAt(main.head);
+    if (line.number === 1) return false;
+    const above = state.doc.line(line.number - 1);
+    const item = itemOn(state, line);
+    const found = item && listItemOf(state, line);
+    if (item && found) {
+      if (found.textFrom !== main.head) return false;
+      let previous = item.node.prevSibling;
+      while (previous && previous.name !== 'ListItem') previous = previous.prevSibling;
+      const parent = item.node.parent?.parent?.name === 'ListItem' ? item.node.parent.parent : null;
+      const holder = previous ?? parent;
+      const held = holder && itemOf(state, holder);
+      if (!held) return false;
+      const quote = state.doc.sliceString(line.from, item.indentFrom);
+      const width = Math.max(1, textColumn(state, held) - column(quote));
+      const indent = usesTabs(state, item) ? '\t'.repeat(Math.ceil(width / TAB)) : ' '.repeat(width);
+      // Under an item that ends in a nested list, the text needs a blank line to stay that item's own.
+      const blank = lastLineOf(state, above, holder) ? '' : `${quote.replace(/[ \t]+$/, '')}\n${quote}`;
+      const insert = `${blank}${indent}`;
+      view.dispatch({
+        changes: { from: item.indentFrom, to: found.textFrom, insert },
+        selection: { anchor: item.indentFrom + insert.length },
+        scrollIntoView: true,
+        userEvent: 'delete.backward',
+      });
+      return true;
+    }
+    // A later line of an item, at its text's start: it joins the line above.
+    const lead = state.doc.sliceString(line.from, main.head);
+    if (!/^(?:[ \t]*>[ \t]?)*[ \t]+$/.test(lead) || !/[^\s>]/.test(line.text) || !/[^\s>]/.test(above.text)) return false;
+    const node = itemAround(state, line.to);
+    if (!node || state.doc.lineAt(node.from).number >= line.number || blockAt(state, line.to)?.name !== 'Paragraph') return false;
+    view.dispatch({ changes: { from: above.to, to: main.head }, selection: { anchor: above.to }, scrollIntoView: true, userEvent: 'delete.backward' });
+    return true;
+  },
+});
+
 export const docListKeys: Extension = [
   leaveNumberedList,
+  listBackspace,
   Prec.high(keymap.of([
     { key: 'Tab', run: docTab(true), shift: docTab(false) },
     { key: 'Enter', run: enterAfterParagraph },
     { key: 'Mod-Enter', run: toggleTaskHere },
+    { key: 'Mod-Alt-Enter', run: toggleTaskHere },
   ])),
 ];
 

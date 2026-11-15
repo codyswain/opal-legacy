@@ -1,4 +1,5 @@
 import { EditorState, Prec, StateEffect, StateField, Transaction, type Extension, type Line, type Text } from '@codemirror/state';
+import { moveLineDown, moveLineUp } from '@codemirror/commands';
 import { keymap, type Command } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { isMap, parseDocument } from 'yaml';
@@ -113,6 +114,9 @@ function refuseMove(dir: -1 | 1): Command {
 export const guardedLineMoves: Extension = Prec.high(keymap.of([
   { key: 'Alt-ArrowUp', run: refuseMove(-1) },
   { key: 'Alt-ArrowDown', run: refuseMove(1) },
+  // A word processor's keys for the same move.
+  { key: 'Ctrl-Shift-ArrowUp', run: (view) => refuseMove(-1)(view) || moveLineUp(view) },
+  { key: 'Ctrl-Shift-ArrowDown', run: (view) => refuseMove(1)(view) || moveLineDown(view) },
 ]));
 
 /** A document's first-line rule. */

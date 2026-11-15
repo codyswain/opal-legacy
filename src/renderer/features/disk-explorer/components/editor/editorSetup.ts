@@ -16,6 +16,7 @@ import { codeBlocks } from './codeBlocks';
 import { docModeExtensions } from './docMode';
 import { indentInQuote, toggleMarker } from './formatCommands';
 import { nestListItems, withoutRenumbering } from './listKeys';
+import { listNumbers, prefixEnd } from './listNumbers';
 import { fileObjects } from './fileWidgets';
 import { fileInserts } from './imageInsert';
 import { docMode, linkMarkStyle, livePreview } from './livePreview';
@@ -119,6 +120,29 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
   });
 }
 
+// A list item's line that ends at its marker or box, with no space after it.
+const BARE_MARKER = /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]+\[[ xX]\])?$/;
+
+/**
+ * `tr` with a space after each marker it left at the end of a line. Enter at
+ * the start of an item's text takes the space before the caret with it, and
+ * "-" with nothing after it reads as typed text, not as an empty item.
+ */
+function withMarkerSpaces(tr: Transaction): Transaction {
+  const { newDoc } = tr;
+  const spaces = new Map<number, ChangeSpec>();
+  tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+    for (let at = fromB; at <= toB;) {
+      const line = newDoc.lineAt(at);
+      at = line.to + 1;
+      if (BARE_MARKER.test(line.text) && !tr.newSelection.ranges.some((range) => range.head === line.to)) spaces.set(line.number, { from: line.to, insert: ' ' });
+    }
+  });
+  if (spaces.size === 0) return tr;
+  const added = ChangeSet.of([...spaces.values()], newDoc.length);
+  return tr.startState.update({ changes: tr.changes.compose(added), selection: tr.newSelection.map(added, 1), scrollIntoView: true, userEvent: tr.annotation(Transaction.userEvent) });
+}
+
 /**
  * Enter in a list or quote, as in Obsidian. A non-empty item continues, split
  * at the caret. An empty nested item moves out one level, and an empty
@@ -133,8 +157,8 @@ export const insertNewlineInList: StateCommand = ({ state, dispatch }) => {
     state,
     dispatch: (tr) => {
       if (tr.newDoc.eq(state.doc)) unchanged = true;
-      else if (state.facet(docMode)) dispatch(withoutRenumbering(blankLinesAroundEnd(withoutSpaceLines(tr))));
-      else dispatch(blankLinesAroundEnd(withoutSpaceLines(tr)));
+      else if (state.facet(docMode)) dispatch(withoutRenumbering(withMarkerSpaces(blankLinesAroundEnd(withoutSpaceLines(tr)))));
+      else dispatch(withMarkerSpaces(blankLinesAroundEnd(withoutSpaceLines(tr))));
     },
   });
   // An item below one indented before its quote's ">" gets its own marker
@@ -170,16 +194,53 @@ const highlight = HighlightStyle.define([
 // the menu. Tab and Shift+Tab still indent. Cmd+Option+Up and Down would add
 // a cursor, which a page with one selection only turns into a caret move; a
 // stack's sections take them for the next and previous section instead.
-const MENU_KEYS = new Set(['Mod-[', 'Mod-]', 'Shift-Mod-\\', 'Mod-Alt-ArrowUp', 'Mod-Alt-ArrowDown']);
+const MENU_KEYS = new Set(['Mod-[', 'Mod-]', 'Shift-Mod-\\', 'Mod-Alt-ArrowUp', 'Mod-Alt-ArrowDown', 'Shift-Alt-ArrowUp', 'Shift-Alt-ArrowDown']);
 const editingKeymap = defaultKeymap.filter((binding) => !MENU_KEYS.has(binding.key ?? ''));
+
+/**
+ * Option+Shift+Up and Down, as in a word processor: the selection grows to
+ * the start or the end of the paragraph, then by a paragraph a press. A
+ * list item's start is its text's start, so its marker stays.
+ */
+function selectParagraph(forward: boolean): StateCommand {
+  return ({ state, dispatch }) => {
+    const { doc } = state;
+    const selection = EditorSelection.create(state.selection.ranges.map((range) => {
+      let line = doc.lineAt(range.head);
+      const edge = (of: Line) => (forward ? of.to : Math.min(of.to, prefixEnd(doc, of.from)));
+      if (range.head === edge(line)) {
+        const next = line.number + (forward ? 1 : -1);
+        if (next < 1 || next > doc.lines) return range;
+        line = doc.line(next);
+      }
+      return EditorSelection.range(range.anchor, edge(line));
+    }), state.selection.mainIndex);
+    dispatch(state.update({ selection, scrollIntoView: true, userEvent: 'select' }));
+    return true;
+  };
+}
+
+/**
+ * How a Markdown page is edited. Every page that takes edits is edited as a
+ * document: its Markdown always hidden, and typing, lists and paste as in a
+ * word processor. A document (.mdo) also has the toolbar, and a click on a
+ * link in it edits the link. In a note (.md) a click on a link follows it,
+ * as it always has. The read-only log pages keep the plain reading setup.
+ */
+export type EditingSetup = 'document' | 'note' | 'plain';
+
+export function editingSetup(path: string): EditingSetup {
+  if (isDocFile(path)) return 'document';
+  return isLogPage(path) || isDailyLog(path) ? 'plain' : 'note';
+}
 
 /**
  * The page editor's setup. The document is the Markdown body exactly as read:
  * only "\n" splits lines, so a stray "\r" stays a character and `toString()`
- * gives back the same text. `openNote` follows a link. A document (.mdo)
- * also gets doc mode.
+ * gives back the same text. `openNote` follows a link. Every page that can
+ * be edited also gets doc mode (`editingSetup`).
  */
-export function markdownEditorExtensions(path: string, openNote: OpenNote = () => undefined): Extension[] {
+export function markdownEditorExtensions(path: string, openNote: OpenNote = () => undefined, setup: EditingSetup = editingSetup(path)): Extension[] {
   return [
     EditorState.lineSeparator.of('\n'),
     // Pasted and dropped text gets "\n" line ends, the ones the file is saved with.
@@ -193,6 +254,7 @@ export function markdownEditorExtensions(path: string, openNote: OpenNote = () =
     fileObjects,
     livePreview,
     blockGuards,
+    listNumbers,
     guardedLineMoves,
     tableKeys,
     callouts,
@@ -208,6 +270,8 @@ export function markdownEditorExtensions(path: string, openNote: OpenNote = () =
       { key: 'Enter', run: insertNewlineInList },
       { key: 'Backspace', run: deleteMarkupInList },
       { key: 'Tab', run: (view) => nestListItems(true)(view) || indentInQuote(true)(view), shift: (view) => nestListItems(false)(view) || indentInQuote(false)(view) },
+      { key: 'Shift-Alt-ArrowUp', run: selectParagraph(false) },
+      { key: 'Shift-Alt-ArrowDown', run: selectParagraph(true) },
       { key: 'Mod-b', run: toggleMarker('**') },
       { key: 'Mod-i', run: toggleMarker('*') },
       ...searchKeymap,
@@ -219,6 +283,6 @@ export function markdownEditorExtensions(path: string, openNote: OpenNote = () =
     EditorView.contentAttributes.of({ spellcheck: 'false', 'data-testid': 'markdown-editor' }),
     placeholder('Start writing…'),
     isLogPage(path) ? readOnlyLogPage() : isDailyLog(path) ? readOnlyActivityLog() : [],
-    isDocFile(path) ? docModeExtensions() : [],
+    setup === 'plain' ? [] : docModeExtensions({ followLinks: setup === 'note' }),
   ];
 }

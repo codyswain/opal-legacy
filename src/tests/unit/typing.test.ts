@@ -13,6 +13,7 @@ import { pasteSpec } from '@/renderer/features/disk-explorer/components/editor/c
 import { countWords, pageWords } from '@/renderer/features/disk-explorer/components/editor/wordMotion';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -31,7 +32,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, page = DOC) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   ensureSyntaxTree(view.state, view.state.doc.length, 5_000);
   view.dispatch({});
   views.push(view);
