@@ -16,7 +16,7 @@ import type {
 export function autoThread(id: string, fields: Partial<AutoThread> = {}): AutoThread {
   return {
     id, title: `Thread ${id}`, status: 'idle', last: '', activity: '', ask: null, unread: false, model: '', created: 1_794_000_000,
-    updated: 1_794_000_000, error: null, queued: 0, archived: false, snoozed: null, woke: null, digest: null, waits: false, ...fields,
+    updated: 1_794_000_000, error: null, queued: 0, archived: false, snoozed: null, woke: null, digest: null, waits: false, desk: null, ...fields,
   };
 }
 

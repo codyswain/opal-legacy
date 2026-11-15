@@ -6,7 +6,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AutoService, type AutoFetch, type AutoServiceDependencies } from '@/main/auto/AutoService';
 import { AutoAddressError } from '@/main/auto/autoRequests';
-import type { AutoSnapshot, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
+import type { AutoDigest, AutoDigestDays, AutoSnapshot, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
 import { startStandIn, type StandIn } from '../fixtures/auto/standIn.mjs';
 
 const BREAD = '5a0000000002';
@@ -333,7 +333,7 @@ describe('streams', () => {
     const auto = await connected();
     await auto.follow({ stream: 'list', cursor: null });
     await until(() => count('open') === 1, 'the list stream');
-    standIn.raw('event: sparkle\ndata: {"shiny": true}\n\nevent: thread\ndata: not json\n\nevent: digest\ndata: {"date": "2026-11-13"}\n\nevent: order\ndata: {"ids": ["5a0000000003", "../x", 7]}\n\n');
+    standIn.raw('event: sparkle\ndata: {"shiny": true}\n\nevent: thread\ndata: not json\n\nevent: digest\ndata: {"date": "../13"}\n\nevent: order\ndata: {"ids": ["5a0000000003", "../x", 7]}\n\n');
     await until(() => kinds('list').length === 1, 'the one event Opal knows');
     expect(events('list')[0].event).toEqual({ kind: 'order', ids: ['5a0000000003'] });
   });
@@ -355,14 +355,147 @@ describe('streams', () => {
     expect(kinds('thread').length).toBe(1);
   });
 
-  it('never asks for a digest route, and never marks a message as a send', async () => {
+  it('never marks a message as a send, and Done marks the entry a thread came from', async () => {
     const auto = await connected();
     await auto.request({ kind: 'threads' });
     await auto.request({ kind: 'message', id: BREAD, text: 'send it', cid: 'a1b2c3' });
     await auto.request({ kind: 'archive', id: '5a0000000006', archived: true, done: true });
-    expect(standIn.requests.some((request) => request.path.includes('digest'))).toBe(false);
     expect(standIn.requests.some((request) => JSON.stringify(request.body ?? {}).includes('sends'))).toBe(false);
     expect(standIn.requests.find((request) => request.path.endsWith('/messages'))?.body).toEqual({ text: 'send it', cid: 'a1b2c3' });
     expect(standIn.ticks).toEqual([{ date: '2026-11-13', id: 'item-2' }]);
+    expect(standIn.digest()?.sections[1].entries[1]).toMatchObject({ id: 'item-2', state: 'resolved' });
+  });
+});
+
+describe('the mark for the Mac', () => {
+  const TRELLIS = '5a0000000005';
+  const mark = (thread: unknown) => (thread as { thread: AutoThread }).thread.desk;
+  /** A write from another client, as the phone would make it. */
+  const fromPhone = (path: string, body: unknown) =>
+    fetch(`${standIn.url}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auto-Client': 'phone' }, body: JSON.stringify(body) });
+
+  it('is set and taken off through the service, which names the client that set it', async () => {
+    const auto = await connected();
+    const on = await auto.request({ kind: 'desk', id: TRELLIS, on: true });
+    expect(on.success && mark(on.data)).toEqual({ at: expect.any(Number), by: 'opal' });
+    expect(standIn.requests.at(-1)).toMatchObject({ path: `/api/threads/${TRELLIS}/desk`, body: { on: true } });
+    const list = await auto.request({ kind: 'threads' });
+    expect(list.success && (list.data as { threads: AutoThread[] }).threads.find((thread) => thread.id === TRELLIS)?.desk?.by).toBe('opal');
+    const off = await auto.request({ kind: 'desk', id: TRELLIS, on: false });
+    expect(off.success && mark(off.data)).toBeNull();
+  });
+
+  it('is ended by the service when another client picks the thread up, and the list stream says so', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    await fromPhone(`/api/threads/${TRELLIS}/desk`, { on: true });
+    await until(() => events('list').some((message) => message.event.kind === 'thread' && message.event.thread.desk?.by === 'phone'), 'the mark');
+    // Words from the client that set the mark do not end it; Opal's do.
+    await fromPhone(`/api/threads/${TRELLIS}/messages`, { text: 'One more thing', cid: 'p1' });
+    await until(() => standIn.thread(TRELLIS)?.status === 'idle' && !standIn.thread(TRELLIS)?.live, 'the turn to end');
+    expect(standIn.entries().find((thread) => thread.id === TRELLIS)?.desk).toMatchObject({ by: 'phone' });
+    await auto.request({ kind: 'message', id: TRELLIS, text: 'Picked up on the Mac', cid: 'm1' });
+    await until(() => {
+      const last = events('list').filter((message) => message.event.kind === 'thread' && message.event.thread.id === TRELLIS).at(-1);
+      return last?.event.kind === 'thread' && last.event.thread.desk === null;
+    }, 'the mark to end');
+  });
+});
+
+describe('the digest queue', () => {
+  const DAY = '2026-11-13';
+  const entry = (digest: AutoDigest, id: string) => digest.sections.flatMap((section) => section.entries).find((each) => each.id === id);
+
+  it('reads the latest digest, a day by its date, and the days that have one', async () => {
+    const auto = await connected();
+    const latest = await auto.request({ kind: 'digest', date: null });
+    const digest = (latest.success ? latest.data : null) as AutoDigest;
+    expect(digest.date).toBe(DAY);
+    expect(digest.left).toBe(8);
+    expect(digest.sections.map((section) => section.title)).toEqual(['Meetings', 'Top 3', 'People', 'Plots', 'Yesterday', 'Drafted replies']);
+    expect(entry(digest, 'item-1')).toMatchObject({ kind: 'item', state: 'open', draft: { title: 'Garden centre', paste: expect.stringContaining('Two trays') } });
+    expect(entry(digest, 'item-2')).toMatchObject({ state: 'thread', thread: '5a0000000006', priority: 'High' });
+    expect(entry(digest, 'text-yesterday-88ae3a55')).toMatchObject({ state: 'resolved' });
+    expect(entry(digest, 'draft-1')).toMatchObject({ kind: 'draft', draft: { title: 'Garden club', paste: expect.stringContaining('the 21st') } });
+    expect(entry(digest, 'text-plots-3d20bff3')?.md).toContain('| Plot | Bed |');
+
+    const earlier = await auto.request({ kind: 'digest', date: '2026-11-12' });
+    expect(earlier.success && (earlier.data as AutoDigest).date).toBe('2026-11-12');
+    expect(asked.at(-1)?.url).toBe(`${standIn.url}/api/digest?date=2026-11-12`);
+    const days = await auto.request({ kind: 'digests' });
+    expect(days.success && (days.data as AutoDigestDays)).toEqual({ days: [DAY, '2026-11-12', '2026-11-11'], latest: DAY });
+  });
+
+  it('says there is no digest in the service’s own words', async () => {
+    await standIn.close();
+    standIn = await startStandIn({ digests: 'none', retryMs: 500 });
+    const auto = await connected();
+    expect(await auto.request({ kind: 'digest', date: null })).toEqual({ success: false, error: { kind: 'refused', message: 'No digest.', status: 404, code: 'not_found' } });
+    const days = await auto.request({ kind: 'digests' });
+    expect(days.success && days.data).toEqual({ days: [], latest: null });
+  });
+
+  it('resolves one entry or several, reopens them, and gets the day back each time', async () => {
+    const auto = await connected();
+    const one = await auto.request({ kind: 'digest-resolve', date: DAY, ids: ['person-robin-seed-swap'], resolved: true });
+    expect(one.success && (one.data as AutoDigest).left).toBe(7);
+    expect(standIn.requests.at(-1)?.body).toEqual({ date: DAY, id: 'person-robin-seed-swap', resolved: true });
+    const several = await auto.request({ kind: 'digest-resolve', date: DAY, ids: ['text-yesterday-5c1d2e3f', 'text-yesterday-a7b8c9d0'], resolved: true });
+    expect(standIn.requests.at(-1)?.body).toEqual({ date: DAY, ids: ['text-yesterday-5c1d2e3f', 'text-yesterday-a7b8c9d0'], resolved: true });
+    expect(several.success && (several.data as AutoDigest).left).toBe(5);
+    const back = await auto.request({ kind: 'digest-resolve', date: DAY, ids: ['person-robin-seed-swap'], resolved: false });
+    expect(back.success && entry(back.data as AutoDigest, 'person-robin-seed-swap')?.state).toBe('open');
+    // A to-do is resolved by its box, without any tick by number.
+    const item = await auto.request({ kind: 'digest-resolve', date: DAY, ids: ['item-3'], resolved: true });
+    expect(item.success && entry(item.data as AutoDigest, 'item-3')?.state).toBe('resolved');
+    expect(standIn.requests.some((request) => request.path.includes('/digest/tick') || request.path.includes('/digest/inbox'))).toBe(false);
+  });
+
+  it('writes a note on an entry and removes it', async () => {
+    const auto = await connected();
+    const noted = await auto.request({ kind: 'digest-note', date: DAY, id: 'item-1', text: 'Ask about peat-free' });
+    expect(noted.success && entry(noted.data as AutoDigest, 'item-1')?.note).toBe('Ask about peat-free');
+    const removed = await auto.request({ kind: 'digest-note', date: DAY, id: 'item-1', text: '' });
+    expect(removed.success && entry(removed.data as AutoDigest, 'item-1')?.note).toBe('');
+  });
+
+  it('makes an entry a thread that waits, once, and says so on the list stream', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const made = await auto.request({ kind: 'digest-thread', date: DAY, id: 'meeting-allotment-committee', words: null, cid: null });
+    const thread = (made.success ? made.data : null) as { thread: AutoThread };
+    expect(thread.thread).toMatchObject({ title: 'Allotment committee', waits: true, digest: { date: DAY, id: 'meeting-allotment-committee' } });
+    expect(standIn.requests.at(-1)?.body).toEqual({ date: DAY, id: 'meeting-allotment-committee', start: false });
+    expect(standIn.entries()[0].id).toBe(thread.thread.id);
+    const again = await auto.request({ kind: 'digest-thread', date: DAY, id: 'meeting-allotment-committee', words: null, cid: null });
+    expect(again.success && (again.data as { thread: AutoThread }).thread.id).toBe(thread.thread.id);
+    await until(() => kinds('list').includes('digest'), 'the digest event');
+    expect(events('list').find((message) => message.event.kind === 'digest')?.event).toEqual({ kind: 'digest', date: DAY });
+    const digest = await auto.request({ kind: 'digest', date: null });
+    expect(digest.success && entry(digest.data as AutoDigest, 'meeting-allotment-committee')).toMatchObject({ state: 'thread', thread: thread.thread.id });
+  });
+
+  it('starts a thread from an entry with his words, his note going along', async () => {
+    const auto = await connected();
+    await auto.request({ kind: 'digest-note', date: DAY, id: 'item-1', text: 'Ask about peat-free' });
+    const made = await auto.request({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask for collection on Saturday', cid: 'a1b2c3d4e5' });
+    const { thread } = (made.success ? made.data : null) as { thread: AutoThread };
+    expect(thread.waits).toBe(false);
+    expect(standIn.requests.at(-1)?.body).toEqual({ date: DAY, id: 'item-1', words: 'Ask for collection on Saturday', cid: 'a1b2c3d4e5' });
+    await until(() => standIn.thread(thread.id)?.status === 'idle' && !standIn.thread(thread.id)?.live, 'the turn to end');
+    const snapshot = await auto.request({ kind: 'thread', id: thread.id });
+    const first = (snapshot.success ? (snapshot.data as AutoSnapshot).items[0] : null) as { role: 'user'; text: string };
+    expect(first.text.startsWith('Digest, Friday November 13, item 1: Order the seed trays')).toBe(true);
+    expect(first.text.endsWith('says:\n\nAsk about peat-free\n\nAsk for collection on Saturday')).toBe(true);
+  });
+
+  it('gives the service’s sentence for an entry or a day it does not have', async () => {
+    const auto = await connected();
+    const missing = await auto.request({ kind: 'digest-resolve', date: DAY, ids: ['item-99'], resolved: true });
+    expect(missing.success === false && missing.error).toMatchObject({ kind: 'refused', message: 'No such entry.' });
+    const noDay = await auto.request({ kind: 'digest-note', date: '2020-01-01', id: 'item-1', text: 'x' });
+    expect(noDay.success === false && noDay.error).toMatchObject({ kind: 'refused', message: 'No digest.' });
   });
 });

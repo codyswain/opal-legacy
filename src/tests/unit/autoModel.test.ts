@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  toDigest,
+  toDigestDays,
   toItem,
   toListEvent,
   toNext,
@@ -11,6 +13,8 @@ import {
   toThreads,
   validCid,
   validCursor,
+  validDate,
+  validEntryId,
   validThreadId,
 } from '@/common/autoModel';
 
@@ -35,8 +39,16 @@ const ENTRY = {
 
 describe("reading the service's answers", () => {
   it('keeps a list entry as the service gives it', () => {
-    expect(toThread(ENTRY)).toEqual({ ...ENTRY, waits: false });
+    expect(toThread(ENTRY)).toEqual({ ...ENTRY, waits: false, desk: null });
     expect(toThread({ ...ENTRY, waits: true })?.waits).toBe(true);
+  });
+
+  it('reads the mark for the Mac, and none from anything else', () => {
+    expect(toThread({ ...ENTRY, desk: { at: 1794630000.5, by: 'ios' } })?.desk).toEqual({ at: 1794630000.5, by: 'ios' });
+    expect(toThread({ ...ENTRY, desk: { by: 7 } })?.desk).toEqual({ at: 0, by: '' });
+    expect(toThread({ ...ENTRY, desk: null })?.desk).toBeNull();
+    expect(toThread({ ...ENTRY, desk: 'yes' })?.desk).toBeNull();
+    expect(toThread({ ...ENTRY, desk: true })?.desk).toBeNull();
   });
 
   it('drops an entry whose id could not go into a path', () => {
@@ -49,7 +61,7 @@ describe("reading the service's answers", () => {
     const strange = toThread({ id: 'ok', title: ['x'], status: 'dancing', last: 7, ask: 'yes', unread: 'true', model: 'Not A Key', created: 'soon', snoozed: -1, woke: NaN, digest: 'item', queued: 2.9, error: '' });
     expect(strange).toEqual({
       id: 'ok', title: '', status: 'idle', last: '', activity: '', ask: null, unread: false, model: '', created: 0, updated: 0,
-      error: null, queued: 2, archived: false, snoozed: null, woke: null, digest: null, waits: false,
+      error: null, queued: 2, archived: false, snoozed: null, woke: null, digest: null, waits: false, desk: null,
     });
     expect(toThread({ id: 'ok', title: 'x'.repeat(5_000) })?.title.length).toBe(300);
   });
@@ -137,11 +149,14 @@ describe("reading the service's answers", () => {
   });
 
   it('reads each list event, and nothing of a kind it does not know', () => {
-    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, waits: false } });
+    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, waits: false, desk: null } });
     expect(toListEvent('order', { ids: ['a1', '../b', 7, 'c3'] })).toEqual({ kind: 'order', ids: ['a1', 'c3'] });
     expect(toListEvent('status', { auth: {} })?.kind).toBe('status');
     expect(toListEvent('reset', {})).toEqual({ kind: 'reset' });
-    expect(toListEvent('digest', { date: '2026-11-13' })).toBeNull();
+    expect(toListEvent('digest', { date: '2026-11-13' })).toEqual({ kind: 'digest', date: '2026-11-13' });
+    expect(toListEvent('digest', { date: '../13' })).toBeNull();
+    expect(toListEvent('digest', {})).toBeNull();
+    expect(toListEvent('sparkle', { shiny: true })).toBeNull();
     expect(toListEvent('thread', { id: '../x' })).toBeNull();
     expect(toListEvent('order', {})).toBeNull();
   });
@@ -173,6 +188,92 @@ describe("reading the service's answers", () => {
     expect(toThreadEvent('turn', 'no body')).toBeNull();
   });
 
+  it('reads a digest: every entry with what became of it, and one shape for a drafted reply', () => {
+    const digest = toDigest({
+      date: '2026-11-13',
+      path: 'Library/digests/2026-11-13 digest.md',
+      today: true,
+      left: 3, resolved: 1, threads: 1, total: 5,
+      sections: [
+        { title: 'Top 3', entries: [
+          { id: 'item-1', kind: 'item', title: 'Order the seed trays', section: 'Top 3', n: 1, checked: false, priority: 'High', md: 'Two trays.',
+            state: 'open', thread: null, note: 'Ask about peat', draft: { title: 'Garden centre', md: '**Garden centre**, email.', paste: 'Two trays, please.' } },
+          { id: 'item-2', kind: 'item', title: 'Book the inspection', n: 2, checked: false, priority: '', md: 'On the 21st.', state: 'thread', thread: '82a494f21dd8', note: '', draft: null },
+        ] },
+        { title: 'Yesterday', entries: [
+          { id: 'text-yesterday-3d20bff3', kind: 'text', title: '', md: 'The compost was turned.', state: 'resolved', thread: null, note: '' },
+        ] },
+        { title: 'Drafted replies', entries: [
+          { id: 'draft-1', kind: 'draft', title: 'Garden club', md: '**Garden club**, newsletter.', paste: 'It reads well.', state: 'open', thread: null, note: '' },
+        ] },
+      ],
+    });
+    expect(digest).toEqual({
+      date: '2026-11-13',
+      path: 'Library/digests/2026-11-13 digest.md',
+      left: 3,
+      sections: [
+        { title: 'Top 3', entries: [
+          { id: 'item-1', kind: 'item', title: 'Order the seed trays', md: 'Two trays.', section: 'Top 3', state: 'open', thread: null, note: 'Ask about peat', priority: 'High', draft: { title: 'Garden centre', paste: 'Two trays, please.' } },
+          { id: 'item-2', kind: 'item', title: 'Book the inspection', md: 'On the 21st.', section: 'Top 3', state: 'thread', thread: '82a494f21dd8', note: '', priority: '', draft: null },
+        ] },
+        { title: 'Yesterday', entries: [
+          { id: 'text-yesterday-3d20bff3', kind: 'text', title: '', md: 'The compost was turned.', section: 'Yesterday', state: 'resolved', thread: null, note: '', priority: '', draft: null },
+        ] },
+        { title: 'Drafted replies', entries: [
+          { id: 'draft-1', kind: 'draft', title: 'Garden club', md: '**Garden club**, newsletter.', section: 'Drafted replies', state: 'open', thread: null, note: '', priority: '', draft: { title: 'Garden club', paste: 'It reads well.' } },
+        ] },
+      ],
+    });
+  });
+
+  it('reads a kind it does not know as text, and drops what does not fit', () => {
+    const digest = toDigest({
+      date: '2026-11-13',
+      sections: [
+        'junk',
+        { title: 7, entries: 'none' },
+        { title: 'News', entries: [
+          { id: 'widget-1', kind: 'widget', title: 'A chart', md: 'Three bars.', priority: 'High', paste: 'Not a draft', state: 'dancing' },
+          { id: 'Bad Id', kind: 'text', md: 'Dropped' },
+          { id: '../item-1', kind: 'item', md: 'Dropped' },
+          { id: 'widget-1', kind: 'text', md: 'A second entry with the same id is dropped' },
+          { id: 'item-9', kind: 'item', title: ['x'], md: 9, state: 'thread', thread: '../x', note: 3, draft: 'yes' },
+          null,
+        ] },
+        { title: 'Empty', entries: [] },
+      ],
+    });
+    expect(digest).toEqual({
+      date: '2026-11-13',
+      path: '',
+      // The service gave no count, so Opal counts the open entries it can see.
+      left: 2,
+      sections: [{ title: 'News', entries: [
+        { id: 'widget-1', kind: 'text', title: 'A chart', md: 'Three bars.', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null },
+        // Said to be a thread, with no thread that can be named: still open.
+        { id: 'item-9', kind: 'item', title: '', md: '', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null },
+      ] }],
+    });
+    expect(toDigest({ date: '2026-11-13' })).toEqual({ date: '2026-11-13', path: '', left: 0, sections: [] });
+    expect(toDigest({ date: 'yesterday', sections: [] })).toBeNull();
+    expect(toDigest({ sections: [] })).toBeNull();
+    expect(toDigest('digest')).toBeNull();
+    expect(toDigest({ date: '2026-11-13', left: -4, sections: [] })?.left).toBe(0);
+    expect(toDigest({ date: '2026-11-13', sections: [{ title: 'N', entries: [{ id: 'a', md: 'x'.repeat(200_000), note: 'y'.repeat(9_000) }] }] })?.sections[0].entries[0]).toMatchObject({
+      md: 'x'.repeat(100_000),
+      note: 'y'.repeat(4_000),
+    });
+  });
+
+  it('reads the days that have a digest, newest first', () => {
+    expect(toDigestDays({ days: ['2026-11-12', '2026-11-13', 'soon', 7, '2026-11-12'], latest: '2026-11-13' })).toEqual({ days: ['2026-11-13', '2026-11-12'], latest: '2026-11-13' });
+    expect(toDigestDays({ days: ['2026-11-12'], latest: 'today' })).toEqual({ days: ['2026-11-12'], latest: '2026-11-12' });
+    expect(toDigestDays({ days: [] })).toEqual({ days: [], latest: null });
+    expect(toDigestDays({ latest: '2026-11-13' })).toBeNull();
+    expect(toDigestDays(null)).toBeNull();
+  });
+
   it('checks ids, cursors and message ids', () => {
     expect(validThreadId('82a494f21dd8')).toBe(true);
     expect(validThreadId('a.b')).toBe(false);
@@ -180,5 +281,10 @@ describe("reading the service's answers", () => {
     expect(validCursor('6c1f7699.14&x=1')).toBe(false);
     expect(validCid('a1b2c3d4e5')).toBe(true);
     expect(validCid('a-1')).toBe(false);
+    expect(validDate('2026-11-13')).toBe(true);
+    expect(validDate('2026-11-13&x=1')).toBe(false);
+    expect(validDate('13 Nov')).toBe(false);
+    for (const id of ['item-3', 'text-yesterday-3d20bff3', 'meeting-1-1-with-the-club', 'a']) expect(validEntryId(id), id).toBe(true);
+    for (const id of ['', '-item', 'Item-3', 'item_3', 'item 3', '../item-3', 'item-3/x', 'a'.repeat(121), 7, null]) expect(validEntryId(id), String(id)).toBe(false);
   });
 });

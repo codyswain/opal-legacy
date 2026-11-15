@@ -29,7 +29,7 @@ import {
 
 const THREAD: AutoThread = {
   id: '5a0000000002', title: 'Sourdough timings', status: 'idle', last: 'Start at 8.', activity: '', ask: null, unread: false, model: '',
-  created: 1, updated: 2, error: null, queued: 0, archived: false, snoozed: null, woke: null, digest: null, waits: false,
+  created: 1, updated: 2, error: null, queued: 0, archived: false, snoozed: null, woke: null, digest: null, waits: false, desk: null,
 };
 const user = (text: string, cid: string | null = null): AutoItem => ({ role: 'user', text, cid });
 const reply = (text: string, open = false): AutoItem => ({ role: 'assistant', text, open });

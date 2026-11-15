@@ -9,6 +9,8 @@ export interface StandInRequest {
 export interface StandInOptions {
   /** 'default': the made-up list. 'empty': only snoozed threads. 'none': no thread. */
   fixture?: 'default' | 'empty' | 'none';
+  /** 'default': three days of digests. 'done': one day, all of it resolved. 'none': no digest. */
+  digests?: 'default' | 'done' | 'none';
   /** Milliseconds between pieces of a streamed reply. */
   pace?: number;
   heartbeatMs?: number;
@@ -27,6 +29,12 @@ export interface StandIn {
   ticks: Array<{ date: string; id: string }>;
   thread: (id: string) => Record<string, unknown> | undefined;
   entries: () => Array<Record<string, unknown> & { id: string; title: string }>;
+  /** A day's digest as the service answers it; the latest with no date. */
+  digest: (date?: string) => {
+    date: string;
+    left: number;
+    sections: Array<{ title: string; entries: Array<{ id: string; state: string; thread: string | null; note: string }> }>;
+  } | null;
   signOut: (out?: boolean) => void;
   failWrites: (how: false | 'refuse' | 'drop') => void;
   down: (isDown?: boolean) => void;

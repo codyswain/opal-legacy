@@ -1,5 +1,10 @@
 import type {
   AutoAsk,
+  AutoDigest,
+  AutoDigestDays,
+  AutoDigestEntry,
+  AutoDigestKind,
+  AutoDigestSection,
   AutoItem,
   AutoListEvent,
   AutoLive,
@@ -42,11 +47,22 @@ const CURSOR = /^[A-Za-z0-9._-]{1,80}$/;
 /** A client's id for one message. */
 const CID = /^[A-Za-z0-9]{1,40}$/;
 const MODEL = /^[a-z0-9-]{0,32}$/;
+/** A digest's day. */
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** A digest entry's id: the service makes it from lower-case letters, digits and hyphens. */
+const ENTRY_ID = /^[a-z0-9][a-z0-9-]{0,119}$/;
+
+/** The longest note on a digest entry the service takes. */
+export const NOTE_LIMIT = 4_000;
+/** The most entries one resolve may name. */
+export const RESOLVE_LIMIT = 200;
 
 export const validThreadId = (value: unknown): value is string => typeof value === 'string' && ID.test(value);
 export const validCursor = (value: unknown): value is string => typeof value === 'string' && CURSOR.test(value);
 export const validCid = (value: unknown): value is string => typeof value === 'string' && CID.test(value);
 export const validModel = (value: unknown): value is string => typeof value === 'string' && MODEL.test(value);
+export const validDate = (value: unknown): value is string => typeof value === 'string' && DATE.test(value);
+export const validEntryId = (value: unknown): value is string => typeof value === 'string' && ENTRY_ID.test(value);
 
 type Fields = Record<string, unknown>;
 
@@ -88,6 +104,7 @@ export function toThread(value: unknown): AutoThread | null {
   const thread = fields(value);
   if (!thread || !validThreadId(thread.id)) return null;
   const digest = fields(thread.digest);
+  const desk = fields(thread.desk);
   const status = STATUSES.find((name) => name === thread.status) ?? 'idle';
   return {
     id: thread.id,
@@ -110,6 +127,7 @@ export function toThread(value: unknown): AutoThread | null {
         ? { date: digest.date.slice(0, 40), id: digest.id.slice(0, 200) }
         : null,
     waits: thread.waits === true,
+    desk: desk ? { at: time(desk.at) ?? 0, by: text(desk.by, 40) } : null,
   };
 }
 
@@ -284,6 +302,70 @@ export function toStatus(value: unknown): AutoStatus | null {
   };
 }
 
+const DIGEST_KINDS: readonly AutoDigestKind[] = ['item', 'meeting', 'person', 'draft', 'text'];
+const SECTIONS_LIMIT = 100;
+const ENTRIES_LIMIT = 500;
+
+/** One digest entry, or null for one without a usable id. A kind Opal does not know reads as text. */
+function toEntry(value: unknown, section: string): AutoDigestEntry | null {
+  const entry = fields(value);
+  if (!entry || !validEntryId(entry.id)) return null;
+  const kind = DIGEST_KINDS.find((name) => name === entry.kind) ?? 'text';
+  const title = text(entry.title, TITLE_LIMIT);
+  const thread = validThreadId(entry.thread) ? entry.thread : null;
+  // A to-do carries its drafted reply; a drafted reply of its own carries its words.
+  const drafted = fields(entry.draft);
+  const paste = drafted ? text(drafted.paste, TEXT_LIMIT) : kind === 'draft' ? text(entry.paste, TEXT_LIMIT) : '';
+  return {
+    id: entry.id,
+    kind,
+    title,
+    md: text(entry.md, TEXT_LIMIT),
+    section,
+    // An entry said to be a thread without one that can be named is still open.
+    state: entry.state === 'resolved' ? 'resolved' : entry.state === 'thread' && thread ? 'thread' : 'open',
+    thread,
+    note: text(entry.note, NOTE_LIMIT),
+    priority: kind === 'item' ? text(entry.priority, 40) : '',
+    draft: paste ? { title: drafted ? text(drafted.title, TITLE_LIMIT) : title, paste } : null,
+  };
+}
+
+/** A day's digest, or null when it names no day. Entries and sections that do not fit are left out. */
+export function toDigest(value: unknown): AutoDigest | null {
+  const digest = fields(value);
+  if (!digest || !validDate(digest.date)) return null;
+  const seen = new Set<string>();
+  const sections = list(digest.sections, SECTIONS_LIMIT).flatMap((each): AutoDigestSection[] => {
+    const section = fields(each);
+    if (!section) return [];
+    const title = text(section.title, TITLE_LIMIT);
+    const entries = list(section.entries, ENTRIES_LIMIT).flatMap((candidate) => {
+      const entry = toEntry(candidate, title);
+      if (!entry || seen.has(entry.id)) return [];
+      seen.add(entry.id);
+      return [entry];
+    });
+    return entries.length > 0 ? [{ title, entries }] : [];
+  });
+  const open = sections.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open').length, 0);
+  return {
+    date: digest.date,
+    path: text(digest.path, 1_024),
+    // The service's own count; what Opal can see for itself when it gives none.
+    left: typeof digest.left === 'number' && Number.isFinite(digest.left) && digest.left >= 0 ? Math.floor(digest.left) : open,
+    sections,
+  };
+}
+
+/** The days that have a digest, newest first. */
+export function toDigestDays(value: unknown): AutoDigestDays | null {
+  const body = fields(value);
+  if (!body || !Array.isArray(body.days)) return null;
+  const days = [...new Set(body.days.slice(0, 400).filter(validDate))].sort().reverse();
+  return { days, latest: validDate(body.latest) ? body.latest : days[0] ?? null };
+}
+
 /** A list stream event, or null for a kind Opal does not know or a body that does not fit it. */
 export function toListEvent(kind: string, data: unknown): AutoListEvent | null {
   switch (kind) {
@@ -298,6 +380,10 @@ export function toListEvent(kind: string, data: unknown): AutoListEvent | null {
     case 'status': {
       const status = toStatus(data);
       return status ? { kind, status } : null;
+    }
+    case 'digest': {
+      const body = fields(data);
+      return body && validDate(body.date) ? { kind, date: body.date } : null;
     }
     case 'reset':
       return { kind };

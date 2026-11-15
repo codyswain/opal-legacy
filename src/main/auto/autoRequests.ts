@@ -1,4 +1,14 @@
-import { TEXT_LIMIT, validCid, validCursor, validModel, validThreadId } from '@/common/autoModel';
+import {
+  NOTE_LIMIT,
+  RESOLVE_LIMIT,
+  TEXT_LIMIT,
+  validCid,
+  validCursor,
+  validDate,
+  validEntryId,
+  validModel,
+  validThreadId,
+} from '@/common/autoModel';
 import type { AutoAnswer, AutoRoute, AutoStreamTarget } from '@/types/auto';
 
 /*
@@ -118,6 +128,27 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, `/api/threads/${route.id}/snooze`, { until: route.until });
     case 'start':
       return post(base, `/api/threads/${route.id}/start`, {});
+    case 'desk':
+      return post(base, `/api/threads/${route.id}/desk`, { on: route.on });
+    case 'digest':
+      return get(base, route.date ? `/api/digest?date=${route.date}` : '/api/digest');
+    case 'digests':
+      return get(base, '/api/digests');
+    case 'digest-resolve':
+      return post(base, '/api/digest/resolve', {
+        date: route.date,
+        ...(route.ids.length === 1 ? { id: route.ids[0] } : { ids: route.ids }),
+        resolved: route.resolved,
+      });
+    case 'digest-note':
+      return post(base, '/api/digest/note', { date: route.date, id: route.id, text: route.text });
+    case 'digest-thread':
+      // With his words the thread starts with them; without, it waits on top of the list.
+      return post(base, '/api/digest/thread', {
+        date: route.date,
+        id: route.id,
+        ...(route.words !== null ? { words: route.words, ...(route.cid ? { cid: route.cid } : {}) } : { start: false }),
+      });
   }
 }
 
@@ -179,6 +210,14 @@ export function validRoute(value: unknown): AutoRoute | null {
       return words(route.text) && validModel(route.model) && validCid(route.cid)
         ? { kind: 'create', text: route.text, model: route.model, cid: route.cid }
         : null;
+    case 'digests':
+      return { kind: 'digests' };
+    case 'digest':
+      return route.date === null || validDate(route.date) ? { kind: 'digest', date: route.date as string | null } : null;
+    case 'digest-resolve':
+    case 'digest-note':
+    case 'digest-thread':
+      return validDigestRoute(route);
     default:
   }
   if (!validThreadId(route.id)) return null;
@@ -210,9 +249,36 @@ export function validRoute(value: unknown): AutoRoute | null {
       return route.until === null || (typeof route.until === 'number' && Number.isFinite(route.until) && route.until > 0)
         ? { kind: 'snooze', id, until: route.until as number | null }
         : null;
+    case 'desk':
+      return typeof route.on === 'boolean' ? { kind: 'desk', id, on: route.on } : null;
     default:
       return null;
   }
+}
+
+/**
+ * A write to a day's digest: its day and every entry id are checked before
+ * anything is sent. Opal resolves, notes and makes threads; it never ticks a
+ * box by number and never asks the service to fill the inbox.
+ */
+function validDigestRoute(route: Fields): AutoRoute | null {
+  if (!validDate(route.date)) return null;
+  const date = route.date;
+  if (route.kind === 'digest-resolve') {
+    const ids = route.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > RESOLVE_LIMIT || !ids.every(validEntryId)) return null;
+    if (new Set(ids).size !== ids.length || typeof route.resolved !== 'boolean') return null;
+    return { kind: 'digest-resolve', date, ids: [...(ids as string[])], resolved: route.resolved };
+  }
+  if (!validEntryId(route.id)) return null;
+  const id = route.id;
+  if (route.kind === 'digest-note') {
+    return typeof route.text === 'string' && route.text.length <= NOTE_LIMIT && !route.text.includes('\0')
+      ? { kind: 'digest-note', date, id, text: route.text.trim() }
+      : null;
+  }
+  if (route.words === null) return route.cid === null ? { kind: 'digest-thread', date, id, words: null, cid: null } : null;
+  return words(route.words) && validCid(route.cid) ? { kind: 'digest-thread', date, id, words: route.words, cid: route.cid } : null;
 }
 
 /** A stream to follow as the page must name it, or null. */

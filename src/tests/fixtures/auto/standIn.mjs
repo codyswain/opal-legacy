@@ -4,7 +4,9 @@
 // its stream, a thread's snapshot and stream with cursors and `reset`,
 // scripted replies that stream in, a question, a permission request,
 // follow-ups, snooze, move, archive, rename, a waiting entry with `start`,
-// and switches for signed-out, failing writes and being out of reach.
+// the mark for the Mac, a few days of digests as a queue (resolve, note, a
+// thread from an entry), and switches for signed-out, failing writes and
+// being out of reach.
 // It runs no agent and reaches no network.
 //
 //   const service = await startStandIn();
@@ -118,9 +120,70 @@ function fixtureThreads(kind) {
   ];
 }
 
+/** The made-up digests, by day. Each entry keeps what he did with it. */
+function fixtureDigests(kind) {
+  const digests = new Map();
+  if (kind === 'none') return digests;
+  const day = (date, sections) => digests.set(date, { date, path: `Library/digests/${date} digest.md`, sections });
+  const text = (id, md, fields = {}) => ({ id, kind: 'text', title: '', md, note: '', resolved: false, ...fields });
+  day('2026-11-13', [
+    { title: 'Meetings', entries: [
+      { id: 'meeting-allotment-committee', kind: 'meeting', title: 'Allotment committee', note: '', resolved: false,
+        md: '**10:00 [Allotment committee](https://example.com/meet)** (in the hall)\n- Agree the date of the inspection\n- Who brings the keys to the tool store' },
+    ] },
+    { title: 'Top 3', entries: [
+      { id: 'item-1', kind: 'item', title: 'Order the seed trays', n: 1, checked: false, priority: '', note: '',
+        md: 'The garden centre holds an order until Saturday. Two trays cover the beans and the peas.',
+        draft: { title: 'Garden centre', md: '**Garden centre**, seed trays, email.', paste: 'Two trays of 40 cells, please.\n\nI can collect them on Saturday morning.' } },
+      { id: 'item-2', kind: 'item', title: 'Book the allotment inspection', n: 2, checked: false, priority: 'High', note: '', draft: null,
+        md: 'The committee walks the plots on the 21st. Plot 14 needs the path cleared and the water butt lid replaced first.\n\n- Clear the path along the north fence\n- Replace the lid, 60 cm' },
+      { id: 'item-3', kind: 'item', title: 'Fix the kitchen tap', n: 3, checked: false, priority: 'Medium', note: '', draft: null,
+        md: 'The hot side drips. The washer is a 12 mm, and the spare is in [Tap](Projects/Kitchen/Tap.md).' },
+    ] },
+    { title: 'People', entries: [
+      { id: 'person-robin-seed-swap', kind: 'person', title: 'Robin (seed swap)', note: '', resolved: false,
+        md: '**Robin (seed swap):** quiet since the spring list went round. The swap is two weeks away.' },
+    ] },
+    { title: 'Plots', entries: [
+      text('text-plots-3d20bff3', '| Plot | Bed | Sown | Next |\n| --- | --- | --- | --- |\n| 14 | 2 | Beans | Stake on Sunday |\n| 14 | 3 | Chard | Thin out |\n| 9 | 1 | Peas | Net against birds |', { title: 'Plots' }),
+    ] },
+    { title: 'Yesterday', entries: [
+      text('text-yesterday-88ae3a55', 'The compost was turned and the lid is back on.', { resolved: true }),
+      text('text-yesterday-5c1d2e3f', '**Ready to plant.** The bean seedlings have four leaves and the frost is past.', { title: 'Ready to plant' }),
+      text('text-yesterday-a7b8c9d0', 'The shed roof let water in at the back corner again.'),
+    ] },
+    { title: 'Drafted replies', entries: [
+      { id: 'draft-1', kind: 'draft', title: 'Garden club', md: '**Garden club**, newsletter, email.', note: '', resolved: false,
+        paste: 'Thanks, the newsletter reads well.\n\nOne change: the open day is the 21st, not the 28th.' },
+    ] },
+  ]);
+  day('2026-11-12', [
+    { title: 'Top 3', entries: [
+      { id: 'item-1', kind: 'item', title: 'Water the tomatoes', n: 1, checked: true, priority: '', note: '', draft: null, md: 'Before nine, while the bed is in shade.' },
+      { id: 'item-2', kind: 'item', title: 'Sharpen the secateurs', n: 2, checked: false, priority: 'Low', note: 'The stone is in the blue tin', draft: null, md: 'They tore the rose stems last week.' },
+    ] },
+    { title: 'Yesterday', entries: [
+      text('text-yesterday-1a2b3c4d', 'Four rows of carrots are in. The fleece is pegged down.'),
+    ] },
+  ]);
+  day('2026-11-11', []);
+  if (kind === 'done') {
+    digests.delete('2026-11-12');
+    digests.delete('2026-11-11');
+    for (const section of digests.get('2026-11-13').sections) {
+      for (const entry of section.entries) {
+        if (entry.kind === 'item') entry.checked = true;
+        else entry.resolved = true;
+      }
+    }
+  }
+  return digests;
+}
+
 /**
  * Starts the stand-in.
  *   fixture: 'default' | 'empty' (only snoozed threads) | 'none'
+ *   digests: 'default' (three days) | 'done' (one day, all of it resolved) | 'none'
  *   pace: ms between pieces of a streamed reply
  *   heartbeatMs: how often every stream sends `: hb`
  *   retryMs: the wait every stream asks of a client before it opens it again
@@ -140,6 +203,7 @@ export async function startStandIn(options = {}) {
   };
   const requests = [];
   const ticks = [];
+  const digests = fixtureDigests(options.digests ?? 'default');
   const threads = new Map();
   let order = [];
   const list = { n: 0, events: [], clients: new Set() };
@@ -192,8 +256,80 @@ export async function startStandIn(options = {}) {
       id: thread.id, title: thread.title, status: thread.status, last: thread.last, activity: thread.live ? thread.activity : '',
       ask: askOf(thread), unread: thread.unread, model: thread.model, created: thread.created, updated: thread.updated,
       error: thread.status === 'failed' ? thread.error : null, queued: thread.queue.length, archived: thread.archived,
-      snoozed: thread.snoozed, woke: thread.woke, digest: thread.digest, ...(thread.waits ? { waits: true } : {}),
+      snoozed: thread.snoozed, woke: thread.woke, desk: thread.desk ?? null, digest: thread.digest, ...(thread.waits ? { waits: true } : {}),
     };
+  }
+
+  /**
+   * The mark for the Mac ends by itself when he picks the thread up from a
+   * client other than the one that set it.
+   */
+  function pickedUp(thread, client) {
+    if (thread.desk && thread.desk.by !== client) thread.desk = null;
+  }
+
+  const days = () => [...digests.keys()].sort().reverse();
+  const entriesOf = (digest) => digest.sections.flatMap((section) => section.entries);
+  const isResolved = (found) => (found.kind === 'item' ? found.checked : found.resolved);
+
+  /** The thread a digest entry became. One put away before anything was said in it does not count. */
+  function threadOf(date, id) {
+    return [...threads.values()].find((thread) => thread.digest?.date === date && thread.digest.id === id && !(thread.archived && thread.waits)) ?? null;
+  }
+
+  /** A day's digest as the service answers it, each entry with what became of it. */
+  function digestOf(date) {
+    const digest = digests.get(date);
+    if (!digest) return null;
+    const count = { open: 0, resolved: 0, thread: 0 };
+    const sections = digest.sections.map((section) => ({
+      title: section.title,
+      entries: section.entries.map((found) => {
+        const thread = threadOf(date, found.id);
+        const state = isResolved(found) ? 'resolved' : thread ? 'thread' : 'open';
+        count[state] += 1;
+        const { resolved, ...shown } = found;
+        return { ...shown, section: section.title, state, thread: thread ? thread.id : null };
+      }),
+    })).filter((section) => section.entries.length > 0);
+    return {
+      date, path: digest.path, today: date === days()[0],
+      left: count.open, resolved: count.resolved, threads: count.thread, total: count.open + count.resolved + count.thread,
+      sections,
+    };
+  }
+
+  /** The first message of a thread made from an entry, in the form the service writes. */
+  function seedOf(date, found, section) {
+    const [year, month, dayOfMonth] = date.split('-').map(Number);
+    const written = new Date(year, month - 1, dayOfMonth).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).replace(',', '');
+    const what = found.kind === 'item' ? `item ${found.n}` : found.kind === 'draft' ? 'reply' : found.kind === 'text' ? section.toLowerCase() : found.kind;
+    const title = found.title || firstLine(found.md).slice(0, 80);
+    const paste = found.draft?.paste ?? found.paste;
+    return [
+      `Digest, ${written}, ${what}: ${title}`,
+      ...(found.priority ? [`Priority: ${found.priority}`] : []),
+      found.md,
+      ...(paste ? [`Drafted reply in the digest, for ${found.draft?.title ?? found.title}:\n\n\`\`\`\n${paste}\n\`\`\``] : []),
+      `From ${digests.get(date).path}`,
+    ].join('\n\n');
+  }
+
+  /** Marks one entry resolved or open again. A thread nobody has talked in follows the mark. */
+  function resolveEntry(date, found, resolved) {
+    if (found.kind === 'item') found.checked = resolved;
+    else found.resolved = resolved;
+    const waiting = [...threads.values()].find((thread) => thread.waits && thread.digest?.date === date && thread.digest.id === found.id);
+    if (!waiting || waiting.archived === resolved) return;
+    waiting.archived = resolved;
+    if (resolved) {
+      waiting.desk = null;
+      order = order.filter((id) => id !== waiting.id);
+      emitList('thread', entry(waiting));
+    } else {
+      emitList('thread', entry(waiting));
+      toTop(waiting);
+    }
   }
 
   function write(client, event) {
@@ -582,6 +718,73 @@ export async function startStandIn(options = {}) {
       return answer(response, 201, { thread: entry(thread) });
     }
 
+    const client = request.headers['x-auto-client'] ?? 'web';
+    if (path === '/api/digests' && !isWrite) return answer(response, 200, { days: days(), latest: days()[0] ?? null });
+    if (path === '/api/digest' && !isWrite) {
+      const date = url.searchParams.get('date') ?? days()[0];
+      const digest = date ? digestOf(date) : null;
+      return digest ? answer(response, 200, digest) : refuse(response, 404, 'not_found', 'No digest.');
+    }
+    if (path.startsWith('/api/digest/') && isWrite) {
+      const digest = digests.get(data.date);
+      if (path === '/api/digest/inbox') return answer(response, 200, { date: data.date ?? days()[0] ?? null, made: 0 });
+      if (!digest) return refuse(response, 404, 'not_found', 'No digest.');
+      const find = (id) => entriesOf(digest).find((found) => found.id === id);
+      if (path === '/api/digest/tick') {
+        const item = entriesOf(digest).find((found) => found.kind === 'item' && found.n === data.n);
+        if (!item) return refuse(response, 409, 'conflict', 'The digest has no such item.');
+        resolveEntry(data.date, item, data.checked === true);
+        emitList('digest', { date: data.date });
+        return answer(response, 200, digestOf(data.date));
+      }
+      if (path === '/api/digest/resolve') {
+        const ids = Array.isArray(data.ids) ? data.ids : [data.id];
+        if (ids.length === 0 || ids.length > 200) return refuse(response, 400, 'bad_request', 'Name one entry, or up to 200.');
+        const found = ids.map(find);
+        if (found.some((each) => !each)) return refuse(response, 404, 'not_found', 'No such entry.');
+        for (const each of found) resolveEntry(data.date, each, data.resolved !== false);
+        emitList('digest', { date: data.date });
+        return answer(response, 200, digestOf(data.date));
+      }
+      const found = find(data.id);
+      if (!found) return refuse(response, 404, 'not_found', 'No such entry.');
+      if (path === '/api/digest/note') {
+        if (typeof data.text !== 'string' || data.text.length > 4_000) return refuse(response, 400, 'bad_request', 'A note is at most 4,000 characters.');
+        found.note = data.text.trim();
+        emitList('digest', { date: data.date });
+        return answer(response, 200, digestOf(data.date));
+      }
+      if (path === '/api/digest/thread') {
+        const words = typeof data.words === 'string' && data.words.trim() ? data.words : null;
+        if (data.words !== undefined && (!words || words.length > 100_000)) return refuse(response, 400, 'bad_request', 'Say something first.');
+        const section = digest.sections.find((each) => each.entries.includes(found)).title;
+        // The entry, then his note and his words under one line.
+        const said = [found.note, words].filter(Boolean).join('\n\n');
+        const first = () => (said ? `${seedOf(data.date, found, section)}\n\n${NAME} says:\n\n${said}` : seedOf(data.date, found, section));
+        const cid = typeof data.cid === 'string' ? data.cid.slice(0, 40) : '';
+        const made = threadOf(data.date, found.id);
+        if (made) {
+          // A second call returns the same thread; one that still waits starts when this call says so.
+          if (made.waits && (data.start !== false || words)) {
+            pickedUp(made, client);
+            startTurn(made, { role: 'user', text: first(), ...(cid ? { cid } : {}) });
+          }
+          return answer(response, 200, { thread: entry(made) });
+        }
+        const t = now();
+        const thread = add({
+          id: hex(6), title: (found.title || firstLine(found.md)).slice(0, 80), status: 'idle', last: firstLine(found.md), activity: '', unread: false, model: '',
+          created: t, updated: t, error: null, archived: false, snoozed: null, woke: null, digest: { date: data.date, id: found.id },
+          waits: true, items: [], next: [], seed: seedOf(data.date, found, section),
+        }, true);
+        emitList('thread', entry(thread));
+        if (data.start !== false || words) startTurn(thread, { role: 'user', text: first(), ...(cid ? { cid } : {}) });
+        emitList('digest', { date: data.date });
+        return answer(response, 201, { thread: entry(thread) });
+      }
+      return refuse(response, 404, 'not_found', 'Not found.');
+    }
+
     const match = /^\/api\/threads\/([^/]+)(?:\/([a-z]+))?$/.exec(path);
     const thread = match ? threads.get(match[1]) : null;
     if (!match || !thread || (thread.archived && match[2] !== 'archive')) return refuse(response, 404, 'not_found', match ? 'No such thread.' : 'Not found.');
@@ -602,6 +805,7 @@ export async function startStandIn(options = {}) {
         const cid = typeof data.cid === 'string' ? data.cid.slice(0, 40) : '';
         if (cid && cids.has(cid)) return answer(response, 200, { queued: thread.queue.some((queued) => queued.cid === cid) });
         if (cid) cids.set(cid, thread.id);
+        pickedUp(thread, client);
         if (thread.run) {
           thread.queue.push({ cid, text: data.text });
           emitThread(thread, 'queue', { queue: thread.queue });
@@ -609,12 +813,13 @@ export async function startStandIn(options = {}) {
           return answer(response, 200, { queued: true });
         }
         // The first words to a waiting entry travel with the entry.
-        const text = thread.waits ? `${thread.seed}\n\n${NAME} says:\n${data.text}` : data.text;
+        const text = thread.waits ? `${thread.seed}\n\n${NAME} says:\n\n${data.text}` : data.text;
         startTurn(thread, { role: 'user', text, ...(cid ? { cid } : {}) });
         return answer(response, 200, { queued: false });
       }
       case 'start':
         if (!thread.waits) return refuse(response, 409, 'conflict', 'That thread has already started.');
+        pickedUp(thread, client);
         startTurn(thread, { role: 'user', text: thread.seed });
         return answer(response, 200, { thread: entry(thread) });
       case 'stop': {
@@ -632,6 +837,7 @@ export async function startStandIn(options = {}) {
         if (question.kind === 'permission' ? typeof data.allow !== 'boolean' : !data.answers || typeof data.answers !== 'object') {
           return refuse(response, 400, 'bad_request', 'That is not an answer to this question.');
         }
+        pickedUp(thread, client);
         thread.answer(data);
         return answer(response, 200, { ok: true });
       }
@@ -645,11 +851,27 @@ export async function startStandIn(options = {}) {
         thread.title = data.title.split('\n')[0].trim().slice(0, 120);
         changed(thread);
         return answer(response, 200, { thread: entry(thread) });
+      case 'desk':
+        if (typeof data.on !== 'boolean') return refuse(response, 400, 'bad_request', 'Say on or off.');
+        thread.desk = data.on ? { at: now(), by: client } : null;
+        changed(thread);
+        return answer(response, 200, { thread: entry(thread) });
       case 'archive':
         thread.archived = data.archived !== false;
         if (thread.archived) {
+          thread.desk = null;
           order = order.filter((id) => id !== thread.id);
-          if (data.done === true && thread.digest) ticks.push({ ...thread.digest });
+          // Done also marks the entry the thread came from.
+          if (data.done === true && thread.digest) {
+            ticks.push({ ...thread.digest });
+            const digest = digests.get(thread.digest.date);
+            const found = digest ? entriesOf(digest).find((each) => each.id === thread.digest.id) : null;
+            if (found) {
+              if (found.kind === 'item') found.checked = true;
+              else found.resolved = true;
+              emitList('digest', { date: thread.digest.date });
+            }
+          }
           changed(thread);
         } else {
           changed(thread);
@@ -706,6 +928,8 @@ export async function startStandIn(options = {}) {
     ticks,
     thread: (id) => threads.get(id),
     entries: () => order.map((id) => entry(threads.get(id))),
+    /** A day's digest as the service answers it; the latest with no date. */
+    digest: (date) => digestOf(date ?? days()[0]),
     /** Signs the service out of, or back into, its agent: the list stream says so. */
     signOut(out = true) {
       state.signedOut = out;

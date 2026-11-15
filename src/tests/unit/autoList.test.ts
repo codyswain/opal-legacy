@@ -26,7 +26,7 @@ function thread(id: string, fields: Partial<AutoThread> = {}): AutoThread {
   return {
     id, title: `Thread ${id}`, status: 'idle', last: `Last of ${id}`, activity: '', ask: null, unread: false, model: '',
     created: at(2026, 11, 13, 9), updated: at(2026, 11, 14, 14, 0), error: null, queued: 0, archived: false, snoozed: null, woke: null,
-    digest: null, waits: false, ...fields,
+    digest: null, waits: false, desk: null, ...fields,
   };
 }
 

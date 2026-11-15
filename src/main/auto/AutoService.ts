@@ -1,6 +1,8 @@
 import type * as fsPromises from 'fs/promises';
 import path from 'path';
 import {
+  toDigest,
+  toDigestDays,
   toListEvent,
   toQueue,
   toSnapshot,
@@ -146,6 +148,12 @@ function shape(kind: AutoRoute['kind'], data: unknown): unknown {
       return { ok: body.ok === true };
     case 'move':
       return Array.isArray(body.ids) ? { ids: body.ids.filter(validThreadId) } : null;
+    case 'digest':
+    case 'digest-resolve':
+    case 'digest-note':
+      return toDigest(body);
+    case 'digests':
+      return toDigestDays(body);
     default: {
       const thread = toThread(body.thread);
       return thread ? { thread } : null;

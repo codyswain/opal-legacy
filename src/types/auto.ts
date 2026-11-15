@@ -45,6 +45,55 @@ export interface AutoThread {
   digest: { date: string; id: string } | null;
   /** An entry nobody has started: it holds its words and has run no turn. */
   waits: boolean;
+  /** Set while he has marked the thread as one he wants on the Mac; the service ends the mark. */
+  desk: { at: number; by: string } | null;
+}
+
+export type AutoDigestKind = 'item' | 'meeting' | 'person' | 'draft' | 'text';
+
+/** What became of a digest entry: still open, resolved, or made a thread. */
+export type AutoDigestState = 'open' | 'resolved' | 'thread';
+
+/** One entry of a day's digest. */
+export interface AutoDigestEntry {
+  id: string;
+  kind: AutoDigestKind;
+  title: string;
+  /** The entry's words, as Markdown. */
+  md: string;
+  /** Its section's title. */
+  section: string;
+  state: AutoDigestState;
+  /** The thread the entry became, or null. */
+  thread: string | null;
+  /** His own words on the entry, or empty. */
+  note: string;
+  /** A to-do's priority word, or empty. */
+  priority: string;
+  /** A reply drafted for the entry, as words to paste: who it is for, and the words. */
+  draft: { title: string; paste: string } | null;
+}
+
+export interface AutoDigestSection {
+  title: string;
+  entries: AutoDigestEntry[];
+}
+
+/** A day's digest, as a queue he works through. */
+export interface AutoDigest {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** The digest's file, a path from the vault's top. */
+  path: string;
+  /** How many entries are still open. */
+  left: number;
+  sections: AutoDigestSection[];
+}
+
+/** The days that have a digest, newest first. */
+export interface AutoDigestDays {
+  days: string[];
+  latest: string | null;
 }
 
 export interface AutoStep {
@@ -149,7 +198,21 @@ export type AutoRoute =
   | { kind: 'archive'; id: string; archived: boolean; done?: boolean }
   | { kind: 'move'; id: string; before: string | null }
   | { kind: 'snooze'; id: string; until: number | null }
-  | { kind: 'start'; id: string };
+  | { kind: 'start'; id: string }
+  /** Marks a thread for the Mac, or takes the mark off. */
+  | { kind: 'desk'; id: string; on: boolean }
+  /** A day's digest; the latest with no date. */
+  | { kind: 'digest'; date: string | null }
+  | { kind: 'digests' }
+  /** Resolves entries of one day, or reopens them. */
+  | { kind: 'digest-resolve'; date: string; ids: string[]; resolved: boolean }
+  /** His note on an entry; empty text removes it. */
+  | { kind: 'digest-note'; date: string; id: string; text: string }
+  /**
+   * Makes an entry a thread. With `words` it starts with the entry and his
+   * words; without, it waits on top of the list until he says something.
+   */
+  | { kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null };
 
 /** What each request answers with. */
 export interface AutoRouteData {
@@ -167,6 +230,12 @@ export interface AutoRouteData {
   move: { ids: string[] };
   snooze: { thread: AutoThread };
   start: { thread: AutoThread };
+  desk: { thread: AutoThread };
+  digest: AutoDigest;
+  digests: AutoDigestDays;
+  'digest-resolve': AutoDigest;
+  'digest-note': AutoDigest;
+  'digest-thread': { thread: AutoThread };
 }
 
 /**
@@ -202,6 +271,8 @@ export type AutoListEvent =
   | { kind: 'thread'; thread: AutoThread }
   | { kind: 'order'; ids: string[] }
   | { kind: 'status'; status: AutoStatus }
+  /** That day's digest changed. */
+  | { kind: 'digest'; date: string }
   | { kind: 'reset' };
 
 /** One event of a thread's stream. */
