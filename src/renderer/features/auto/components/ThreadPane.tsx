@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, MoreHorizontal, Square, Undo2 } from 'lucide-react';
+import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Clock, MoreHorizontal, Square, Undo2 } from 'lucide-react';
 import type { AutoItem, AutoStep, AutoThread } from '@/types/auto';
 import {
   Button,
@@ -27,7 +27,7 @@ import { archiveThread, restoreThread, snoozeThread } from '../store/actions';
 import { modelChoices, useAutoStore } from '../store/autoStore';
 import { draftKey, useThreadStore } from '../store/threadStore';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
-import { SaidBar } from './SaidBar';
+import { focusRowNow } from './focus';
 import { SnoozeButton } from './SnoozeMenu';
 
 const quiet = 'text-control text-foreground-tertiary';
@@ -460,7 +460,7 @@ function ThreadActions({ thread, onRename }: { thread: AutoThread; onRename: () 
   );
 }
 
-function ThreadHeader({ narrow, scrolled }: { narrow: boolean; scrolled: boolean }) {
+function ThreadHeader({ scrolled }: { scrolled: boolean }) {
   const openId = useThreadStore((state) => state.openId);
   const view = useThreadStore((state) => state.view);
   const newModel = useThreadStore((state) => state.newModel);
@@ -477,20 +477,9 @@ function ThreadHeader({ narrow, scrolled }: { narrow: boolean; scrolled: boolean
   const model = isNew ? newModel : thread?.model ?? '';
   const label = models.find(([key]) => key === model)?.[1] ?? model;
 
-  /** Back to the list, with the keyboard on the row he came from. */
-  const back = () => {
-    useAutoStore.getState().requestFocus(openId ?? NEW_THREAD);
-    useThreadStore.getState().open(null);
-  };
-
   return (
     <header className={cn('auto-beside-talk shrink-0 border-b', scrolled ? 'border-border-subtle' : 'border-transparent')}>
       <div className="auto-column flex h-header items-center gap-1">
-        {narrow ? (
-          <IconButton label="All threads" data-testid="auto-back" className="-ml-2" onClick={back}>
-            <ChevronLeft aria-hidden className="h-4 w-4" />
-          </IconButton>
-        ) : null}
         {isNew ? (
           <Title title="New thread" canRename={false} editing={false} setEditing={setRenaming} />
         ) : (
@@ -611,7 +600,7 @@ const capital = (words: string): string => (words ? words.charAt(0).toUpperCase(
  * is the answer field. What waits behind a running turn shows above it, and
  * Stop sits beside Send while a turn runs.
  */
-function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTMLDivElement> }) {
+function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   const openId = useThreadStore((state) => state.openId);
   const view = useThreadStore((state) => state.view);
   const pending = useThreadStore((state) => state.pending);
@@ -647,10 +636,9 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
       event.preventDefault();
       submit();
     } else if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
-      // Out of the box, onto the open thread's row. Narrow, that is back in the list. A turn is never stopped this way.
+      // Out of the box, onto the open thread's row in the sidebar. A turn is never stopped this way.
       event.preventDefault();
-      useAutoStore.getState().requestFocus(openId ?? NEW_THREAD);
-      if (narrow) useThreadStore.getState().open(null);
+      focusRowNow(openId ?? NEW_THREAD);
     } else if (event.key === 'PageUp' || event.key === 'PageDown') {
       const element = talk.current;
       if (!element) return;
@@ -662,8 +650,6 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
   return (
     <div className="auto-beside-talk shrink-0 pb-4">
       <div className="auto-column">
-        {/* With the list hidden, what the last action did shows here, above the box and never over it. */}
-        {narrow ? <SaidBar className="mb-2" /> : null}
         {thread && isAway(thread) ? <AwayBar thread={thread} /> : null}
         {queue.length > 0 ? (
           <ul data-testid="auto-queue" aria-label="Waiting to go" className="mb-2 flex flex-col gap-1">
@@ -716,15 +702,15 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
 }
 
 /** The open thread: its header, the thread and the box, on one reading column. */
-export function ThreadPane({ narrow }: { narrow: boolean }) {
+export function ThreadPane() {
   // Once the thread is scrolled, a hairline parts it from the header it passes under.
   const [scrolled, setScrolled] = React.useState(false);
   const talk = React.useRef<HTMLDivElement>(null);
   return (
     <section data-testid="auto-thread" aria-label="Thread" className="flex min-w-0 flex-1 flex-col">
-      <ThreadHeader narrow={narrow} scrolled={scrolled} />
+      <ThreadHeader scrolled={scrolled} />
       <Talk scroller={talk} onScrolled={setScrolled} />
-      <Composer narrow={narrow} talk={talk} />
+      <Composer talk={talk} />
     </section>
   );
 }

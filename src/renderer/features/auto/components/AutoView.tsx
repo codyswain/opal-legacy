@@ -7,33 +7,12 @@ import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import { Button } from '@/renderer/shared/ui';
 import { MarkdownLinksContext, type MarkdownLinks } from '../markdown/Markdown';
 import { DIGEST_QUEUE } from '../model/pane';
-import { turnRuns } from '../model/threadModel';
 import { autoApi, signInProblem, useAutoStore } from '../store/autoStore';
 import { useSaidStore } from '../store/saidStore';
 import { useThreadStore } from '../store/threadStore';
-import { inField } from './focus';
 import { QueuePane } from './QueuePane';
-import { SnoozeDateDialog } from './SnoozeMenu';
-import { ThreadList } from './ThreadList';
+import { SnoozeDateHost } from './SnoozeMenu';
 import { ThreadPane } from './ThreadPane';
-
-/** Under this width of tab the list hides while a thread is open. */
-export const NARROW_WIDTH = 720;
-
-/** Whether the tab is narrower than the two columns need. A width not yet measured counts as wide. */
-function useNarrow(element: React.RefObject<HTMLElement>): boolean {
-  const [narrow, setNarrow] = React.useState(false);
-  React.useLayoutEffect(() => {
-    const target = element.current;
-    if (!target || typeof ResizeObserver === 'undefined') return;
-    const measure = (width: number) => setNarrow(width > 0 && width < NARROW_WIDTH);
-    measure(target.getBoundingClientRect().width);
-    const observer = new ResizeObserver((entries) => measure(entries[entries.length - 1].contentRect.width));
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [element]);
-  return narrow;
-}
 
 /**
  * The open thread's stream is followed only while the tab is in view. The
@@ -50,42 +29,6 @@ function useWatching(): void {
       useThreadStore.getState().setWatching(false);
     };
   }, []);
-}
-
-/**
- * The tab's own keys, while it is in front and the keyboard is in it (or
- * nowhere). Cmd+. stops the open thread's running turn. Cmd+Z takes back
- * his last action, newest first, while one is on offer; in a field that
- * holds text it is the field's own undo, and in an empty one it undoes the
- * action. O opens what the last action made, from a row or an entry. None
- * acts in the palette, a dialog or another part of the app.
- */
-function useTabKeys(frame: React.RefObject<HTMLElement>): void {
-  React.useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || event.shiftKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target !== document.body && !(target && frame.current?.contains(target))) return;
-      if (!(event.metaKey || event.ctrlKey)) {
-        // A single key, so only from a row or an entry, never from a field.
-        const onRow = !!target && (target.hasAttribute('data-auto-row') || target.hasAttribute('data-auto-entry'));
-        if (event.key.toLowerCase() === 'o' && onRow && useSaidStore.getState().open()) event.preventDefault();
-        return;
-      }
-      if (event.key === '.') {
-        const { view, stop } = useThreadStore.getState();
-        if (!turnRuns(view)) return;
-        event.preventDefault();
-        void stop();
-      } else if (event.key.toLowerCase() === 'z') {
-        // With text in the field Cmd+Z is the field's own; with none there is nothing of the field's to undo.
-        if (inField(target) && (target as HTMLInputElement | HTMLTextAreaElement).value !== '') return;
-        if (useSaidStore.getState().undo()) event.preventDefault();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [frame]);
 }
 
 /**
@@ -227,9 +170,10 @@ function Notice() {
 }
 
 /**
- * The Auto tab: a screen for a service that runs on another machine. The
- * list on the left, the open thread beside it, the box at the bottom. Opal
- * holds no sign-in and starts no run itself; it asks the service.
+ * The Auto tab: a screen for a service that runs on another machine. It
+ * shows one thing, picked in the sidebar's Threads: the open thread, the
+ * digest's queue, a new thread, or the address form. Opal holds no sign-in
+ * and starts no run itself; it asks the service.
  */
 export function AutoView() {
   const configured = useAutoStore((state) => state.configured);
@@ -237,11 +181,8 @@ export function AutoView() {
   const editing = useAutoStore((state) => state.editing);
   const loaded = useAutoStore((state) => state.loaded);
   const openId = useThreadStore((state) => state.openId);
-  const frame = React.useRef<HTMLDivElement>(null);
-  const narrow = useNarrow(frame);
   const links = useLinks();
   useWatching();
-  useTabKeys(frame);
 
   let body: React.ReactNode = null;
   if (configured && (!address || editing)) body = <AddressForm />;
@@ -251,17 +192,16 @@ export function AutoView() {
       <MarkdownLinksContext.Provider value={links}>
         <Notice />
         <div className="flex min-h-0 flex-1">
-          {!narrow || openId === null ? <ThreadList narrow={narrow} /> : null}
-          {/* One pane beside the list: a thread, or the digest's queue. Narrow, either one hides the list. */}
-          {narrow && openId === null ? null : openId === DIGEST_QUEUE ? <QueuePane narrow={narrow} /> : <ThreadPane narrow={narrow} />}
+          {/* One pane: a thread, a new thread, or the digest's queue. */}
+          {openId === DIGEST_QUEUE ? <QueuePane /> : <ThreadPane />}
         </div>
-        <SnoozeDateDialog />
+        <SnoozeDateHost />
       </MarkdownLinksContext.Provider>
     );
   }
   return (
     // The palette, closed with Escape, hands the keyboard back to where it was opened from in here.
-    <div ref={frame} data-testid="auto" data-palette-return data-narrow={narrow || undefined} className="flex h-full min-w-0 flex-col">
+    <div data-testid="auto" data-palette-return data-auto-keys className="flex h-full min-w-0 flex-col">
       {body}
     </div>
   );

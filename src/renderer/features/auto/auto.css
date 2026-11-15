@@ -247,20 +247,6 @@
   padding-right: 10px;
 }
 
-/*
- * The list keeps its scrollbar's gutter at all times too, and the rows
- * pinned above it and the line under it leave the same 10px, so every row
- * is one width whether or not the list scrolls. With no scrollbar the
- * gutter is the list's right-hand padding, 2px short of the left's.
- */
-.auto-list-rows {
-  scrollbar-gutter: stable;
-}
-
-.auto-beside-list {
-  padding-right: 10px;
-}
-
 .auto-column {
   box-sizing: border-box;
   width: 100%;
@@ -335,6 +321,45 @@
 }
 
 /* Where a dragged row would land. */
+/*
+ * Threads' rows scroll in the sidebar. The scrollbar's gutter is always
+ * kept and is the sidebar's own inset, so no row moves when the rows start
+ * to scroll, in either look. A cut edge fades: the bottom while more is
+ * below, the top once scrolled.
+ */
+.auto-threads-scroll {
+  scrollbar-gutter: stable;
+}
+
+.auto-threads-scroll::-webkit-scrollbar {
+  width: var(--sidebar-inset);
+}
+
+.auto-threads-scroll[data-fade-y='bottom'] {
+  mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent);
+}
+
+.auto-threads-scroll[data-fade-y='top'] {
+  mask-image: linear-gradient(to top, black calc(100% - 1.5rem), transparent);
+}
+
+.auto-threads-scroll[data-fade-y='both'] {
+  mask-image: linear-gradient(to bottom, transparent, black 1.5rem, black calc(100% - 1.5rem), transparent);
+}
+
+/*
+ * A row's actions show over its time, or over the end of its title when the
+ * time is shorter than they are. The first line fades out under them, so they
+ * sit on the row's own fill and the words do not show through.
+ * `--auto-row-hide` (set on the row) is how far in from the line's end they
+ * reach.
+ */
+.auto-row:hover .auto-row-line,
+.auto-row:has([data-auto-row]:focus-visible) .auto-row-line,
+.auto-row:has([data-state='open']) .auto-row-line {
+  mask-image: linear-gradient(to left, transparent var(--auto-row-hide), black calc(var(--auto-row-hide) + 0.75rem));
+}
+
 .auto-row[data-drop='above']::before,
 .auto-row[data-drop='below']::after {
   content: "";

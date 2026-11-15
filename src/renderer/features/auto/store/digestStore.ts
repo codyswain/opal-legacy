@@ -488,8 +488,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     },
 
     handle: (message) => {
-      // With no tab open nobody looks at the digest: it is read when one opens.
-      if (message.token !== useAutoStore.getState().listToken || !useAutoStore.getState().tabOpen) return;
+      // The sidebar's Digest row says how many entries are left, so the digest is followed with or without a tab.
+      if (message.token !== useAutoStore.getState().listToken) return;
       if (message.type !== 'event' || message.stream !== 'list' || message.event.kind !== 'digest') return;
       const { date } = message.event;
       const { latest, past } = get();
@@ -502,15 +502,15 @@ export const useDigestStore = create<DigestStore>((set, get) => {
   };
 });
 
-// The digest follows the list: read again whenever the list is (the tab
-// opening, a reset, a reconnect), and forgotten with the address it came from.
+// The digest follows the list: read again whenever the list is (launch,
+// the tab opening, a reset, a reconnect), and forgotten with the address it came from.
 useAutoStore.subscribe((state, before) => {
   if (state.address !== before.address) {
     unconfirmedEntries.clear();
     unconfirmedDays.clear();
     useDigestStore.setState({ latest: null, status: 'unknown', days: [], archivedDays: [], past: null, filter: 'left', opened: null, words: {}, notSent: null, failed: null, focusEntry: null, noteWanted: null, boxWanted: null });
   }
-  // Read while a tab is open: when the list is read, and when the tab opens on a list read before.
+  // Read whenever the list is, tab or no tab: the sidebar's Digest row counts what is left. And when the tab opens.
   const read = state.refreshedAt !== before.refreshedAt || (state.tabOpen && !before.tabOpen);
-  if (read && state.reachable && state.tabOpen) void useDigestStore.getState().refresh();
+  if (read && state.reachable) void useDigestStore.getState().refresh();
 });

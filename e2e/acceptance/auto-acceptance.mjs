@@ -3,31 +3,33 @@
 // It never contacts any other host and starts no agent.
 //
 // One run per look (version A and B of the roomy variant), each with its own
-// stand-in, temp profile and temp vault: the address form, can't reach with
-// Retry, the list, a thread opening with its history, a vault link opening a
-// page, a follow-up clicked, a reply streaming in with steps above it, a
+// stand-in, temp profile and temp vault: the sidebar (Daily, Threads and
+// Library, no Recent row), the address form from Connect Auto…, can't reach
+// with Retry, the list in Threads, a thread opening with its history, a vault link opening a
+// page, the thread picked in the sidebar with that page in front, the tab's
+// name, a follow-up clicked, a reply streaming in with steps above it, a
 // message queued and Stop, a question answered, a permission allowed, a
-// question answered from its row, snooze and back, a drag to reorder,
+// waiting row with no answer buttons, snooze and back, a drag to reorder,
 // archive, a new thread, a digest entry handed to Auto, a failed post, a
-// send waiting on the phone, signed out, the narrow layout and the empty
-// list. Then the mark for the Mac (set from a row's menu, ended by a reply
+// send waiting on the phone, signed out, a narrow window, the sidebar hidden
+// with the clearing loop and Cmd+Z, the headings folded and kept across a
+// reload, and the empty list. Then the mark for the Mac (set from a row's menu, ended by a reply
 // from another client, taken off) and the digest as a queue: resolve one
 // with Undo, resolve all in a section, a thread that waits, a note written
 // and removed, a drafted reply copied, words that start a thread, All, a
 // change made on another device, an earlier day, and the three empty
 // states. Then what makes it a tab to work in: the open thread's own
-// actions with Undo at the foot of the list, the box as the answer field,
+// actions with Undo at the foot of the sidebar, the box as the answer field,
 // his place kept across threads and tabs, a thread opened out of reach that
 // loads by itself, a slow network, the sidebar's count with no Auto tab
 // open, a pass with the keyboard alone, and the page laid out at 1700 x
 // 1000 with the right sidebar shown and hidden. Then what is his: a send he
 // is asked to allow, refused from its card and with typed words; a "Your
-// move" row; an unread thread lifted under the questions; a row's answer
-// held and taken back; keys 1 to 3; three archives taken back one by one
+// move" row; an unread thread lifted under the questions; three archives taken back one by one
 // with Cmd+Z while their posts are still on the way; Cmd+Z from an empty
 // box; the last entry of the queue opened and in view; and a long message
 // typed at the end of a thread. Then what is put away: the three lines at
-// the foot of the list, the archive read when its line opens and a thread
+// the foot of Threads, the archive read when its line opens and a thread
 // brought back from it four ways, a thread waiting on a reply (what was
 // heard, the reply, "Until a reply" from the snooze menu, nobody replying),
 // the digest archived and brought back, how long a thread has been
@@ -57,6 +59,8 @@ const outDir = path.resolve(flag('out', path.join('e2e', 'out', 'auto')));
 const SIDES = flag('sides', 'a,b').split(',');
 const WIDTH = 1500;
 const HEIGHT = 933;
+/** Under the shell's medium breakpoint: the sidebar becomes an overlay. */
+const NARROW = 760;
 
 const results = [];
 let side = 'a';
@@ -140,15 +144,17 @@ async function tour() {
 
   const wait = (ms) => page.waitForTimeout(ms);
   const auto = page.getByTestId('auto');
-  // The sidebar's row; its name gains the count of threads that wait.
-  const sidebarRow = page.getByTestId('workspace-sidebar').getByRole('button', { name: /^Auto/ });
+  // The sidebar's Threads: its heading, with the count of threads that wait on him, and the row that connects Auto.
+  const threadsHeading = page.getByTestId('sidebar-fold-threads');
+  const connectRow = page.getByTestId('auto-connect');
+  const newThread = page.getByTestId('auto-new-thread');
+  const headingCount = async () => ((await page.getByTestId('auto-count').textContent().catch(() => '')) ?? '');
   const row = (id) => page.getByTestId(`auto-row-${id}`);
   const box = page.getByTestId('auto-box');
   const talk = page.getByTestId('auto-talk');
   const rowIds = () => page.locator('[data-testid="auto-list"] [data-thread-id]').evaluateAll((rows) => rows.map((element) => element.getAttribute('data-thread-id')));
   /** The rows of one group of the list: `needs` (waiting on him), `fresh` (new to him) or `rest` (his order). */
   const groupIds = (group) => page.locator(`[data-testid="auto-group-${group}"] [data-thread-id]`).evaluateAll((rows) => rows.map((element) => element.getAttribute('data-thread-id')));
-  const summary = async () => ((await page.getByTestId('auto-summary').textContent().catch(() => '')) ?? '');
   const say = async (text) => {
     await box.click();
     await box.fill(text);
@@ -174,7 +180,7 @@ async function tour() {
   const fromPhone = (path, body) => fetch(`${service.url}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auto-Client': 'phone' }, body: JSON.stringify(body) });
   const digestRow = page.getByTestId('auto-digest-row');
   /** The Digest row's first line: its name and how much is left. */
-  const digestSays = () => digestRow.evaluate((element) => (element.textContent ?? '').replace(element.querySelector('[data-testid="auto-digest-line"]')?.textContent ?? '\u0000', ''));
+  const digestSays = () => digestRow.evaluate((element) => element.textContent ?? '');
   /** The line at the foot of the list that says what the last action did. */
   const said = page.getByTestId('auto-said');
   /** What holds the keyboard: a row's or an entry's id, a test id, or the tag. */
@@ -187,7 +193,7 @@ async function tour() {
   const needsHim = () => service.entries().filter((thread) => !thread.snoozed && (thread.status === 'waiting' || thread.unread || thread.woke || (thread.yours && thread.status === 'idle' && !thread.waits))).length;
   /** What the line at the foot of the list says, as one string. */
   const saidText = async () => ((await said.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ');
-  const sidebarSays = async (count) => ((await sidebarRow.textContent()) ?? '') === (count > 0 ? `Auto${count}` : 'Auto');
+  const sidebarSays = async (count) => (await headingCount()) === (count > 0 ? String(count) : '');
   /** Whether a pane's header, its scrolling part and what is under it hold one column: the same left and right edges. */
   const oneColumn = (pane) => page.evaluate((id) => {
     const columns = [...document.querySelectorAll(`[data-testid="${id}"] .auto-column`)].map((column) => column.getBoundingClientRect()).filter((box) => box.width > 0);
@@ -233,10 +239,14 @@ async function tour() {
   const archivedReads = () => service.requests.filter((request) => request.method === 'GET' && request.path.startsWith('/api/threads?archived=1')).map((request) => request.path);
   /** A time as the lines say it, seen from today: the clock, "tomorrow" and the clock, a weekday, or a date. */
   const WHEN = '(?:tomorrow |[A-Z][a-z]{2} |[A-Z][a-z]{2} \\d{1,2} )?\\d{1,2}:\\d{2} [ap]m';
+  /** The Auto tab in front: its pill if it is open, else the sidebar's New thread button opens it. */
   const toAuto = async () => {
-    await sidebarRow.click();
+    if ((await page.getByTestId('tab-auto').count()) === 1) await page.getByTestId('tab-auto').click();
+    else await newThread.click();
     await auto.waitFor({ timeout: 10_000 });
   };
+  /** The name the Auto tab's pill shows. */
+  const tabName = async () => ((await page.getByTestId('tab-label-auto').textContent().catch(() => '')) ?? '').trim();
   async function setTheme(theme) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
     await page.evaluate((resolved) => {
@@ -273,10 +283,17 @@ async function tour() {
   try {
     console.log(`root data-roomy: ${(await page.evaluate(() => document.documentElement.getAttribute('data-roomy'))) ?? '(none)'}`);
 
-    // --- The sidebar row opens one tab, with the address form.
-    await sidebarRow.click();
+    // --- The sidebar: Daily, Threads and Library, with no Recent or Auto row.
+    const sidebar = page.getByTestId('workspace-sidebar');
+    check('the Recent and Auto rows are gone from the sidebar', (await sidebar.getByRole('button', { name: /^Recent/ }).count()) === 0 && (await sidebar.getByRole('button', { name: /^Auto/ }).count()) === 0 && (await sidebar.getByRole('button', { name: /^Daily/ }).count()) === 1);
+    check('Threads sits above Library', await page.evaluate(() => {
+      const top = (id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? -1;
+      return top('sidebar-threads') >= 0 && top('sidebar-library') > top('sidebar-threads');
+    }));
+    // --- With no address, Threads offers Connect Auto…, which opens one tab with the address form.
+    await connectRow.click();
     await page.getByTestId('auto-address-form').waitFor({ timeout: 15_000 });
-    check('the Auto row opens a tab with the address form', (await page.getByTestId('tab-auto').count()) === 1);
+    check('Connect Auto… opens a tab with the address form', (await page.getByTestId('tab-auto').count()) === 1);
     const address = page.getByRole('textbox', { name: 'Address' });
     await address.fill('http://host.example/agent');
     await address.press('Enter');
@@ -293,7 +310,8 @@ async function tour() {
     check('the address is kept in auto.json in the profile', stored.version === 1 && stored.url === service.url, JSON.stringify(stored));
     await shot(2, 'cant-reach');
     service.down(false);
-    await page.getByRole('button', { name: 'Retry' }).click();
+    check('out of reach, Threads has one line and Retry', (await page.getByTestId('auto-out-of-reach').count()) === 1 && (await page.getByTestId('auto-retry').count()) === 1);
+    await auto.getByRole('button', { name: 'Retry' }).click();
     await page.getByTestId('auto-list').waitFor({ timeout: 15_000 });
     check('Retry reads the list once the service answers', await until(async () => (await rowIds()).length === 7));
 
@@ -301,7 +319,9 @@ async function tour() {
     const first = await rowIds();
     check('threads that wait on him come first, then what is new to him, then the rest in the service’s order', first.join() === [BEDS, SEEDS, TRELLIS, BREAD, COMPOST, INSPECTION, BARREL].join(), first.join());
     check('an unread thread and one back from snooze are lifted under the questions', (await groupIds('needs')).join() === BEDS && (await groupIds('fresh')).join() === [SEEDS, TRELLIS].join() && (await groupIds('rest'))[0] === BREAD);
-    check('one quiet line under the Digest row says what the list holds', (await summary()) === '1 needs you, 2 new, 1 not started', await summary());
+    check('no line of counts: the Threads heading carries the one count', (await page.getByTestId('auto-summary').count()) === 0 && (await headingCount()) === '3', await headingCount());
+    check('a row with nothing for him is one line', (await row(BREAD).locator('[data-auto-row] > span').count()) === 1, String(await row(BREAD).locator('[data-auto-row] > span').count()));
+    check('a row that needs him has a second line', (await row(BEDS).locator('[data-auto-row] > span').count()) === 2 && (await row(INSPECTION).locator('[data-auto-row] > span').count()) === 2);
     check('a thread nobody has started says Not started', ((await row(INSPECTION).getByTestId('auto-not-started').textContent().catch(() => '')) ?? '') === 'Not started');
     // The icons that show on hover have their room kept, so the title is cut at the same place either way.
     const titleWidth = () => row(BREAD).locator('[data-auto-row] .truncate').first().evaluate((element) => Math.round(element.getBoundingClientRect().width * 10) / 10);
@@ -311,11 +331,17 @@ async function tour() {
     check('hovering a row leaves its title as wide as it was', (await titleWidth()) === widthAtRest && (await row(BREAD).evaluate((element) => {
       const title = element.querySelector('[data-auto-row] .truncate')?.getBoundingClientRect();
       const icons = [...element.querySelectorAll('button[data-testid^="auto-snooze-"], button[data-testid^="auto-archive-"]')].map((button) => button.getBoundingClientRect());
-      return !!title && icons.length === 2 && icons.every((icon) => icon.left >= title.right - 0.5);
+      const line = element.querySelector('.auto-row-line');
+      // The icons sit at the row's end, over the time or the end of the title, which fades out under them.
+      return !!title && !!line && icons.length === 2 && getComputedStyle(line).maskImage.includes('gradient');
     })), `${widthAtRest} -> ${await titleWidth()}`);
+    check('a row with no time gives its title the room: the time’s slot is no wider than the time', await row(INSPECTION).evaluate((element) => {
+      const slot = element.querySelector('[data-auto-row] .tabular-nums');
+      return !!slot && slot.getBoundingClientRect().width < 1;
+    }));
     await page.mouse.move(WIDTH - 20, HEIGHT - 12);
     await shot(43, 'list-his');
-    check('a waiting row shows its question and answer buttons', (await row(BEDS).getByRole('button', { name: 'Cedar' }).count()) === 1 && ((await row(BEDS).textContent()) ?? '').includes('Which wood for the frames?'));
+    check('a waiting row shows its question, with no answer buttons', (await row(BEDS).getByRole('button', { name: 'Cedar' }).count()) === 0 && ((await row(BEDS).textContent()) ?? '').includes('Which wood for the frames?'));
     check('an unread row has a dot', (await row(SEEDS).getByRole('img', { name: 'Unread' }).count()) === 1);
     check('a thread back from snooze says Back and when', /Back \d/.test((await row(TRELLIS).textContent()) ?? ''));
     check('a failed row says so', ((await row(COMPOST).textContent()) ?? '').includes('Failed: The turn ended early'));
@@ -327,17 +353,17 @@ async function tour() {
       return waiting > lastRow && snoozed > waiting && archived > snoozed;
     }), `${await textOf('auto-waiting-line')} | ${await textOf('auto-snoozed-line')} | ${await textOf('auto-archived-line')}`);
     check('none of them is open, and nothing of the archive has been read', (await page.locator('[data-testid="auto-waiting"], [data-testid="auto-snoozed"], [data-testid="auto-archived"]').count()) === 0 && archivedReads().length === 0);
-    check('the sidebar row counts the threads that wait on him, the ones with an unread reply and the ones back from snooze', (await sidebarSays(needsHim())) && needsHim() === 3, await sidebarRow.textContent());
+    check('the Threads heading counts the threads that wait on him, the ones with an unread reply and the ones back from snooze', (await sidebarSays(needsHim())) && needsHim() === 3, await headingCount());
 
     // --- The mark for the Mac: set from a row's menu, first under its own heading, ended by the service.
     const marked = page.getByTestId('auto-group-desk');
     await fromMenu(BEDS, 'Mark for the Mac');
-    check('a marked thread is first, under "For the Mac", and still shows its question and buttons', await until(async () => (await rowIds())[0] === BEDS && (await marked.getByRole('heading', { name: 'For the Mac' }).count()) === 1 && (await marked.getByRole('button', { name: 'Cedar' }).count()) === 1 && ((await marked.textContent()) ?? '').includes('Which wood for the frames?')));
+    check('a marked thread is first, under "For the Mac", and still shows its question', await until(async () => (await rowIds())[0] === BEDS && (await marked.getByRole('heading', { name: 'For the Mac' }).count()) === 1 && ((await marked.textContent()) ?? '').includes('Which wood for the frames?')));
     check('the service has the mark, set by Opal', service.thread(BEDS)?.desk?.by === 'opal' && posts(`/api/threads/${BEDS}/desk`).at(-1)?.on === true);
-    check('a marked thread that waits still counts in the sidebar', (await sidebarSays(needsHim())) && needsHim() === 3, await sidebarRow.textContent());
+    check('a marked thread that waits still counts in the sidebar', (await sidebarSays(needsHim())) && needsHim() === 3, await headingCount());
     await fromMenu(TRELLIS, 'Mark for the Mac');
     await until(async () => (await marked.locator('[data-thread-id]').count()) === 2);
-    check('a marked row carries a small sign', (await row(TRELLIS).getByTestId('auto-desk-sign').count()) === 1 && (await row(BREAD).getByTestId('auto-desk-sign').count()) === 0);
+    check('both marked rows are under the heading', (await marked.locator('[data-thread-id]').evaluateAll((rows) => rows.map((element) => element.getAttribute('data-thread-id')))).sort().join() === [BEDS, TRELLIS].sort().join());
     await shot(19, 'for-the-mac');
     await fromPhone(`/api/threads/${TRELLIS}/messages`, { text: 'Picked up on the phone', cid: 'p1' });
     check('a reply from another device ends the mark', await until(async () => service.thread(TRELLIS)?.desk === null && (await marked.locator('[data-thread-id]').count()) === 1));
@@ -364,10 +390,15 @@ async function tour() {
 
     // --- A vault file named in a reply opens as a page, in its own tab.
     await talk.locator('[data-vault-path="Recipes/Bread.md"]').first().click();
-    check('a vault link in a reply opens the page in Opal', await until(async () => (await page.getByTestId(`tab-${path.join(vault, 'Recipes/Bread.md')}`).count()) === 1));
-    await sidebarRow.click();
+    const breadTab = page.getByTestId(`tab-${path.join(vault, 'Recipes/Bread.md')}`);
+    check('a vault link in a reply opens the page in Opal', await until(async () => (await breadTab.count()) === 1 && (await breadTab.getAttribute('aria-selected')) === 'true'));
+    // With the page in front, a thread picked in the sidebar shows in the one Auto tab, and the page keeps its tab.
+    check('with the page in front no thread row is marked as open', (await row(BREAD).locator('[data-auto-row]').getAttribute('aria-current')) === null);
+    await row(BREAD).locator('[data-auto-row]').click();
     await talk.waitFor({ timeout: 10_000 });
-    check('the Auto row goes back to the one tab', (await page.getByTestId('tab-auto').count()) === 1 && (await page.getByTestId('tab-auto').getAttribute('aria-selected')) === 'true');
+    check('a thread picked in the sidebar with a page in front goes to the one Auto tab and keeps the page', (await page.getByTestId('tab-auto').count()) === 1 && (await page.getByTestId('tab-auto').getAttribute('aria-selected')) === 'true' && (await breadTab.count()) === 1 && (await page.getByTestId('auto-thread').count()) === 1);
+    check('the open thread’s row is marked', (await row(BREAD).locator('[data-auto-row]').getAttribute('aria-current')) === 'true');
+    check('the Auto tab is named after the thread it shows', (await tabName()) === 'Sourdough timings', await tabName());
 
     // --- A follow-up, clicked, is sent as his message, and the reply streams in.
     await page.getByTestId('auto-next').getByRole('button', { name: 'Scale it to two loaves' }).click();
@@ -584,7 +615,7 @@ async function tour() {
     await say('Write a note for the club');
     await atRest(BREAD);
     check('a thread whose next move is his says "Your move" on its row', await until(async () => ((await row(BREAD).getByTestId('auto-yours').textContent().catch(() => '')) ?? '') === 'Your move: Read the note and send it to the club') && (await row(BREAD).getByRole('button', { name: /move|send/i }).count()) === 1);
-    check('it counts in the sidebar and in the line over the list, and is not a follow-up button', await until(async () => sidebarSays(needsHim())) && /^\d need you|^1 needs you/.test(await summary()) && (await page.getByTestId('auto-next').getByRole('button').allTextContents()).join('|') === 'Make it shorter', await summary());
+    check('it counts in the Threads heading, and is not a follow-up button', await until(async () => sidebarSays(needsHim())) && (await page.getByTestId('auto-next').getByRole('button').allTextContents()).join('|') === 'Make it shorter', await headingCount());
     await page.getByTestId('auto-new-thread').click();
     await shot(45, 'your-move');
     await row(BREAD).click();
@@ -592,31 +623,18 @@ async function tour() {
     await atRest(BREAD);
     check('the line goes when the thread moves on', await until(async () => (await row(BREAD).getByTestId('auto-yours').count()) === 0));
 
-    // --- A question answered from its row: held a few seconds with Undo, then posted.
+    // --- A question waits on its row as words only: it is answered in the thread.
     const bedsHeight = () => row(BEDS).evaluate((element) => Math.round(element.getBoundingClientRect().height));
     const heightBefore = await bedsHeight();
+    check('a waiting row has no answer buttons, open or not', (await row(BEDS).getByRole('button', { name: /Cedar|Larch/ }).count()) === 0);
     await row(BEDS).locator('[data-auto-row]').click();
     await until(async () => (await row(BEDS).locator('[aria-current]').count()) === 1);
     check('a waiting row keeps its height while it is open, so the rows under it stay put', (await bedsHeight()) === heightBefore, `${heightBefore} -> ${await bedsHeight()}`);
+    await card.waitFor({ timeout: 10_000 });
+    await card.getByRole('button', { name: /Cedar/ }).click();
+    check('the open thread’s card answers it', await until(async () => service.thread(BEDS)?.status !== 'waiting' && Object.values(posts(`/api/threads/${BEDS}/answer`).at(-1)?.answers ?? {})[0] === 'Cedar', 10_000), JSON.stringify(posts(`/api/threads/${BEDS}/answer`).at(-1)));
     await row(BREAD).click();
     await until(async () => (await row(BREAD).locator('[aria-current]').count()) === 1);
-    for (const theme of ['light', 'dark']) {
-      await row(BEDS).getByRole('button', { name: 'Larch' }).click();
-      check(`a row’s answer is held with Undo before it is posted (${theme})`, await until(async () => ((await row(BEDS).getByTestId('auto-row-held').textContent().catch(() => '')) ?? '') === 'Larch' && (await saidText()) === 'Raised bed plan, LarchUndo') && posts(`/api/threads/${BEDS}/answer`).length === 0);
-      check(`after a click on a row’s answer the keyboard is on that row (${theme})`, await until(async () => (await focused()) === BEDS, 2_000), await focused());
-      await shot(48, 'undo-row-answer', null, [theme]);
-      await said.getByRole('button', { name: 'Undo' }).click();
-      check(`Undo takes it back before it has gone (${theme})`, await until(async () => (await row(BEDS).getByTestId('auto-row-held').count()) === 0 && (await row(BEDS).getByRole('button', { name: 'Larch' }).count()) === 1 && (await said.count()) === 0));
-    }
-    await wait(4_500);
-    check('an answer taken back is never posted', posts(`/api/threads/${BEDS}/answer`).length === 0 && service.thread(BEDS)?.status === 'waiting');
-    // 1 to 3 pick on a focused waiting row.
-    await row(BEDS).locator('[data-auto-row]').focus();
-    await key('3');
-    check('a number past the options picks nothing', (await row(BEDS).getByTestId('auto-row-held').count()) === 0);
-    await key('1');
-    check('1 picks the first option on a focused waiting row, held first', await until(async () => ((await row(BEDS).getByTestId('auto-row-held').textContent().catch(() => '')) ?? '') === 'Cedar') && posts(`/api/threads/${BEDS}/answer`).length === 0);
-    check('once the hold is over the answer goes, and Undo with it', await until(async () => service.thread(BEDS)?.status !== 'waiting' && Object.values(posts(`/api/threads/${BEDS}/answer`).at(-1)?.answers ?? {})[0] === 'Cedar' && (await said.count()) === 0, 10_000));
     check('the sidebar count follows: what waits, what is unread and what is his move', await until(async () => sidebarSays(needsHim())));
     await atRest(BEDS);
     check('its reply, not yet read, lifts it under the questions', await until(async () => (await groupIds('fresh')).includes(BEDS)));
@@ -641,9 +659,10 @@ async function tour() {
     await page.getByTestId('auto-snooze-menu').getByRole('menuitem', { name: /^Tomorrow/ }).click();
     check('a snoozed thread leaves the list', await until(async () => !(await rowIds()).includes(SEEDS) && service.thread(SEEDS)?.snoozed > Date.now() / 1000));
     check('the foot of the list says what the snooze did in the phone’s words, and offers Undo', await until(async () => (await saidText()) === 'Snoozed until tomorrow 9:00 am.Undo'), await saidText());
+    // At the sidebar's width the sentence may take two lines, never cut.
     check('the sentence is whole in the line', await said.evaluate((element) => {
       const what = element.querySelector('[data-testid="auto-said-what"]');
-      return !!what && what.scrollWidth <= what.clientWidth + 1 && what.getBoundingClientRect().height < 24;
+      return !!what && what.scrollWidth <= what.clientWidth + 1 && what.getBoundingClientRect().height < 44 && what.textContent === 'Snoozed until tomorrow 9:00 am.';
     }));
     await shot(25, 'undo-snooze');
     await said.getByRole('button', { name: 'Undo' }).click();
@@ -723,10 +742,11 @@ async function tour() {
     await page.getByTestId(`auto-archive-${BARREL}`).click();
     check('Archive takes a thread out of the list', await until(async () => !(await rowIds()).includes(BARREL) && service.thread(BARREL)?.archived === true));
     check('the foot of the list names what was archived, with Undo, and nothing shows in the corner', await until(async () => /^Archived: Rain barrelUndo(\d more)?$/.test(await saidText())) && (await page.locator('[data-sonner-toast]').count()) === 0, await saidText());
-    check('the line sits inside the list column', await page.evaluate(() => {
+    check('the line sits at the foot of the sidebar, under Library and inside its edges', await page.evaluate(() => {
       const bar = document.querySelector('[data-testid="auto-said"]')?.getBoundingClientRect();
-      const list = document.querySelector('[data-testid="auto-list"]')?.getBoundingClientRect();
-      return !!bar && !!list && bar.left >= list.left && bar.right <= list.right && bar.bottom <= list.bottom;
+      const sidebar = document.querySelector('[data-testid="workspace-sidebar"]')?.getBoundingClientRect();
+      const library = document.querySelector('[data-testid="sidebar-library"]')?.getBoundingClientRect();
+      return !!bar && !!sidebar && !!library && bar.left >= sidebar.left && bar.right <= sidebar.right && bar.top >= library.bottom - 1 && bar.bottom <= sidebar.bottom;
     }));
     await shot(28, 'undo-archive');
     await said.getByRole('button', { name: 'Undo' }).click();
@@ -891,7 +911,8 @@ async function tour() {
 
     // --- A new thread.
     /** The row of the pane that is open: a thread's id, or the name of New thread or Digest. */
-    const openRow = () => page.evaluate(() => document.querySelector('[data-testid="auto-list"] [aria-current]')?.getAttribute('data-row-id') ?? '');
+    // New thread is the button beside the Threads heading, pressed while the empty thread shows.
+    const openRow = () => page.evaluate(() => document.querySelector('[data-testid="auto-list"] [aria-current]')?.getAttribute('data-row-id') ?? (document.querySelector('[data-testid="auto-new-thread"][aria-pressed="true"]') ? ':new' : ''));
     await page.getByTestId('auto-new-thread').click();
     check('New thread opens an empty thread with the box focused', await until(async () => (await openRow()) === ':new' && (await focused()) === 'auto-box') && ((await talk.textContent()) ?? '') === '', `${await openRow()} ${await focused()}`);
     await shot(11, 'new-thread');
@@ -906,14 +927,13 @@ async function tour() {
     // --- Done, undone: the entry it resolved is open again.
     const entryState = (id) => service.digest()?.sections.flatMap((section) => section.entries).find((each) => each.id === id)?.state;
     const resolvesBefore = posts('/api/digest/resolve').length;
-    check('before Done the entry the inspection thread came from is not resolved', entryState('item-2') === 'thread' && (await textOf('auto-digest-line')) === 'Fri Nov 13. 10 entries, 1 resolved.', `${entryState('item-2')} | ${await textOf('auto-digest-line')}`);
-    await row(INSPECTION).hover();
-    await page.getByTestId(`auto-done-${INSPECTION}`).click();
-    check('Done archives the thread and resolves its entry, and the line names it', await until(async () => service.thread(INSPECTION)?.archived === true && entryState('item-2') === 'resolved' && (await saidText()) === 'Done: Book the allotment inspectionUndo' && (await textOf('auto-digest-line')) === 'Fri Nov 13. 10 entries, 2 resolved.'), `${await saidText()} | ${await textOf('auto-digest-line')}`);
+    check('before Done the entry the inspection thread came from is not resolved', entryState('item-2') === 'thread', String(entryState('item-2')));
+    await fromMenu(INSPECTION, 'Done');
+    check('Done archives the thread and resolves its entry, and the line names it', await until(async () => service.thread(INSPECTION)?.archived === true && entryState('item-2') === 'resolved' && (await saidText()) === 'Done: Book the allotment inspectionUndo'), await saidText());
     await shot(68, 'undo-done');
     await said.getByRole('button', { name: 'Undo' }).click();
     check('Undo brings the thread back', await until(async () => service.thread(INSPECTION)?.archived === false && (await listedIds()).includes(INSPECTION)));
-    check('and opens its entry again: the undo also took the resolve back', await until(async () => entryState('item-2') === 'thread' && (await textOf('auto-digest-line')) === 'Fri Nov 13. 10 entries, 1 resolved.') && JSON.stringify(posts('/api/digest/resolve').slice(resolvesBefore)) === JSON.stringify([{ date: '2026-11-13', id: 'item-2', resolved: false }]), JSON.stringify(posts('/api/digest/resolve').slice(resolvesBefore)));
+    check('and opens its entry again: the undo also took the resolve back', await until(async () => entryState('item-2') === 'thread') && JSON.stringify(posts('/api/digest/resolve').slice(resolvesBefore)) === JSON.stringify([{ date: '2026-11-13', id: 'item-2', resolved: false }]), JSON.stringify(posts('/api/digest/resolve').slice(resolvesBefore)));
 
     // --- A digest entry nobody has started: its card, and Hand to Auto.
     await row(INSPECTION).click();
@@ -970,15 +990,19 @@ async function tour() {
     await say('One more thing about the beds');
     check('after the service restarts, the thread still streams', await until(async () => ((await talk.textContent()) ?? '').includes('One more thing about the beds') && service.thread(BREAD)?.status === 'idle' && ((await talk.locator('[data-testid="auto-message"]').last().textContent()) ?? '') === 'One more thing about the beds', 15_000));
 
-    // --- The narrow layout: under 720 px of tab the list hides while a thread is open.
-    await resize(1180, HEIGHT);
-    check('under 720 px the list hides while a thread is open', await until(async () => (await auto.getAttribute('data-narrow')) === 'true' && (await page.getByTestId('auto-list').count()) === 0 && (await page.getByTestId('auto-thread').count()) === 1));
+    // --- A narrow window: the sidebar is an overlay, the thread fills the tab, and a row picked there closes it.
+    const shell = page.getByTestId('app-shell');
+    await resize(NARROW, HEIGHT);
+    check('in a narrow window the thread fills the tab, with no list beside it and no narrow layout of its own', await until(async () => (await shell.getAttribute('data-layout')) === 'narrow' && (await page.getByTestId('auto-list').count()) === 0 && (await page.getByTestId('auto-thread').count()) === 1 && (await auto.getAttribute('data-narrow')) === null));
     await shot(15, 'narrow-thread');
-    await page.getByTestId('auto-back').click();
-    check('its back button shows the list alone', await until(async () => (await page.getByTestId('auto-list').count()) === 1 && (await page.getByTestId('auto-thread').count()) === 0));
-    await shot(16, 'narrow-list');
+    await page.getByRole('button', { name: 'Show sidebar' }).first().click();
+    await page.getByTestId('auto-list').waitFor({ timeout: 5_000 });
+    await shot(16, 'narrow-sidebar');
+    // The Digest row, so that no thread the slow-network checks need unseen is opened here.
+    await digestRow.click();
+    check('a row picked in the overlay shows in the tab, and the overlay closes', await until(async () => (await page.getByTestId('auto-list').count()) === 0 && (await page.getByTestId('auto-queue-pane').count()) === 1));
     await resize(WIDTH, HEIGHT);
-    await until(async () => (await auto.getAttribute('data-narrow')) === null);
+    await until(async () => (await shell.getAttribute('data-layout')) === 'wide');
 
     // --- The open thread's own actions: Archive, Snooze and "…" in its header.
     await row(COMPOST).click();
@@ -1082,7 +1106,7 @@ async function tour() {
     await fromPhone(`/api/threads/${TRELLIS}/messages`, { text: 'Send the timings table again', cid: 'p3' });
     await until(() => service.thread(TRELLIS)?.status === 'idle' && service.thread(TRELLIS)?.unread === true);
     check('a reply nobody has opened counts in the sidebar', await until(async () => sidebarSays(needsHim())) && needsHim() > 0);
-    check('a thread with an unread reply is lifted under the questions, newest first', await until(async () => (await groupIds('fresh'))[0] === TRELLIS && !(await groupIds('rest')).includes(TRELLIS)) && /\d new/.test(await summary()), `${(await groupIds('fresh')).join()} | ${await summary()}`);
+    check('a thread with an unread reply is lifted under the questions, newest first', await until(async () => (await groupIds('fresh'))[0] === TRELLIS && !(await groupIds('rest')).includes(TRELLIS)), (await groupIds('fresh')).join());
     check('the keyboard stays with a row that moves to another group', (await focused()) === TRELLIS, await focused());
     await page.evaluate(() => document.activeElement?.blur());
     await shot(46, 'unread-lifted');
@@ -1168,32 +1192,23 @@ async function tour() {
     await shot(73, 'refusal', null, ['light', 'dark'], false);
     service.failWrites(false);
 
-    // --- The box is one line when empty, also after the tab goes from narrow to two columns.
+    // --- The sidebar hidden: the clearing loop still works from the Auto tab, and Cmd+Z takes an action back.
     await row(BREAD).click();
-    await resize(1180, HEIGHT);
-    await until(async () => (await auto.getAttribute('data-narrow')) === 'true');
-    // Narrow: Escape in the box goes back to the list, with the keyboard on the row he came from.
-    await box.click();
-    await key('Escape');
-    check('Escape in the box goes back to the list, on the row he came from', await until(async () => (await page.getByTestId('auto-list').count()) === 1 && (await focused()) === BREAD));
-    await key('Enter');
-    await page.getByTestId('auto-thread').waitFor({ timeout: 5_000 });
-    // With the list hidden, what the last action did shows above the box.
+    await until(async () => (await tabName()) === 'Sourdough timings');
+    await page.getByRole('button', { name: 'Hide sidebar' }).first().click();
+    await until(async () => (await page.getByTestId('workspace-sidebar').count()) === 0);
+    check('with the sidebar hidden the thread, its header and its box are one column', (await oneColumn('auto-thread')) && new Set((await threadEdges()).slice(1)).size === 1, (await threadEdges()).join());
     await page.getByTestId('auto-archive-open').click();
-    check('narrow, the header, the thread and the box are still one column', (await oneColumn('auto-thread')) && new Set((await threadEdges()).slice(1)).size === 1, (await threadEdges()).join());
-    check('with the list hidden the line sits above the box, never over it', await until(() => page.evaluate(() => {
-      const bar = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-said"]')?.getBoundingClientRect();
-      const form = document.querySelector('[data-testid="auto-thread"] form')?.getBoundingClientRect();
-      return !!bar && !!form && bar.bottom <= form.top && bar.left >= form.left - 1 && bar.right <= form.right + 1;
-    })));
-    await shot(35, 'narrow-undo');
-    await said.getByRole('button', { name: 'Undo' }).click();
-    await until(() => service.thread(BREAD)?.archived === false);
-    await page.getByTestId('auto-back').click();
-    check('Back shows the list with the keyboard on the row he came from', await until(async () => (await page.getByTestId('auto-list').count()) === 1 && (await focused()) === BREAD));
-    await resize(WIDTH, HEIGHT);
-    await until(async () => (await auto.getAttribute('data-narrow')) === null);
-    check('the box is one line when empty after the tab widens', await until(async () => (await box.count()) === 1 && (await box.evaluate((element) => element.getBoundingClientRect().height)) < 40), String(await box.evaluate((element) => element.getBoundingClientRect().height).catch(() => -1)));
+    check('with the sidebar hidden, Archive opens the next thread, and the tab takes its name', await until(async () => service.thread(BREAD)?.archived === true && (await page.getByTestId('auto-thread').count()) === 1 && !['', 'Sourdough timings'].includes(await tabName()) && ((await page.getByTestId('auto-title').textContent().catch(() => '')) ?? '') === (await tabName())), await tabName());
+    const nextName = await tabName();
+    await shot(35, 'sidebar-hidden', null, ['light', 'dark'], false);
+    await page.evaluate(() => document.activeElement?.blur());
+    await key('Meta+z');
+    check('Cmd+Z takes the archive back with the sidebar hidden', await until(() => service.thread(BREAD)?.archived === false), String(service.thread(BREAD)?.archived));
+    check('and the thread comes back open, with the tab named after it', await until(async () => ((await page.getByTestId('auto-title').textContent().catch(() => '')) ?? '') === 'Sourdough timings' && (await tabName()) === 'Sourdough timings'), `${nextName} -> ${await tabName()}`);
+    await page.getByRole('button', { name: 'Show sidebar' }).first().click();
+    await page.getByTestId('auto-list').waitFor({ timeout: 5_000 });
+    check('the box is one line when empty', await until(async () => (await box.count()) === 1 && (await box.evaluate((element) => element.getBoundingClientRect().height)) < 40), String(await box.evaluate((element) => element.getBoundingClientRect().height).catch(() => -1)));
     await row(BREAD).click();
     // Wide: Escape in the box puts the keyboard on the open thread's row, and stops nothing.
     await box.click();
@@ -1203,9 +1218,10 @@ async function tour() {
     // --- The digest as a queue, beside the list where a thread would be.
     const DAY = '2026-11-13';
     const left = () => service.digest()?.left;
-    check('the Digest row is under New thread and says how much is left', (await digestSays()) === 'Digest8 left' && (await page.locator('[data-testid="auto-list"] [data-auto-row]').nth(1).getAttribute('data-testid')) === 'auto-digest-row');
-    check('the Digest row has a second line: the day, its entries and how many are resolved', ((await page.getByTestId('auto-digest-line').textContent()) ?? '') === 'Fri Nov 13. 10 entries, 1 resolved.');
+    check('the Digest row is the first row of Threads and says how much is left', (await digestSays()) === 'Digest8 left' && (await page.locator('[data-testid="auto-list"] [data-auto-row]').first().getAttribute('data-testid')) === 'auto-digest-row');
+    check('the Digest row is one line', (await digestRow.evaluate((element) => Math.round(element.getBoundingClientRect().height))) <= 32);
     await digestRow.click();
+    check('the Auto tab is named Digest while it shows the queue', await until(async () => (await tabName()) === 'Digest'), await tabName());
     await page.getByTestId('auto-queue-pane').waitFor({ timeout: 10_000 });
     check('the queue shows the day written out, Left and All with their counts', await until(async () => ((await page.getByTestId('auto-queue-day').textContent()) ?? '') === 'Friday, November 13' && ((await page.getByTestId('auto-queue-left').textContent()) ?? '') === 'Left8' && ((await page.getByTestId('auto-queue-all').textContent()) ?? '') === 'All10'));
     check('Left holds the open entries, in the file’s order, under their sections', (await entryIds()).join() === 'meeting-allotment-committee,item-1,item-3,person-robin-seed-swap,text-plots-3d20bff3,text-yesterday-5c1d2e3f,text-yesterday-a7b8c9d0,draft-1' && (await queue.getByRole('heading').allTextContents()).join() === 'Meetings,Top 3,People,Plots,Yesterday,Drafted replies');
@@ -1446,20 +1462,17 @@ async function tour() {
     await page.getByTestId('auto-queue-left').click();
     await until(async () => (await page.getByTestId('auto-queue-left').getAttribute('aria-pressed')) === 'true');
 
-    // The queue is a pane like a thread: narrow, it hides the list.
-    await resize(1180, HEIGHT);
-    await until(async () => (await auto.getAttribute('data-narrow')) === 'true' && (await page.getByTestId('auto-queue-pane').count()) === 1);
+    // The queue is a pane like a thread: in a narrow window it fills the tab, with the sidebar an overlay.
+    await resize(NARROW, HEIGHT);
+    await until(async () => (await page.getByTestId('app-shell').getAttribute('data-layout')) === 'narrow' && (await page.getByTestId('auto-queue-pane').count()) === 1);
     const arrowsNarrow = await arrows();
-    check('narrow, the back chevron is at the left and the day arrows at the right, never side by side', !!arrowsNarrow && arrowsNarrow.back > 0 && arrowsNarrow.earlier - arrowsNarrow.back > 200 && arrowsNarrow.menu >= 0 && arrowsNarrow.menu < 12 && arrowsNarrow.gap >= 0 && arrowsNarrow.gap <= 26, JSON.stringify(arrowsNarrow));
+    check('in a narrow window the day arrows and the menu stay together at the right of the queue’s header, with no back button', !!arrowsNarrow && arrowsNarrow.later > arrowsNarrow.earlier && arrowsNarrow.menu >= 0 && arrowsNarrow.menu < 12 && arrowsNarrow.gap >= 0 && arrowsNarrow.gap <= 26 && (await page.getByTestId('auto-back').count()) === 0, JSON.stringify(arrowsNarrow));
     // The keyboard is on Earlier day from the step before; the picture is of the header without its tooltip.
     await page.evaluate(() => document.activeElement?.blur());
     await shot(53, 'narrow-queue');
-    check('under 720 px the queue hides the list, and its back button returns to it', await until(async () => (await auto.getAttribute('data-narrow')) === 'true' && (await page.getByTestId('auto-list').count()) === 0 && (await page.getByTestId('auto-queue-pane').count()) === 1) && await (async () => {
-      await page.getByTestId('auto-back').click();
-      return until(async () => (await page.getByTestId('auto-list').count()) === 1 && (await page.getByTestId('auto-queue-pane').count()) === 0);
-    })());
+    check('in a narrow window the queue shows with no list beside it', (await page.getByTestId('auto-list').count()) === 0 && (await page.getByTestId('auto-queue-pane').count()) === 1);
     await resize(WIDTH, HEIGHT);
-    await until(async () => (await auto.getAttribute('data-narrow')) === null);
+    await until(async () => (await page.getByTestId('app-shell').getAttribute('data-layout')) === 'wide');
     await digestRow.click();
 
     // --- Away from the tab: with no Auto tab open the list's stream still keeps the sidebar's count true.
@@ -1473,7 +1486,7 @@ async function tour() {
     await until(async () => sidebarSays(needsHim()));
     const countBefore = needsHim();
     await fromPhone(`/api/threads/${BEDS}/messages`, { text: 'Which bed gets the leeks?', cid: 'p4' });
-    check('with no Auto tab open the sidebar still counts a thread that starts to wait', await until(async () => service.thread(BEDS)?.status === 'waiting' && needsHim() === countBefore + 1 && (await sidebarSays(countBefore + 1))), `${countBefore} -> ${needsHim()}, ${await sidebarRow.textContent()}`);
+    check('with no Auto tab open the sidebar still counts a thread that starts to wait', await until(async () => service.thread(BEDS)?.status === 'waiting' && needsHim() === countBefore + 1 && (await sidebarSays(countBefore + 1))), `${countBefore} -> ${needsHim()}, ${await headingCount()}`);
     check('no thread’s stream is open while no tab is, so the phone’s pings are not held back', !service.entries().some((thread) => (service.thread(thread.id)?.clients.size ?? 0) > 0));
 
     // --- With the keyboard alone: the tab from the palette, two entries cleared, two threads archived, a turn stopped.
@@ -1535,7 +1548,7 @@ async function tour() {
     await key('Escape');
     check('Escape from the queue puts the keyboard on the Digest row', await until(async () => (await focused()) === ':digest'));
 
-    // The list: one arrow sequence through New thread, Digest and every row.
+    // The list: one arrow sequence through Digest and every row. New thread is the button beside the heading.
     await key('ArrowDown');
     const [one, two, three, four] = await rowIds();
     check('Down from the Digest row is the first thread', (await focused()) === one && one === BEDS, `${await focused()} ${one}`);
@@ -1547,8 +1560,7 @@ async function tour() {
     await until(async () => (await focused()) === made.id);
     await key('Home');
     await key('ArrowDown');
-    await key('ArrowDown');
-    await until(async () => (await focused()) === one);
+    check('Home is the Digest row, and Down the first thread', await until(async () => (await focused()) === one, 2_000), await focused());
 
     // Three archives, taken back one by one with Cmd+Z while the service is slow: the first is undone before its post has landed.
     service.slow(700);
@@ -1620,7 +1632,8 @@ async function tour() {
     await key('Escape');
     check('Escape closes it and the keyboard is back on the row', await until(async () => (await page.getByTestId(`auto-row-menu-${mover}`).count()) === 0 && (await focused()) === mover), await focused());
     await key('Home');
-    check('Home is New thread', (await focused()) === ':new');
+    check('Home is the Digest row', (await focused()) === ':digest', await focused());
+    await newThread.focus();
     await key('Enter');
     check('Enter opens it with the caret in the box, which is empty', await until(async () => (await focused()) === 'auto-box') && (await box.inputValue()) === '');
     service.hold('stream');
@@ -1685,14 +1698,13 @@ async function tour() {
     check('while the keyboard walks the list its Tab stop goes with it', walkedTo !== BREAD && (await tabStops()) === walkedTo, `${walkedTo} | ${await tabStops()}`);
     await box.click();
     check('once the keyboard has left the list, its one Tab stop is the open thread’s row', await until(async () => (await tabStops()) === BREAD, 3_000), await tabStops());
-    // From the thread's title, the first thing in the pane, Shift+Tab goes back into the list.
-    await page.getByTestId('auto-title').focus();
-    let backIn = '';
-    for (let presses = 0; presses < 4 && !(await page.evaluate(() => document.activeElement?.hasAttribute('data-auto-row') ?? false)); presses += 1) {
-      await key('Shift+Tab');
-      backIn = await focused();
-    }
-    check('Shift+Tab back into the list lands on that row', backIn === BREAD, backIn);
+    // From New thread beside the Threads heading, Tab goes into the list, and Shift+Tab from the row after it comes back.
+    await newThread.focus();
+    await key('Tab');
+    const tabIn = await focused();
+    check('Tab from New thread into the list lands on that row', tabIn === BREAD, tabIn);
+    await key('Shift+Tab');
+    check('and Shift+Tab goes back to New thread', (await focused()) === ':new', await focused());
 
     // --- One reading column at every width: 1512 and 1700 wide, with the right sidebar shown and hidden.
     const rightSidebar = async (shown) => {
@@ -1723,42 +1735,124 @@ async function tour() {
       }
       await rightSidebar(true);
     }
-    // --- The list when it scrolls: its rows as wide as the rows pinned above them, a hairline under those, and its place.
+    // --- Threads when it scrolls: up to 70% of the room it shares with Library, all of it when Library is folded.
+    const listRows = page.getByTestId('auto-list-rows');
+    // The right edges of a row and of the Digest row's count, before Threads overflows and after.
+    const rowEnds = () => page.evaluate(() => {
+      const right = (selector) => Math.round((document.querySelector(selector)?.getBoundingClientRect().right ?? -1) * 10) / 10;
+      return `${right('[data-testid="auto-list-rows"] [data-thread-id]')} ${right('[data-testid="auto-digest-left"]')}`;
+    });
+    await hideLine('snoozed');
+    await hideLine('waiting');
+    await hideLine('archived');
+    // Tall enough that the rows fit in both looks, then short enough that they scroll.
+    await page.setViewportSize({ width: WIDTH, height: 1100 });
+    await wait(400);
+    await listRows.evaluate((element) => { element.scrollTop = 0; });
+    const edgesAtRest = await rowEnds();
+    const restOverflow = await listRows.evaluate((element) => element.scrollHeight - element.clientHeight);
     await page.setViewportSize({ width: WIDTH, height: 520 });
     await wait(400);
-    const listRows = page.getByTestId('auto-list-rows');
-    const pinnedLine = () => page.evaluate(() => {
-      const pinned = document.querySelector('[data-testid="auto-new-thread"]')?.closest('.auto-beside-list');
-      const alpha = pinned ? getComputedStyle(pinned).borderBottomColor.match(/rgba?\(([^)]+)\)/)?.[1].split(',').map(Number) : null;
-      return !!alpha && (alpha.length < 4 || alpha[3] > 0);
+    check('nothing moves sideways when Threads starts to scroll: a row and the Digest count keep their right edges', restOverflow <= 0 && (await listRows.evaluate((element) => element.scrollHeight - element.clientHeight)) > 0 && (await rowEnds()) === edgesAtRest, `${restOverflow}: ${edgesAtRest} -> ${await rowEnds()}`);
+    check('a cut edge fades: the bottom while more is below', (await listRows.getAttribute('data-fade-y')) === 'bottom', String(await listRows.getAttribute('data-fade-y')));
+    // Opening a put-away line brings its first rows into view.
+    await page.getByTestId('auto-snoozed-line').click();
+    await page.getByTestId('auto-snoozed').waitFor({ timeout: 5_000 });
+    const inView = (selector) => page.evaluate((target) => {
+      const element = document.querySelector(target)?.getBoundingClientRect();
+      const view = document.querySelector('[data-testid="auto-list-rows"]')?.getBoundingClientRect();
+      return !!element && !!view && element.top >= view.top - 1 && element.bottom <= view.bottom + 1;
+    }, selector);
+    check('opening Snoozed scrolls its line and first row into view', await until(async () => (await inView('[data-testid="auto-snoozed-line"]')) && (await inView('[data-testid="auto-snoozed"] [data-thread-id]'))));
+    check('scrolled, the top edge fades too', ['top', 'both'].includes(await listRows.getAttribute('data-fade-y')), String(await listRows.getAttribute('data-fade-y')));
+    await hideLine('snoozed');
+    await page.getByTestId('auto-archived-line').click();
+    check('opening Archived scrolls its first rows into view once they are read', await until(async () => (await inView('[data-testid="auto-archived-line"]')) && (await inView('[data-testid="auto-archived"] li'))));
+    await hideLine('archived');
+    const heights = () => page.evaluate(() => {
+      const height = (id) => Math.round(document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().height ?? -1);
+      const rows = document.querySelector('[data-testid="auto-list-rows"]');
+      return { threads: height('sidebar-threads'), column: Math.round(document.querySelector('[data-testid="sidebar-threads"]')?.parentElement?.getBoundingClientRect().height ?? -1), overflow: rows ? rows.scrollHeight - rows.clientHeight : -1 };
     });
-    const sameWidth = () => page.evaluate(() => {
-      const top = document.querySelector('[data-testid="auto-new-thread"]')?.getBoundingClientRect();
-      const digest = document.querySelector('[data-testid="auto-digest-row"]')?.getBoundingClientRect();
-      const first = document.querySelector('[data-testid="auto-list-rows"] [data-auto-row]')?.getBoundingClientRect();
-      return !!top && !!digest && !!first && [digest, first].every((box) => Math.abs(box.left - top.left) < 1 && Math.abs(box.right - top.right) < 1);
-    });
-    // The keyboard's walk through the list may have scrolled it: it starts from its top.
     await listRows.evaluate((element) => { element.scrollTop = 0; });
     await wait(200);
-    check('the list is taller than its pane, with no hairline before it is scrolled', (await listRows.evaluate((element) => element.scrollHeight - element.clientHeight)) > 60 && !(await pinnedLine()), String(await listRows.evaluate((element) => element.scrollTop)));
+    const withLibrary = await heights();
+    check('with Library open, Threads is at most 70% of the room it shares with Library and its rows scroll inside it', withLibrary.threads <= withLibrary.column * 0.7 + 1 && withLibrary.overflow > 60, JSON.stringify(withLibrary));
+    const sameWidth = () => page.evaluate(() => {
+      const digest = document.querySelector('[data-testid="auto-digest-row"]')?.getBoundingClientRect();
+      const first = document.querySelector('[data-testid="auto-list-rows"] [data-thread-id]')?.getBoundingClientRect();
+      return !!digest && !!first && Math.abs(digest.left - first.left) < 1 && Math.abs(digest.right - first.right) < 1;
+    });
+    check('the thread rows are as wide as the Digest row', await sameWidth());
     await listRows.evaluate((element) => { element.scrollTop = 60; });
-    check('scrolled, a hairline parts New thread and Digest from the row that passes under them', await until(pinnedLine, 2_000));
-    check('the scrolling rows are as wide as New thread and Digest', await sameWidth());
     await shot(52, 'list-scrolled');
     await listRows.evaluate((element) => { element.scrollTop = 60; });
     await wait(200);
     await page.getByTestId('workspace-sidebar').getByRole('button', { name: 'Daily', exact: true }).click();
     await until(async () => (await page.getByTestId('auto').count()) === 0);
     await toAuto();
-    check('a tab left and come back to keeps the list where it was', await until(async () => Math.abs((await listRows.evaluate((element) => element.scrollTop)) - 60) < 2, 3_000), String(await listRows.evaluate((element) => element.scrollTop)));
-    await page.getByTestId('tab-auto').hover();
-    await page.getByTestId('tab-close-auto').click();
-    await until(async () => (await page.getByTestId('tab-auto').count()) === 0);
-    await toAuto();
-    await page.getByTestId('auto-list').waitFor({ timeout: 10_000 });
+    check('the list keeps its place while the tab is left and come back to', await until(async () => Math.abs((await listRows.evaluate((element) => element.scrollTop)) - 60) < 2, 3_000), String(await listRows.evaluate((element) => element.scrollTop)));
+
+    // --- The headings fold: a click, Enter, Space, Left and Right, and the fold is kept across a reload.
+    const libraryHeading = page.getByTestId('sidebar-fold-library');
+    const expanded = async (heading) => (await heading.getAttribute('aria-expanded')) === 'true';
+    await libraryHeading.click();
+    const withoutLibrary = await heights();
+    check('a click folds Library: its tree and pinned pages go, and Threads may take the whole sidebar', !(await expanded(libraryHeading)) && (await page.getByTestId('sidebar-library').locator('[role="tree"], [data-testid="pinned-section"]').count()) === 0 && withoutLibrary.threads > withLibrary.column * 0.7 + 1, JSON.stringify(withoutLibrary));
+    await shot(80, 'library-folded');
+    await threadsHeading.focus();
+    await key('ArrowLeft');
+    check('Left folds Threads', await until(async () => !(await expanded(threadsHeading)) && (await page.getByTestId('auto-list').count()) === 0));
+    await key('ArrowRight');
+    check('Right opens it', await until(async () => (await expanded(threadsHeading)) && (await page.getByTestId('auto-list').count()) === 1));
+    await key('Enter');
+    check('Enter folds it', await until(async () => !(await expanded(threadsHeading))));
+    await key('Space');
+    check('Space opens it', await until(async () => await expanded(threadsHeading)));
+    await key('Enter');
+    await shot(81, 'both-folded');
+    check('folded, Threads keeps its count and its New thread button', (await headingCount()) !== '' && (await newThread.count()) === 1, await headingCount());
+    await page.reload();
+    await page.getByTestId('workspace-sidebar').waitFor({ timeout: 15_000 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.addStyleTag({ content: 'input, textarea { caret-color: transparent !important; }' });
+    check('both folds are kept across a reload', await until(async () => (await threadsHeading.count()) === 1 && !(await expanded(threadsHeading)) && !(await expanded(libraryHeading))));
+    await threadsHeading.click();
+    await libraryHeading.click();
+    check('and both open again', await until(async () => (await expanded(threadsHeading)) && (await expanded(libraryHeading)) && (await page.getByTestId('auto-list').count()) === 1));
+    await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+    await wait(400);
+
+    // --- Thirteen threads and a short tree: Threads takes what it needs, and the put-away lines are in view.
+    // At 1100 px of window, a common laptop height: thirteen threads need more than 70% of 933 px's room.
+    await page.setViewportSize({ width: WIDTH, height: 1100 });
+    for (let made = 0; (await listedIds()).length < 13 && made < 13; made += 1) {
+      const before = (await listedIds()).length;
+      await fromPhone('/api/threads', { text: `Extra thread ${made + 1} for the height check`, cid: `h${made}` });
+      await until(async () => (await listedIds()).length > before, 5_000);
+    }
+    await until(() => service.entries().every((thread) => thread.status !== 'working'), 15_000);
+    await listRows.evaluate((element) => { element.scrollTop = 0; });
     await wait(300);
-    check('a tab opened fresh starts its list at the top', (await listRows.evaluate((element) => element.scrollTop)) === 0);
+    const thirteen = await heights();
+    const linesInView = () => page.evaluate(() => {
+      const view = document.querySelector('[data-testid="auto-list-rows"]')?.getBoundingClientRect();
+      const lines = ['auto-waiting-line', 'auto-snoozed-line', 'auto-archived-line'].map((id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect()).filter(Boolean);
+      return !!view && lines.length >= 2 && lines.every((line) => line.top >= view.top - 1 && line.bottom <= view.bottom + 1);
+    });
+    check('with thirteen threads and a short tree the put-away lines are in view, and Threads takes no more than it needs', (await listedIds()).length >= 13 && (await linesInView()) && thirteen.overflow <= 0, `${(await listedIds()).length} threads, ${JSON.stringify(thirteen)}`);
+    await shot(82, 'thirteen-threads');
+    // A long tree: Threads stops at 70% and Library keeps the rest, at least 30%.
+    await Promise.all(Array.from({ length: 60 }, (_, at) => writeFile(path.join(vault, `Long page ${String(at + 1).padStart(2, '0')}.md`), `# Long page ${at + 1}\n`)));
+    await until(async () => (await page.getByRole('treeitem', { name: /Long page 60/ }).count()) === 1, 15_000);
+    await showLine('archived');
+    await wait(300);
+    const longTree = await page.evaluate(() => {
+      const height = (id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().height ?? -1;
+      return { threads: height('sidebar-threads'), library: height('sidebar-library'), column: document.querySelector('[data-testid="sidebar-threads"]')?.parentElement?.getBoundingClientRect().height ?? -1 };
+    });
+    check('with a long tree and Archived open, Threads stops at 70% and Library keeps at least 30%', longTree.threads <= longTree.column * 0.7 + 1 && longTree.library >= longTree.column * 0.3 - 1, JSON.stringify(longTree));
+    await hideLine('archived');
     await page.setViewportSize({ width: WIDTH, height: HEIGHT });
     await wait(400);
 
@@ -1773,13 +1867,12 @@ async function tour() {
     check('every write named the client and carried no Origin', service.requests.filter((request) => request.method === 'POST' && request.headers['x-auto-client'] !== 'phone').every((request) => request.headers['x-auto-client'] === 'opal' && request.headers.origin === undefined && request.headers['content-type'] === 'application/json'));
 
     // --- The empty list, on a service where every thread is snoozed.
-    await page.getByTestId('auto-new-thread').hover();
-    await page.getByTestId('auto-settings').click();
-    await page.getByRole('menuitem', { name: 'Change address…' }).click();
+    await threadsHeading.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Change Auto address…' }).click();
     await page.getByRole('textbox', { name: 'Address' }).fill(emptyService.url);
     await page.getByRole('textbox', { name: 'Address' }).press('Enter');
     await page.getByTestId('auto-empty').waitFor({ timeout: 15_000 });
-    check('with no thread left the list says so and when the next snoozed one returns, and how many are snoozed is said once', /^Nothing left\.The next snoozed one returns (today|tomorrow) at \d/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && !/2 snoozed/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && ((await page.getByTestId('auto-snoozed-line').textContent()) ?? '').replace(/\s+/g, '') === 'Snoozed2' && (await page.getByTestId('auto-summary').count()) === 0, (await page.getByTestId('auto-empty').textContent()) ?? '');
+    check('with no thread left the list says so and when the next snoozed one returns, and how many are snoozed is said once', /^Nothing left\. ?The next snoozed one returns (today|tomorrow) at \d/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && !/2 snoozed/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && ((await page.getByTestId('auto-snoozed-line').textContent()) ?? '').replace(/\s+/g, '') === 'Snoozed2' && (await page.getByTestId('auto-summary').count()) === 0, (await page.getByTestId('auto-empty').textContent()) ?? '');
     await shot(17, 'empty-list');
     await page.getByTestId('auto-snoozed-line').click();
     check('the Snoozed line still shows them', await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 2));
@@ -1804,9 +1897,8 @@ async function tour() {
     check('Show all shows the day whole', await until(async () => (await entryIds()).length === 10 && (await page.getByTestId('auto-queue-all').getAttribute('aria-pressed')) === 'true'));
 
     // --- No digest at all.
-    await page.getByTestId('auto-new-thread').hover();
-    await page.getByTestId('auto-settings').click();
-    await page.getByRole('menuitem', { name: 'Change address…' }).click();
+    await threadsHeading.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Change Auto address…' }).click();
     await page.getByRole('textbox', { name: 'Address' }).fill(bareService.url);
     await page.getByRole('textbox', { name: 'Address' }).press('Enter');
     check('a service with no digest says so, and the row shows no count', await until(async () => ((await page.getByTestId('auto-queue-empty').textContent().catch(() => '')) ?? '') === 'No digest yet.' && (await digestSays()) === 'Digest'));

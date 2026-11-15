@@ -4,7 +4,7 @@ import { isAutoLocation } from '@/renderer/features/disk-explorer/navigation/fil
 import { selectCurrentLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import { DIGEST_QUEUE, NEW_THREAD, paneThread } from './model/pane';
-import { openAutoTab } from './openAutoTab';
+import { showInAuto } from './openAutoTab';
 import { turnRuns } from './model/threadModel';
 import { archiveThread, restoreThread, snoozeThread } from './store/actions';
 import { useAutoStore } from './store/autoStore';
@@ -46,10 +46,7 @@ export function useAutoCommands(): void {
 
   useEffect(() => {
     if (!address) return;
-    const show = (pane: string) => {
-      openAutoTab(navigateFiles);
-      useThreadStore.getState().open(pane);
-    };
+    const show = (pane: string) => showInAuto(navigateFiles, pane);
     const named = (lines: string, hint: string) =>
       lines.split('\n').filter(Boolean).map((line): Command => {
         const [id, title = ''] = line.split('\t');

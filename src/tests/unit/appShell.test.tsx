@@ -19,6 +19,7 @@ import {
 } from '@/renderer/features/day-sidebar';
 import { ThemeProvider } from '@/renderer/features/theme';
 import { TooltipProvider } from '@/renderer/shared/ui';
+import { useAutoStore } from '@/renderer/features/auto';
 import { entry, installDiskApi } from '@/tests/helpers/diskApi';
 import { openTabs, openedPath, resetTabs } from '@/tests/helpers/tabs';
 
@@ -320,6 +321,8 @@ describe('AppShell', () => {
   it('starts narrow with an off-canvas sidebar and Search in the tab row', async () => {
     const user = userEvent.setup();
     setViewportWidth(640);
+    // No Auto address: the Threads section holds one row, Connect Auto…, a pick like any other.
+    useAutoStore.setState({ configured: true, address: null });
     renderShell();
 
     expect(screen.getByTestId('app-shell')).toHaveAttribute(
@@ -361,7 +364,7 @@ describe('AppShell', () => {
     await user.click(
       screen.getByRole('button', { name: 'Show sidebar' })
     );
-    await user.click(screen.getByRole('button', { name: 'Recent' }));
+    await user.click(await screen.findByTestId('auto-connect'));
     expect(screen.queryByTestId('workspace-sidebar')).not.toBeInTheDocument();
     expect(screen.getByText('Files content')).toBeInTheDocument();
     await waitFor(() =>
@@ -388,7 +391,7 @@ describe('AppShell', () => {
     await act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
     expect(screen.getByTestId(`disk-tree-item-${note}`)).toHaveFocus();
 
-    await user.click(screen.getByRole('button', { name: 'Recent' }));
+    await user.click(screen.getByRole('button', { name: 'Daily' }));
     await act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
     expect(screen.getByTestId('workspace-surface')).not.toHaveFocus();
   });

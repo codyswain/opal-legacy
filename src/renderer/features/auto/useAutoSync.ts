@@ -5,6 +5,7 @@ import { autoApi, useAutoStore } from './store/autoStore';
 import { dispatchStream } from './store/streams';
 import { useThreadStore } from './store/threadStore';
 import { useAutoCommands } from './useAutoCommands';
+import { useAutoKeys } from './useAutoKeys';
 
 /** While the service is out of reach, the list is asked for again this often with a tab open, and this often without. */
 const RETRY_MS = 5_000;
@@ -23,6 +24,7 @@ export function useAutoSync(): void {
   const address = useAutoStore((state) => state.address);
   const reachable = useAutoStore((state) => state.reachable);
   useAutoCommands();
+  useAutoKeys();
 
   useEffect(() => {
     const api = autoApi();

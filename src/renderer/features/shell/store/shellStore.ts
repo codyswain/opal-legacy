@@ -12,14 +12,23 @@ export const SHELL_LIMITS = {
   sidebar: { min: 216, max: 360 },
 } as const;
 
+/** The sidebar's two sections that fold. */
+export type SidebarFold = 'threads' | 'library';
+
 export interface ShellPreferences {
   sidebarOpen: boolean;
   sidebarWidth: number;
+  /** The Threads section is open. */
+  threadsOpen: boolean;
+  /** The Library section is open. */
+  libraryOpen: boolean;
 }
 
 export const DEFAULT_SHELL_PREFERENCES: ShellPreferences = {
   sidebarOpen: true,
   sidebarWidth: 260,
+  threadsOpen: true,
+  libraryOpen: true,
 };
 
 /** The default before the tree listed files; a sidebar left at it widens to the new one. */
@@ -31,6 +40,8 @@ export interface ShellActions {
   setNarrowLayout(narrow: boolean): void;
   closeNarrowSidebar(): void;
   setSidebarWidth(width: number): void;
+  /** Opens or folds a section of the sidebar; kept across launches. */
+  setFoldOpen(fold: SidebarFold, open: boolean): void;
   setFullScreen(fullScreen: boolean): void;
   hydrate(): ShellPreferences;
   reset(): void;
@@ -77,6 +88,8 @@ export function sanitizeShellPreferences(
       fallback.sidebarWidth,
       SHELL_LIMITS.sidebar
     ),
+    threadsOpen: safeBoolean(candidate.threadsOpen, fallback.threadsOpen),
+    libraryOpen: safeBoolean(candidate.libraryOpen, fallback.libraryOpen),
   };
 }
 
@@ -106,6 +119,8 @@ function preferencesFrom(state: ShellStore): ShellPreferences {
   return {
     sidebarOpen: state.sidebarOpen,
     sidebarWidth: state.sidebarWidth,
+    threadsOpen: state.threadsOpen,
+    libraryOpen: state.libraryOpen,
   };
 }
 
@@ -150,6 +165,12 @@ export const useShellStore = create<ShellStore>((set) => ({
           SHELL_LIMITS.sidebar
         ),
       };
+      persist(next);
+      return next;
+    }),
+  setFoldOpen: (fold, open) =>
+    set((state) => {
+      const next = { ...preferencesFrom(state), [fold === 'threads' ? 'threadsOpen' : 'libraryOpen']: open };
       persist(next);
       return next;
     }),

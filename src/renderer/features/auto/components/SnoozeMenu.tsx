@@ -316,3 +316,29 @@ export function SnoozeDateDialog() {
     </Dialog>
   );
 }
+
+/*
+ * The dialog is drawn once, by the first of its hosts to be mounted: the
+ * sidebar's Threads, else the Auto tab. A snooze is picked from either, and
+ * either can be away (the sidebar hidden, or no Auto tab).
+ */
+const hosts: symbol[] = [];
+const hostListeners = new Set<() => void>();
+const subscribeHosts = (listener: () => void) => {
+  hostListeners.add(listener);
+  return () => hostListeners.delete(listener);
+};
+
+export function SnoozeDateHost() {
+  const [me] = React.useState(() => Symbol('snooze-host'));
+  React.useLayoutEffect(() => {
+    hosts.push(me);
+    hostListeners.forEach((listener) => listener());
+    return () => {
+      hosts.splice(hosts.indexOf(me), 1);
+      hostListeners.forEach((listener) => listener());
+    };
+  }, [me]);
+  const first = React.useSyncExternalStore(subscribeHosts, () => hosts[0] === me);
+  return first ? <SnoozeDateDialog /> : null;
+}

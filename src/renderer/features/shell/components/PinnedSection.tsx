@@ -43,7 +43,7 @@ export function pinLabel(path: string, roots: readonly string[]): string {
 }
 
 /**
- * The pinned files, under Daily and Recent: each opened folder's
+ * The pinned files, at the top of Library above the tree: each opened folder's
  * `.opal/pins.json`, folders in the tree's order. Nothing shows while
  * nothing is pinned. Rows drag to reorder, and a file dragged from the tree
  * is pinned where it drops.
@@ -136,7 +136,7 @@ export function PinnedSection({ onNavigate }: PinnedSectionProps) {
     <section
       aria-labelledby={labelId}
       data-testid="pinned-section"
-      className="flex max-h-[40%] min-h-0 shrink-0 flex-col pt-sidebar-group"
+      className="flex max-h-[40%] min-h-0 shrink-0 flex-col pb-2"
       onDragOver={onDragOver}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropIndex(null);
