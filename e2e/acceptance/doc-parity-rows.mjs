@@ -52,6 +52,8 @@ export const ROWS = [
   { id: 'B26', area: 'Bullets', does: 'After Backspace took a bullet off, Enter at the end of that line goes on without a bullet', start: '- one\n- ‸two', keys: ['Backspace', 'Meta+ArrowRight', 'Enter', 't:x'], expect: '- one\n  two\n  x‸', shows: ['bullet::0'] },
   { id: 'B27', area: 'Bullets', does: 'A word typed on the empty line right under a list starts a paragraph, not more of the last item', start: '- one\n- two\n‸', keys: ['t:after'], expect: '- one\n- two\n\nafter‸', shows: ['bullet::0', 'bullet::0'] },
   { id: 'B28', area: 'Bullets', does: 'After a list is ended, typing "- " carries it on with no empty row', start: '- one‸', keys: ['Enter', 'Enter', 't:- x'], expect: '- one\n- x‸', shows: ['bullet::0', 'bullet::0'] },
+  { id: 'B29', area: 'Bullets', does: 'End a list that has text under it: the caret gets a line of its own, and what is typed there is a paragraph', start: 'Top\n- a\n- ‸\n\nBottom', keys: ['Enter', 't:mid'], expect: 'Top\n- a\n\nmid‸\nBottom', shows: ['bullet::0'] },
+  { id: 'B30', area: 'Bullets', does: 'Text that starts with a digit, typed under a list, is a paragraph too', start: '- one\n‸', keys: ['t:2 apples'], expect: '- one\n\n2 apples‸', shows: ['bullet::0'] },
 
   // ---- Numbered lists
   { id: 'N1', area: 'Numbers', does: 'Type "1. " on an empty line', start: '‸', keys: ['t:1. '], expect: '1. ‸', shows: ['number:1.:0'] },
@@ -72,6 +74,8 @@ export const ROWS = [
 
   { id: 'N16', area: 'Numbers', does: 'A list that grows from 9 to 10 keeps the nested item under item 10', start: '1. a‸\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n9. i\n   - kid', keys: ['Enter'], expect: '1. a\n2. ‸\n3. b\n4. c\n5. d\n6. e\n7. f\n8. g\n9. h\n10. i\n    - kid', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0', 'number:4.:0', 'number:5.:0', 'number:6.:0', 'number:7.:0', 'number:8.:0', 'number:9.:0', 'number:10.:0', 'bullet::1'] },
   { id: 'N17', area: 'Numbers', does: 'Typing next to a list written 1., 1., 1. leaves its numbers as written', start: '1. a\n1. b\n\n‸', keys: ['t:- x'], expect: '1. a\n1. b\n- x‸' },
+  { id: 'N18', area: 'Numbers', does: 'Delete the first item of a numbered list that sits under a line of text: the list counts from 1 again', start: 'Steps:\n«1. one\n»2. two\n3. three', keys: ['Backspace'], expect: 'Steps:\n‸1. two\n2. three', alt: ['Steps:\n1. ‸two\n2. three'], shows: ['number:1.:0', 'number:2.:0'] },
+  { id: 'N19', area: 'Numbers', does: 'Ctrl+Shift+Up on the second item of such a list keeps it a list', start: 'Steps:\n1. one\n2. tw‸o\n3. three', keys: ['Control+Shift+ArrowUp'], expect: 'Steps:\n1. tw‸o\n2. one\n3. three', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0'] },
 
   // ---- Checklists
   { id: 'C1', area: 'Checklists', does: 'Type "[] " on an empty line', start: '‸', keys: ['t:[] '], expect: '- [ ] ‸', shows: ['task::0'] },
@@ -93,6 +97,7 @@ export const ROWS = [
   { id: 'M8', area: 'Mixed', does: 'Cmd+Shift+9 on one bullet turns the whole list into a checklist', start: '- one\n- tw‸o', keys: ['Meta+Shift+9'], expect: '- [ ] one\n- [ ] tw‸o' },
   { id: 'M5', area: 'Mixed', does: 'Enter in a bullet under a number keeps the kinds apart', start: '1. one\n   - two‸\n2. three', keys: ['Enter', 't:x'], expect: '1. one\n   - two\n   - x‸\n2. three' },
   { id: 'M6', area: 'Mixed', does: 'Cmd+Shift+7 on three paragraphs numbers them 1, 2, 3', start: '«one\ntwo\nthree»', keys: ['Meta+Shift+7'], expect: '«1. one\n2. two\n3. three»', alt: ['1. «one\n2. two\n3. three»'] },
+  { id: 'M9', area: 'Mixed', does: 'Cmd+Shift+7 on a selection across two levels numbers each level from 1', start: '«- a\n- b\n  - kid\n  - kid2\n- c»', keys: ['Meta+Shift+7'], expect: '«1. a\n2. b\n   1. kid\n   2. kid2\n3. c»', alt: ['1. «a\n2. b\n   1. kid\n   2. kid2\n3. c»'], shows: ['number:1.:0', 'number:2.:0', 'number:a.:1', 'number:b.:1', 'number:3.:0'] },
 
   // ---- Caret and selection across items
   { id: 'S1', area: 'Caret', does: 'Left at the start of an item goes to the end of the item above', start: '- one\n- ‸two', keys: ['ArrowLeft'], expect: '- one‸\n- two' },
@@ -118,6 +123,8 @@ export const ROWS = [
 
   { id: 'X11', area: 'Paste', does: 'Paste a list in the middle of an item: the first joins the text, the next is its own item', start: '- on‸e', keys: ['paste:- two\n- three'], expect: '- ontwo\n- three‸e' },
   { id: 'X12', area: 'Paste', does: 'Paste code copied from a code editor: its text, with no stars from its colouring', start: '‸', keys: ['pasteHtml:<div style="font-family: Menlo, monospace; white-space: pre;"><div><span style="font-weight: bold;">const</span> a = 1;</div></div>||const a = 1;'], expect: 'const a = 1;‸' },
+  { id: 'X13', area: 'Paste', does: 'Paste a list on an empty line over text: the text under it stays a paragraph', start: 'Top\n‸\nBottom', keys: ['paste:- a\n- b'], expect: 'Top\n- a\n- b‸\n\nBottom', shows: ['bullet::0', 'bullet::0'] },
+  { id: 'X14', area: 'Paste', does: 'Paste a web page\'s list in the middle of a paragraph: the list gets lines of its own', start: 'Par‸a', keys: ['pasteHtml:<ul><li>two</li><li>three</li></ul>||two\nthree'], expect: 'Par\n- two\n- three‸\n\na', shows: ['bullet::0', 'bullet::0'] },
 
   // ---- Undo
   { id: 'U1', area: 'Undo', does: 'Undo right after "- " shows the typed characters again', start: '‸', keys: ['t:- ', 'Meta+z'], expect: '\\- ‸', alt: ['- ‸'], undoShowsText: '- ' },
@@ -146,6 +153,7 @@ export const ROWS = [
   { id: 'K15', area: 'Shortcuts', does: 'Ctrl+Shift+Down moves the item down', start: '- on‸e\n- two', keys: ['Control+Shift+ArrowDown'], expect: '- two\n- on‸e' },
 
   { id: 'K16', area: 'Shortcuts', does: 'Cmd+Option+0 on a heading in a list item leaves the list whole', start: '- one\n- ## tw‸o', keys: ['Meta+Alt+0'], expect: '- one\n- tw‸o' },
+  { id: 'K17', area: 'Shortcuts', does: 'Ctrl+Shift+Down on a list\'s last item moves it under the paragraph below', start: '- one\n- tw‸o\n\nPara', keys: ['Control+Shift+ArrowDown'], expect: '- one\n\nPara\n- tw‸o', opal: '- one\n- tw‸o\n\nPara', why: 'A list item changes places only with another list line. Text right under an item would read as part of it in Markdown.' },
 
   // ---- Typing: what is written for you, and what is not
   { id: 'A1', area: 'Typing', does: 'Two hyphens become a dash', start: '‸', keys: ['t:a -- b'], expect: 'a – b‸', opal: 'a -- b‸', why: 'Left out on purpose: no dash is written for the person.' },

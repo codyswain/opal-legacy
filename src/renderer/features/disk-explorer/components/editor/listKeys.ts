@@ -334,8 +334,8 @@ const listBackspace = deleteHandlers.of({
       const inItem = empty ? main.head === line.to : (itemAround(state, line.to) !== null && ['Paragraph', 'ListItem'].includes(blockAt(state, line.to)?.name ?? ''));
       if (!inItem) return false;
       const next = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
-      // A list item below stays a list only after a blank line.
-      const below = !empty && next && ITEM_LINE.test(next.text) ? [{ from: line.to, insert: `\n${gap}` }] : [];
+      // A numbered item below stays a list only after a blank line; a bullet reads as one right under text.
+      const below = !empty && next && /^[\s>]*\d+[.)](?:[ \t]|$)/.test(next.text) ? [{ from: line.to, insert: `\n${gap}` }] : [];
       const insert = `${gap}\n${quote}`;
       view.dispatch({
         changes: [{ from: line.from, to: main.head, insert }, ...below],
@@ -394,11 +394,16 @@ const listJoin = deleteHandlers.of({
   },
 });
 
+// What a line holds while a marker is still being typed on it: "-", "1", "1.", "[", "[ ]", "#", ">".
+const MARKER_SO_FAR = /^(?:[-+*]|\d{1,9}[.)]?|\[[ xX]?\]?|#{1,6}|>)?$/;
+
 /**
- * A word typed on the empty line right under a list starts a paragraph, as
- * in a word processor: in Markdown that takes a blank line above it, or the
- * text would read as more of the last item. Typed marks and numbers are
- * left alone, since they may be starting the list's next item.
+ * Text typed on the empty line right under a list starts a paragraph, as in
+ * a word processor: in Markdown that takes a blank line above it, or the
+ * text would read as more of the last item. While what is typed could still
+ * become a marker, "-" or "1.", nothing is added, since it may be starting
+ * the list's next item; the blank line goes in with the first character
+ * that shows it is text.
  */
 const paragraphUnderList = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged || !tr.isUserEvent('input.type') || tr.isUserEvent('input.type.compose')) return tr;
@@ -406,17 +411,21 @@ const paragraphUnderList = EditorState.transactionFilter.of((tr) => {
   const { main } = state.selection;
   if (!state.facet(docMode) || !main.empty || state.selection.ranges.length > 1) return tr;
   const line = state.doc.lineAt(main.head);
-  if (line.number === 1 || main.head !== line.to || line.text !== quoteOf(line.text)) return tr;
+  const quote = quoteOf(line.text);
+  if (line.number === 1 || main.head !== line.to || !MARKER_SO_FAR.test(line.text.slice(quote.length))) return tr;
   const above = state.doc.line(line.number - 1);
-  if (!hasText(above) || !itemAround(state, above.to)) return tr;
+  if (!hasText(above) || !ITEM_LINE.test(above.text) && !itemAround(state, above.to)) return tr;
+  // A blank line inside code, a table or HTML that the item holds is theirs.
+  if (['FencedCode', 'CodeBlock', 'Table', 'HTMLBlock', 'CommentBlock'].includes(blockAt(state, main.head)?.name ?? '') || ['FencedCode', 'CodeBlock', 'Table', 'HTMLBlock', 'CommentBlock'].includes(blockAt(state, above.to)?.name ?? '')) return tr;
   let typed = '';
   let edits = 0;
   tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
     edits += 1;
     if (fromA === main.head && toA === fromA) typed = inserted.toString();
   });
-  if (edits !== 1 || !/^\p{L}/u.test(typed)) return tr;
-  return [tr, { changes: { from: line.from, insert: `${quoteOf(line.text).replace(/[ \t]+$/, '')}\n` }, sequential: true }];
+  const now = line.text.slice(quote.length) + typed;
+  if (edits !== 1 || !typed || /\n/.test(typed) || MARKER_SO_FAR.test(now) || /^(?:[-+*]|\d{1,9}[.)]|\[[ xX]?\]) $/.test(now)) return tr;
+  return [tr, { changes: { from: line.from, insert: `${quote.replace(/[ \t]+$/, '')}\n` }, sequential: true }];
 });
 
 export const docListKeys: Extension = [

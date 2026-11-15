@@ -83,6 +83,8 @@ function withoutSpaceLines(tr: Transaction, keepIndent: (line: Line) => boolean 
 // A list item's line: any indent and quote marks, then a bullet or a number.
 const ITEM_LINE = /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]|$)/;
 const hasText = (line: Line) => /[^\s>]/.test(line.text);
+// A numbered item's line, which reads as a list under text only when it starts at 1.
+const NUMBERED_LINE = /^[\s>]*\d+[.)](?:[ \t]|$)/;
 
 /**
  * `tr` with a blank line between a list and each caret that `tr` left on an
@@ -94,23 +96,38 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
   const { startState, newDoc, newSelection } = tr;
   if (newSelection.ranges.length !== startState.selection.ranges.length) return tr;
   const changes: ChangeSpec[] = [];
-  const carets = new Map<number, number>();
-  newSelection.ranges.forEach((range, index) => {
-    const line = newDoc.lineAt(range.head);
-    if (!ITEM_LINE.test(startState.doc.lineAt(startState.selection.ranges[index].head).text) || hasText(line)) return;
+  const carets = new Map<number, { line: number; offset: number }>();
+  const moved = new Map<number, number>();
+  newSelection.ranges.forEach((_range, index) => {
+    const start = startState.doc.lineAt(startState.selection.ranges[index].head);
+    if (!ITEM_LINE.test(start.text)) return;
+    // The line the item was on, not the caret's: a document may already have moved the caret off a line it gives no room.
+    const line = newDoc.lineAt(tr.changes.mapPos(start.from, 1));
+    if (hasText(line)) return;
     const above = line.number > 1 && hasText(newDoc.line(line.number - 1));
     if (!above) return;
-    const below = line.number < newDoc.lines && hasText(newDoc.line(line.number + 1));
+    const next = line.number < newDoc.lines ? newDoc.line(line.number + 1) : null;
+    const after = next && next.number < newDoc.lines ? newDoc.line(next.number + 1) : null;
+    // A blank line is already under the item: its own line becomes the gap, and the caret takes the blank one, so
+    // no row is added. A numbered item straight after that would stop being a list, so it gets the usual gap.
+    if (next && !hasText(next) && !(after && NUMBERED_LINE.test(after.text))) {
+      moved.set(index, next.to);
+      return;
+    }
+    // A numbered item below stays a list only after a blank line; a bullet or text needs none.
+    const below = next !== null && NUMBERED_LINE.test(next.text);
     // A quote's blank line keeps its ">".
     const blank = line.text.trimEnd();
     changes.push({ from: line.from, to: line.to, insert: `${blank}\n${line.text}${below ? `\n${blank}` : ''}` });
-    carets.set(index, blank.length + 1 + range.head - line.from);
+    carets.set(index, { line: line.from, offset: blank.length + 1 + line.length });
   });
-  if (changes.length === 0) return tr;
+  if (changes.length === 0 && moved.size === 0) return tr;
   const extra = ChangeSet.of(changes, newDoc.length);
   const ranges = newSelection.ranges.map((range, index) => {
-    const offset = carets.get(index);
-    return offset === undefined ? range.map(extra) : EditorSelection.cursor(extra.mapPos(newDoc.lineAt(range.head).from, -1) + offset);
+    const at = moved.get(index);
+    if (at !== undefined) return EditorSelection.cursor(extra.mapPos(at, 1));
+    const caret = carets.get(index);
+    return caret === undefined ? range.map(extra) : EditorSelection.cursor(extra.mapPos(caret.line, -1) + caret.offset);
   });
   return startState.update({
     changes: tr.changes.compose(extra),

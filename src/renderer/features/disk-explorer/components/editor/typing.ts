@@ -187,9 +187,10 @@ function inTable(node: SyntaxNode): boolean {
 
 /**
  * The blank line over a list item typed on `line`, when the line above that
- * blank line is a list item too: an item typed one empty line under a list
- * carries the list on, so the empty line between them goes, and the list
- * stays as tight as it was. Null when there is none.
+ * blank line is a list item too and the page gives the blank line no room:
+ * an item typed right after a list was ended carries the list on, so the
+ * blank line between them goes, and the list stays as tight as it was. Null
+ * when there is none.
  */
 function gapOver(state: EditorState, line: { number: number; from: number; text: string }): { from: number; to: number } | null {
   if (line.number < 3) return null;
@@ -197,6 +198,11 @@ function gapOver(state: EditorState, line: { number: number; from: number; text:
   const above = state.doc.line(line.number - 2);
   const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '';
   if (/[^\s>]/.test(gap.text) || !/^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(above.text.slice(quote.length))) return null;
+  // Only the blank line the page gives no room: under a list that sits right under text, or at the page's top.
+  // An empty row the person can see stays, and the item typed under it starts a list of its own.
+  let top = above.number;
+  while (top > 1 && /[^\s>]/.test(state.doc.line(top - 1).text)) top -= 1;
+  if (top > 1 && /^[\s>]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(state.doc.line(top).text)) return null;
   return { from: gap.from, to: line.from };
 }
 

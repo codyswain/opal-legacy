@@ -107,7 +107,7 @@ describe('numbers that count for themselves', () => {
     // The same kind again takes only that item out of the list.
     const off = mount('- one\n- tw‸o\n- three\n');
     toggleList('bullet')(off);
-    expect(text(off)).toBe('- one\n\ntwo\n\n- three\n');
+    expect(text(off)).toBe('- one\n\ntwo\n- three\n');
   });
 
   it('numbers a nested bullet turned into a number from 1', () => {
@@ -399,6 +399,77 @@ describe('what the fresh review found', () => {
     const numbers = mount('1. one\n2. two\n\n‸');
     type(numbers, '1. x');
     expect(text(numbers)).toBe('1. one\n2. two\n3. x');
+  });
+
+  it('ends a list over text with the caret on a line of its own, and what is typed there is a paragraph', () => {
+    const view = mount('Top\n- a\n- ‸\n\nBottom\n');
+    press(view, 'Enter');
+    expect(marked(view)).toBe('Top\n- a\n\n‸\nBottom\n');
+    type(view, 'mid');
+    expect(text(view)).toBe('Top\n- a\n\nmid\nBottom\n');
+    // The whole flow, typed: no line under the list is taken into it.
+    const typed = mount('Top\n‸\nBottom\n');
+    type(typed, '- a');
+    press(typed, 'Enter');
+    type(typed, 'b');
+    press(typed, 'Enter');
+    press(typed, 'Enter');
+    type(typed, 'mid');
+    expect(text(typed)).toBe('Top\n- a\n- b\n\nmid\nBottom\n');
+  });
+
+  it('keeps a numbered list under a line of text a list when its first item goes or moves', () => {
+    const cut = mount('Steps:\n‸1. one\n‸2. two\n3. three\n');
+    cut.dispatch({ ...cut.state.replaceSelection(''), userEvent: 'delete.selection' });
+    expect(text(cut)).toBe('Steps:\n1. two\n2. three\n');
+    expect(after('Steps:\n1. one\n2. tw‸o\n3. three\n', 'ArrowUp', { ctrlKey: true, shiftKey: true })).toBe('Steps:\n1. two\n2. one\n3. three\n');
+  });
+
+  it('numbers a nested list from 1 when a selection across levels becomes numbers', () => {
+    const view = mount('‸- a\n- b\n  - kid\n  - kid2\n- c‸\n');
+    toggleList('number')(view);
+    expect(text(view)).toBe('1. a\n2. b\n   1. kid\n   2. kid2\n3. c\n');
+  });
+
+  it('starts a paragraph for text that begins with a digit or a bracket under a list, once it is not a marker', () => {
+    const digits = mount('- one\n‸');
+    type(digits, '2 apples');
+    expect(text(digits)).toBe('- one\n\n2 apples');
+    const bracket = mount('- one\n‸');
+    type(bracket, '(note)');
+    expect(text(bracket)).toBe('- one\n\n(note)');
+    const item = mount('1. one\n‸');
+    type(item, '2. two');
+    expect(text(item)).toBe('1. one\n2. two');
+  });
+
+  it('moves a list item only past another list line', () => {
+    expect(after('- one\n- tw‸o\n\nPara\n', 'ArrowDown', { ctrlKey: true, shiftKey: true })).toBe('- one\n- two\n\nPara\n');
+    expect(after('- one\n\nPa‸ra\n', 'ArrowUp', { ctrlKey: true, shiftKey: true })).toBe('- one\n\nPara\n');
+    // Lines of plain text still change places.
+    expect(after('one\ntw‸o\n', 'ArrowUp', { ctrlKey: true, shiftKey: true })).toBe('two\none\n');
+  });
+
+  it('keeps an empty row the person can see when an item is typed under it', () => {
+    const view = mount('Intro\n\n- one\n- two\n\n‸');
+    type(view, '- x');
+    expect(text(view)).toBe('Intro\n\n- one\n- two\n\n- x');
+  });
+
+  it('gives a pasted list lines of its own, and keeps the text under it a paragraph', () => {
+    const over = mount('Top\n‸\nBottom\n');
+    const overSpec = pasteSpec(over.state, '- a\n- b', false);
+    if (overSpec) over.dispatch(overSpec);
+    expect(text(over)).toBe('Top\n- a\n- b\n\nBottom\n');
+    const inside = mount('Par‸a\n');
+    const insideSpec = pasteSpec(inside.state, '- two\n- three', false);
+    if (insideSpec) inside.dispatch(insideSpec);
+    expect(text(inside)).toBe('Par\n- two\n- three\n\na\n');
+  });
+
+  it('keeps the row after a callout that ends in a list', () => {
+    const view = mount('> [!note] Title\n> - one\n\nAfter‸\n');
+    expect(view.contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
   });
 
   it('redoes on Cmd+Y', () => {

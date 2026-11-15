@@ -128,7 +128,9 @@ describe('lists', () => {
 
   it('keeps a paragraph next to a list a paragraph with a blank line', () => {
     expect(run('‸a\nb', toggleList('bullet'))).toBe('- ‸a\n\nb');
-    expect(run('- a\n- ‸b\n- c', toggleList('bullet'))).toBe('- a\n\n‸b\n\n- c');
+    // A bullet below reads as a list right under text; a numbered item below needs a blank line to stay one.
+    expect(run('- a\n- ‸b\n- c', toggleList('bullet'))).toBe('- a\n\n‸b\n- c');
+    expect(run('1. a\n2. ‸b\n3. c', toggleList('number'))).toBe('1. a\n\n‸b\n\n2. c');
   });
 
   it('indents and outdents list items one level, and leaves other lines alone', () => {

@@ -733,21 +733,28 @@ export function toggleList(kind: ListKind): StateCommand {
     if (items.every((item) => item?.kind === kind)) {
       lines.forEach((line, index) => changes.push({ from: line.from + quoteOf(line).length, to: (items[index] as ListLine).textFrom }));
       if (above && inListItem(state, above)) changes.push({ from: above.to, insert: `\n${blankFor(first)}` });
-      if (below && listItemOf(state, below)) changes.push({ from: last.to, insert: `\n${blankFor(last)}` });
+      // A numbered item below stays a list only after a blank line; a bullet reads as one right under text.
+      if (below && listItemOf(state, below)?.kind === 'number') changes.push({ from: last.to, insert: `\n${blankFor(last)}` });
     } else {
-      let number = 1;
+      // The next number at each indent among the selected lines: a nested list counts from 1 for itself.
+      const counters = new Map<number, number>();
       lines.forEach((line, index) => {
         const item = items[index];
+        const own = (item ? item.markFrom : textStart(state, line, QUOTE_MARK)) - line.from;
         // Numbers carry on from the item above and over blank lines, and start again at 1 after other text, so a list never starts at 2.
         const gap = index > 0 ? state.doc.sliceString(lines[index - 1].to, line.from) : null;
-        if (gap === null || /[^\s>]/.test(gap)) {
+        if (gap === null || /[^\s>]/.test(gap)) counters.clear();
+        for (const indent of [...counters.keys()]) if (indent > own) counters.delete(indent);
+        let number = counters.get(own);
+        if (number === undefined) {
           // Only an item at the same indent is the same list: one nested under a numbered item starts at 1.
           const lineAbove = line.number > 1 ? state.doc.line(line.number - 1) : null;
           const previous = lineAbove ? listItemOf(state, lineAbove) : null;
-          const own = (item ? item.markFrom : textStart(state, line, QUOTE_MARK)) - line.from;
-          number = lineAbove && previous?.kind === 'number' && previous.markFrom - lineAbove.from === own ? previous.number + 1 : 1;
+          const carries = index === 0 || (gap !== null && /[^\s>]/.test(gap));
+          number = carries && lineAbove && previous?.kind === 'number' && previous.markFrom - lineAbove.from === own ? previous.number + 1 : 1;
         }
-        let mark = kind === 'bullet' ? '- ' : kind === 'task' ? '- [ ] ' : `${number++}. `;
+        counters.set(own, number + 1);
+        let mark = kind === 'bullet' ? '- ' : kind === 'task' ? '- [ ] ' : `${number}. `;
         if (item) {
           // An item whose later lines hold text keeps its content column, so a formula or code in it reads the same.
           const column = item.contentFrom - item.markFrom;

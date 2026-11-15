@@ -405,19 +405,20 @@ try {
   const limit = await page.evaluate(() => document.querySelector('.cm-diagram-error')?.textContent ?? '');
   check('a diagram past Mermaid\'s size limits says so in plain words', limit.startsWith('Too large to draw') && (await page.locator('img.cm-diagram-image').count()) === 0, limit);
 
-  // A note keeps the drawn block, highlighted, scrolling sideways inside the column.
+  // A note is edited as a document: its code is edited in place, highlighted, and stays inside the column.
   await open(NOTE);
   for (const theme of ['light', 'dark']) {
     await setTheme(theme);
-    await shot(`${theme}-note-block`, page.locator('.cm-md-codeblock-widget').first(), { above: 80, below: 60 });
+    await shot(`${theme}-note-block`, page.locator('.cm-code-keyword').first(), { above: 80, below: 60 });
   }
   const fits = await page.evaluate(() => {
-    const box = document.querySelector('.cm-md-codeblock-box');
     const content = document.querySelector('.cm-content');
-    if (!box || !content) return null;
-    return { scrolls: box.scrollWidth > box.clientWidth, inside: box.getBoundingClientRect().right <= content.getBoundingClientRect().right + 1, coloured: Boolean(box.querySelector('.cm-code-keyword')) };
+    const keyword = content?.querySelector('.cm-code-keyword');
+    const line = keyword?.closest('.cm-line');
+    if (!content || !line) return null;
+    return { inside: line.getBoundingClientRect().right <= content.getBoundingClientRect().right + 1, coloured: true, widget: document.querySelectorAll('.cm-md-codeblock-widget').length };
   });
-  check('a note\'s block scrolls sideways inside the column and is highlighted', Boolean(fits?.scrolls && fits.inside && fits.coloured), JSON.stringify(fits));
+  check('a note\'s code is edited in place, highlighted, inside the column', Boolean(fits?.inside && fits.coloured && fits.widget === 0), JSON.stringify(fits));
   check('no page errors', errors.length === 0, errors.join(' | '));
 } catch (error) {
   check('the run finished', false, String(error));

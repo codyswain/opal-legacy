@@ -171,7 +171,7 @@ export function pasteSpec(state: EditorState, text: string, literal: boolean): T
     }
     return writeLink(state, range, state.sliceDoc(range.from, range.to), address, null);
   }
-  if (!literal) return listIntoItem(state, pasted) ?? linesIntoItems(state, withoutMarkers(state, pasted)) ?? linesIntoItems(state, pasted);
+  if (!literal) return listIntoItem(state, pasted) ?? linesIntoItems(state, withoutMarkers(state, pasted)) ?? linesIntoItems(state, pasted) ?? blockIntoText(state, pasted);
   const prefix = containerPrefix(state, range.from);
   const insert = literalText(state, range.from, range.to, pasted, { prefix, table: inTable(state, range.from) });
   return {
@@ -235,6 +235,45 @@ function withoutMarkers(state: EditorState, pasted: string): string {
   const lines = pasted.replace(/\n+$/, '').split('\n');
   if (!item || range.from <= item.textFrom || range.from >= line.to || lines.length < 2 || !lines.every((each) => !/\S/.test(each) || LIST_LINE.test(each))) return pasted;
   return lines.map((each) => each.replace(/^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+\[[ xX]\])?[ \t]*/, '')).join('\n');
+}
+
+// A plain line of text: nothing that opens a block of its own.
+const OWN_BLOCK = /^ {0,3}(?:[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|#{1,6}(?:[ \t]|$)|>|```|~~~|\||<|(?:-{3,}|\*{3,}|_{3,}|={3,})[ \t]*$)/;
+
+/**
+ * A pasted list, heading, quote, fence or table on a line of plain text
+ * that is no list item: the block goes on lines of its own, since Markdown
+ * reads it as text when it starts in the middle of a line. A pasted list
+ * that then sits right over text gets a blank line under it, so that text
+ * stays a paragraph, as when a list is typed there.
+ */
+function blockIntoText(state: EditorState, pasted: string): TransactionSpec | null {
+  const range = state.selection.main;
+  if (!state.facet(docMode) || rawAt(state, range.from)) return null;
+  const text = pasted.replace(/\n+$/, '');
+  const lines = text.split('\n');
+  if (!OWN_BLOCK.test(lines[0])) return null;
+  const line = state.doc.lineAt(range.from);
+  const end = state.doc.lineAt(range.to);
+  if (listItemOf(state, line)) return null;
+  const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '';
+  const blank = quote.replace(/[ \t]+$/, '');
+  const before = /\S/.test(state.doc.sliceString(line.from + quote.length, range.from));
+  const after = /\S/.test(state.doc.sliceString(range.to, end.to));
+  const below = end.number < state.doc.lines ? state.doc.line(end.number + 1) : null;
+  const endsInList = LIST_LINE.test(lines[lines.length - 1]);
+  // Text right under a list reads as more of its last item: what follows the caret, or the next line, gets a blank line first.
+  const tail = after ? `\n${endsInList ? `${blank}\n` : ''}${quote}` : endsInList && below && /\S/.test(below.text.slice(quote.length)) && !OWN_BLOCK.test(below.text.slice(quote.length)) ? `\n${blank}` : '';
+  if (!before && !tail) return null;
+  const body = prefixLines(text, quote);
+  const insert = `${before ? `\n${quote}` : ''}${body}${tail}`;
+  return {
+    changes: { from: range.from, to: range.to, insert },
+    selection: { anchor: range.from + (before ? 1 + quote.length : 0) + body.length },
+    scrollIntoView: true,
+    userEvent: 'input.paste',
+    annotations: prefixed.of(true),
+  };
 }
 
 // A line that is a Markdown block of its own: a list item, heading, quote, fence, table row or indented code.

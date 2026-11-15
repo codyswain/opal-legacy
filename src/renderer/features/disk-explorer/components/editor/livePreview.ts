@@ -729,7 +729,11 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
           if (last.number + 2 > doc.lines) return true;
           const gap = doc.line(last.number + 1);
           const set = first.number === 1 || /[^\s>]/.test(doc.line(first.number - 1).text);
-          if (set && !/[^\s>]/.test(gap.text) && gap.from >= top && gap.from <= bottom && !covered(gap.from)) {
+          // Only a blank line at the list's own quote depth: the one after a callout that ends in a list keeps
+          // its row, as after any callout. And never next to a drawn block, which needs a line for the caret.
+          const own = quotePrefix(gap.text) > 0 === quotePrefix(first.text) > 0;
+          const next = doc.line(last.number + 2);
+          if (set && own && !/[^\s>]/.test(gap.text) && gap.from >= top && gap.from <= bottom && !covered(gap.from) && !covered(next.from)) {
             if (gap.to > gap.from) hide(gap.from, gap.to);
             lineClass(gap.from, 'cm-md-gap-hidden');
             units?.push({ from: gap.from - 1, to: Math.min(doc.length, gap.to + 1) });

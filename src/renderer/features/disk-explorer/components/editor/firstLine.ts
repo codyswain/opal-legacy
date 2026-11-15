@@ -104,6 +104,13 @@ function refuseMove(dir: -1 | 1): Command {
     const moving = blockOf(state, first);
     const other = state.doc.line(neighbour);
     if (!sameBlock(moving, blockOf(state, last)) || !sameBlock(moving, blockOf(state, other))) return true;
+    // A list item changes places only with another list line, and text never moves into a list: in Markdown a
+    // line of text right under an item reads as more of that item.
+    const listLine = (line: Line) => /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]|$)/.test(line.text) || /^[\s>]*[ \t]+\S/.test(line.text);
+    if (listLine(first) !== listLine(other) || listLine(last) !== listLine(other)) return true;
+    // Nor does text cross the blank line that keeps it apart from a list.
+    const beyond = neighbour + dir >= 1 && neighbour + dir <= state.doc.lines ? state.doc.line(neighbour + dir) : null;
+    if (!/[^\s>]/.test(other.text) && beyond && listLine(beyond) && !listLine(first)) return true;
     // Inside a block, a table's delimiter row and a code block's fences stay where they are, and no line passes them.
     if (moving && [first, last, other].some((line) => structural(state, moving, line))) return true;
     return leavesChildren(state, first, last);

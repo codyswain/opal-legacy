@@ -181,6 +181,8 @@ function renumbering(tr: Transaction): ChangeSpec[] {
     to: reach,
     enter: (ref) => { if (ref.name === 'OrderedList') lists.push(ref.node); },
   });
+  // The numbers to write, by where each starts, so a number is written once.
+  const digitsAt = new Map<number, { from: number; to: number; insert: string }>();
   /** The marker that started at `at` before the edit. */
   const markBefore = (at: number): SyntaxNode | null => {
     const node = before.resolveInner(at, 1);
@@ -207,12 +209,43 @@ function renumbering(tr: Transaction): ChangeSpec[] {
       const written = newDoc.sliceString(mark.from, mark.to);
       const digits = /^\d+/.exec(written)?.[0] ?? '';
       const want = String(start + index);
-      if (digits && digits !== want) changes.push({ from: mark.from, to: mark.from + digits.length, insert: want });
+      if (digits && digits !== want) digitsAt.set(mark.from, { from: mark.from, to: mark.from + digits.length, insert: want });
       const was = digits ? markBefore(back(mark.from)) : null;
       if (was) changes.push(...keptInside(tr, was, mark.from, written.length - digits.length + want.length));
     });
   }
-  return changes;
+  // A numbered list that the edit left starting past 1 right under a line of text no longer reads as a list at
+  // all, so the pass above cannot see it. Its items are found from its lines instead and counted from its start.
+  const lost = new Map<number, SyntaxNode>();
+  tr.changes.iterChangedRanges((fromA, toA) => {
+    before.iterate({ from: Math.max(0, fromA - 1), to: Math.min(tr.startState.doc.length, toA + 1), enter: (ref) => { if (ref.name === 'OrderedList') lost.set(ref.from, ref.node); } });
+  });
+  for (const list of lost.values()) {
+    const oldDoc = tr.startState.doc;
+    const first = firstMark(list);
+    if (!first) continue;
+    const head = oldDoc.lineAt(list.from);
+    const lead = head.text.slice(0, first.from - head.from);
+    const delimiter = oldDoc.sliceString(first.to - 1, first.to);
+    const start = numberAt(oldDoc, first);
+    const top = newDoc.lineAt(tr.changes.mapPos(list.from, -1)).number;
+    const bottom = newDoc.lineAt(tr.changes.mapPos(list.to, 1)).number;
+    const items: { from: number; digits: string }[] = [];
+    for (let number = top; number <= bottom; number += 1) {
+      const line = newDoc.line(number);
+      const match = line.text.startsWith(lead) ? /^(\d{1,9})([.)])(?:[ \t]|$)/.exec(line.text.slice(lead.length)) : null;
+      if (match && match[2] === delimiter) items.push({ from: line.from + lead.length, digits: match[1] });
+    }
+    if (items.length === 0 || !Number.isFinite(start)) continue;
+    const read = orderedAt(after, items[0].from);
+    if (read && read.from <= items[0].from && depthOf(read) === depthOf(list)) continue;
+    items.forEach((item, index) => {
+      const want = String(start + index);
+      if (item.digits === want) digitsAt.delete(item.from);
+      else digitsAt.set(item.from, { from: item.from, to: item.from + item.digits.length, insert: want });
+    });
+  }
+  return [...changes, ...digitsAt.values()];
 }
 
 // A list item's line: its quote marks and indent, then its marker.
