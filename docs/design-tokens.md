@@ -24,10 +24,14 @@ band. The right sidebar's cards are page-coloured cards on the chrome. There
 are no rules between sidebar parts or under the top row; regions are told
 apart by the steps between the three greys and by space.
 
+In dark mode the ground is the chrome's colour, so there are two surfaces: one
+frame and the page. A third dark between the sidebar and the page read as a
+stray strip.
+
 | CSS token | Tailwind | Light | Dark |
 |---|---|---|---|
 | `--chrome` | `bg-chrome` | #ececec; **B** #fafafa | #0b0b0b |
-| `--ground` | `bg-ground` | #f5f5f5; **B** #fafafa | #131313 |
+| `--ground` | `bg-ground` | #f5f5f5; **B** #fafafa | #0b0b0b |
 | `--canvas` | `bg-canvas` | #ffffff | #1a1a1a |
 | `--page-ring` | `border-page-ring` | #e2e2e2 | #282828 |
 | `--radius-card` | `rounded-card` | 8 px | 8 px |

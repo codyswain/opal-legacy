@@ -173,7 +173,9 @@
   .dark {
     color-scheme: dark;
     --chrome: 0 0% 4.3%;
-    --ground: 0 0% 7.5%;
+    /* In the dark the ground is the chrome: a third dark between the sidebar
+       and the page read as a stray strip, so the page sits on one frame. */
+    --ground: 0 0% 4.3%;
     --canvas: 0 0% 10.2%;
     --surface: 0 0% 10.2%;
     --surface-raised: 0 0% 14.1%;
