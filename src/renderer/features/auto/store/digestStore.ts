@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { AutoDigest, AutoStreamMessage } from '@/types/auto';
+import type { AutoDigest, AutoDigestEntry, AutoStreamMessage } from '@/types/auto';
 import { afterLeaving, allEntries, entryName, queueOrder, queueSections, stepDay, withState, wordsKey, type QueueFilter } from '../model/digestModel';
 import { cidFor, type Failed } from '../model/outbox';
+import { unconfirmed } from '../model/unconfirmed';
 import { autoApi, useAutoStore } from './autoStore';
 import { useSaidStore } from './saidStore';
 import { useThreadStore } from './threadStore';
@@ -70,12 +71,39 @@ export const QUEUE_TOP = ':top';
 /** The entry that is the queue's Tab stop: where the keyboard goes when the queue opens. */
 export const QUEUE_FIRST = ':first';
 
+type EntryState = AutoDigestEntry['state'];
+
+/**
+ * What he has just done to an entry (resolved it, made it a thread, taken
+ * either back) and the service has yet to confirm, by day and id. It is
+ * laid over every copy of the day that arrives meanwhile.
+ */
+const unconfirmedEntries = unconfirmed<AutoDigestEntry>();
+const entryKey = (date: string, id: string): string => `${date}/${id}`;
+/** A day as the service gave it, with what he has done since laid over it and what is left counted again. */
+const laid = (digest: AutoDigest): AutoDigest => {
+  const ids = allEntries(digest).filter((entry) => unconfirmedEntries.has(entryKey(digest.date, entry.id))).map((entry) => entry.id);
+  return ids.length === 0 ? digest : withState(digest, ids, (entry) => unconfirmedEntries.lay(entryKey(digest.date, entry.id), entry).state);
+};
+/** Where an entry is when it is not resolved. */
+const unresolved = (entry: AutoDigestEntry): EntryState => (entry.thread ? 'thread' : 'open');
+
 export const useDigestStore = create<DigestStore>((set, get) => {
-  /** The service's answer for a day replaces the copy of that day. */
-  const took = (digest: AutoDigest) => {
+  /** The service's answer for a day replaces the copy of that day, with what he has done since kept. */
+  const took = (answer: AutoDigest) => {
+    const digest = laid(answer);
     const { latest, past } = get();
     if (past && past.date === digest.date) set({ past: digest });
     else if (!latest || latest.date === digest.date) set({ latest: digest, status: 'loaded' });
+  };
+  /** The copy of a day that is held now. */
+  const held = (date: string): AutoDigest | null => (get().past?.date === date ? get().past : get().latest?.date === date ? get().latest : null);
+  /** Keeps a state for some entries until their posts have landed, and shows it at once. Answers how to end it. */
+  const keep = (date: string, ids: readonly string[], state: (entry: AutoDigestEntry) => EntryState): (() => void) => {
+    const tokens = ids.map((id) => unconfirmedEntries.keep(entryKey(date, id), (entry) => ({ ...entry, state: state(entry) })));
+    const now = held(date);
+    if (now) took(now);
+    return () => ids.forEach((id, at) => unconfirmedEntries.end(entryKey(date, id), tokens[at]));
   };
 
   const reload = async (date: string) => {
@@ -119,7 +147,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       if (latest?.success) {
         const past = get().past;
         // The day he stepped to has become the latest's own day.
-        set({ latest: latest.data, status: 'loaded', ...(past && past.date === latest.data.date ? { past: null } : {}) });
+        set({ latest: laid(latest.data), status: 'loaded', ...(past && past.date === latest.data.date ? { past: null } : {}) });
       } else if (latest?.error.kind === 'refused' && latest.error.status === 404) {
         set({ latest: null, status: 'none' });
       } else if (!get().latest) {
@@ -141,7 +169,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
         return;
       }
       const result = await api.request({ kind: 'digest', date: target }).catch((): null => null);
-      if (result?.success) set({ past: result.data, filter: 'all', opened: null });
+      if (result?.success) set({ past: laid(result.data), filter: 'all', opened: null });
       else said().refuse(result?.error.message ?? UNREACHABLE);
     },
 
@@ -155,32 +183,61 @@ export const useDigestStore = create<DigestStore>((set, get) => {
 
     resolve: async (ids, resolved, section) => {
       const day = selectDay(get());
-      if (!day || ids.length === 0) return;
+      const api = autoApi();
+      if (!day || !api || ids.length === 0) return;
       const date = day.date;
       const name = ids.length === 1 ? named(day, ids[0]) : section ?? '';
-      // The rows change at once; the service's answer then takes the place of this guess.
-      took(withState(day, ids, (entry) => (resolved ? 'resolved' : entry.thread ? 'thread' : 'open')));
+      const shown = () => selectDay(get())?.date === date;
+      /** The day as it is held, with these entries changed: for a change the service will not be asked for again. */
+      const put = (state: (entry: AutoDigestEntry) => EntryState) => {
+        const now = held(date);
+        if (now) took(withState(now, ids, state));
+      };
+      // The rows change at once, and stay changed whatever is read of the day until the post has landed.
+      let end = keep(date, ids, (entry) => (resolved ? 'resolved' : unresolved(entry)));
       if (resolved) moveOn(day, ids);
-      const result = await autoApi()?.request({ kind: 'digest-resolve', date, ids, resolved }).catch((): null => null);
-      if (!result?.success) {
-        took(day);
-        said().refuse(result?.error.message ?? UNREACHABLE, name);
+      const post = api.request({ kind: 'digest-resolve', date, ids, resolved }).catch((): null => null);
+      let undone = false;
+      let offer = 0;
+      if (resolved) {
+        // On offer from the moment the rows leave.
+        offer = said().offer({
+          name,
+          text: ids.length === 1 ? 'resolved' : `${ids.length} resolved`,
+          subject: `${date}/${ids.join()}`,
+          undo: () => {
+            undone = true;
+            end = keep(date, ids, unresolved);
+            if (shown()) set({ focusEntry: ids[0] });
+            // The resolve goes first, then its undoing.
+            void post.then((result) => {
+              if (!result?.success) {
+                end();
+                return;
+              }
+              return api.request({ kind: 'digest-resolve', date, ids, resolved: false }).catch((): null => null).then((back) => {
+                end();
+                if (back?.success) took(back.data);
+                else {
+                  put(() => 'resolved');
+                  said().refuse(back?.error.message ?? UNREACHABLE, name);
+                }
+              });
+            });
+          },
+        });
+      }
+      const result = await post;
+      // Undone meanwhile: the undo ends what it kept, once its own post has landed.
+      if (undone) return;
+      end();
+      if (result?.success) {
+        took(result.data);
         return;
       }
-      took(result.data);
-      if (!resolved) return;
-      said().say({
-        text: ids.length === 1 ? 'Resolved' : `Resolved ${ids.length} in`,
-        name,
-        undo: () => {
-          void autoApi()?.request({ kind: 'digest-resolve', date, ids, resolved: false }).catch((): null => null).then((undone) => {
-            if (undone?.success) {
-              took(undone.data);
-              if (selectDay(get())?.date === date) set({ focusEntry: ids[0] });
-            } else said().refuse(undone?.error.message ?? UNREACHABLE, name);
-          });
-        },
-      });
+      said().drop(offer);
+      put((entry) => (resolved ? unresolved(entry) : 'resolved'));
+      said().refuse(result?.error.message ?? UNREACHABLE, name);
     },
 
     setNote: async (id, text) => {
@@ -197,39 +254,56 @@ export const useDigestStore = create<DigestStore>((set, get) => {
 
     makeThread: async (id) => {
       const day = selectDay(get());
-      if (!day) return;
+      const api = autoApi();
+      if (!day || !api) return;
       const date = day.date;
       const name = named(day, id);
-      // The entry leaves "Left" at once.
-      took(withState(day, [id], () => 'thread'));
+      // The entry leaves "Left" at once, and stays away whatever is read of the day until the post has landed.
+      let end = keep(date, [id], () => 'thread');
       moveOn(day, [id]);
-      const api = autoApi();
-      const result = await api?.request({ kind: 'digest-thread', date, id, words: null, cid: null }).catch((): null => null);
-      if (!result?.success) {
-        took(day);
-        said().refuse(result?.error.message ?? UNREACHABLE, name);
-        return;
-      }
-      const thread = result.data.thread;
-      useAutoStore.getState().upsert(thread);
-      await reload(date);
-      said().say({
-        text: 'Made a thread',
+      const post = api.request({ kind: 'digest-thread', date, id, words: null, cid: null }).catch((): null => null);
+      let undone = false;
+      const offer = said().offer({
         name,
-        open: () => useThreadStore.getState().open(thread.id),
+        text: 'made a thread',
+        subject: `${date}/${id}`,
+        open: () => {
+          void post.then((result) => {
+            if (result?.success) useThreadStore.getState().open(result.data.thread.id);
+          });
+        },
         // A thread nobody has started, archived, leaves its entry open again.
         undo: () => {
-          void api?.request({ kind: 'archive', id: thread.id, archived: true }).catch((): null => null).then(async (undone) => {
-            if (!undone?.success) {
-              said().refuse(undone?.error.message ?? UNREACHABLE, name);
+          undone = true;
+          end = keep(date, [id], () => 'open');
+          if (selectDay(get())?.date === date) set({ focusEntry: id });
+          void post.then((result) => {
+            if (!result?.success) {
+              end();
               return;
             }
-            useAutoStore.getState().upsert(undone.data.thread);
-            await reload(date);
-            if (selectDay(get())?.date === date) set({ focusEntry: id });
+            return api.request({ kind: 'archive', id: result.data.thread.id, archived: true }).catch((): null => null).then(async (back) => {
+              end();
+              if (back?.success) useAutoStore.getState().upsert(back.data.thread);
+              else said().refuse(back?.error.message ?? UNREACHABLE, name);
+              await reload(date);
+            });
           });
         },
       });
+      const result = await post;
+      // Undone meanwhile: the undo ends what it kept, once its own post has landed.
+      if (undone) return;
+      end();
+      if (!result?.success) {
+        said().drop(offer);
+        const now = held(date);
+        if (now) took(withState(now, [id], () => 'open'));
+        said().refuse(result?.error.message ?? UNREACHABLE, name);
+        return;
+      }
+      useAutoStore.getState().upsert(result.data.thread);
+      await reload(date);
     },
 
     setWords: (id, text) => {
@@ -282,6 +356,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
 // opening, a reset, a reconnect), and forgotten with the address it came from.
 useAutoStore.subscribe((state, before) => {
   if (state.address !== before.address) {
+    unconfirmedEntries.clear();
     useDigestStore.setState({ latest: null, status: 'unknown', days: [], past: null, filter: 'left', opened: null, words: {}, notSent: null, failed: null, focusEntry: null });
   }
   // Read while a tab is open: when the list is read, and when the tab opens on a list read before.

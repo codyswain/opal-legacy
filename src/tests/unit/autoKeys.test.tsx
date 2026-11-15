@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoItem, AutoQuestion, AutoRoute } from '@/types/auto';
 import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { unconfirmedThreads } from '@/renderer/features/auto/store/autoStore';
 import { forgetPlaces, keepPlace, placeOf, threadPlace } from '@/renderer/features/auto/model/places';
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
+import { HOLD_MS, hold } from '@/renderer/features/auto/store/actions';
 import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { SLOW_MS, forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { CommandPalette, usePaletteStore } from '@/renderer/features/commands';
@@ -32,7 +34,7 @@ const BEDS = autoThread('beds', {
   ask: { id: 'q0', kind: 'ask', text: 'Which wood for the frames?', options: ['Cedar', 'Larch'], question: 'Which wood for the frames?' },
 });
 const BREAD = autoThread('bread', { title: 'Sourdough timings', last: 'Start the starter at 8.' });
-const SEEDS = autoThread('seeds', { title: 'Seed order', last: 'Twelve packets.', unread: true });
+const SEEDS = autoThread('seeds', { title: 'Seed order', last: 'Twelve packets.' });
 const TRELLIS = autoThread('trellis', { title: 'Tomato trellis', last: 'String every 20 cm.' });
 const INSPECTION = autoThread('inspect', { title: 'Book the inspection', last: 'The committee walks the plots.', waits: true, digest: { date: DAY, id: 'item-2' } });
 const LABELS = autoThread('labels', { title: 'Pantry labels', last: 'A4, 21 to a page.', snoozed: 4_000_000_000 });
@@ -119,6 +121,7 @@ beforeEach(() => {
   useThreadStore.setState({ ...useThreadStore.getInitialState(), box: { outbox: [], drafts: {} } }, true);
   useDigestStore.setState(useDigestStore.getInitialState(), true);
   useSaidStore.getState().clear();
+  hold.ms = HOLD_MS;
   forgetPlaces();
   forgetViews();
   installDiskApi();
@@ -188,7 +191,7 @@ describe('the list under the keyboard', () => {
     rowButton('inspect').focus();
     key('d');
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
-    await waitFor(() => expect(said()).toBe('Done Book the inspectionUndo'));
+    expect(said()).toBe('Book the inspection, doneUndo');
   });
 
   it('opens the snooze menu with S, and a pick snoozes with the keyboard moving on', async () => {
@@ -200,7 +203,8 @@ describe('the list under the keyboard', () => {
     await waitFor(() => expect(last('snooze')?.id).toBe('bread'));
     expect(rowIds()).not.toContain('bread');
     await waitFor(() => expect(focusedRow()).toBe('seeds'));
-    await waitFor(() => expect(said()).toMatch(/^Snoozed until tomorrow at 8:00 am Sourdough timingsUndo$/));
+    // The name first and the time short, so neither is lost in a narrow list.
+    expect(said()).toMatch(/^Sourdough timings, until [A-Z][a-z]{2} 9:00 amUndo$/);
   });
 
   it('marks and unmarks for the Mac with M, the keyboard going with the row', async () => {
@@ -241,7 +245,21 @@ describe('the list under the keyboard', () => {
     rowButton('inspect').focus();
     key('F10', { shiftKey: true });
     const menu = within(await screen.findByTestId('auto-row-menu-inspect'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the MacM', 'DoneD', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Mark for the MacM', 'Rename', 'DoneD', 'ArchiveE']);
+  });
+
+  it('renames from the row’s menu: the thread opens with its title as a field', async () => {
+    await open();
+    await openThread('bread');
+    rowButton('trellis').focus();
+    key('F10', { shiftKey: true });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    const title = await screen.findByRole('textbox', { name: 'Thread title' });
+    expect(title).toHaveValue('Tomato trellis');
+    await waitFor(() => expect(document.activeElement).toBe(title));
+    fireEvent.change(title, { target: { value: 'Trellis for the tomatoes' } });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    await waitFor(() => expect(last('rename')).toEqual({ kind: 'rename', id: 'trellis', title: 'Trellis for the tomatoes' }));
   });
 
   it('acts on single keys only from a row: not from the box, and not with a modifier', async () => {
@@ -320,8 +338,33 @@ describe('the box under the keyboard', () => {
     fireEvent.click(screen.getByTestId('auto-title'));
     const title = screen.getByRole('textbox', { name: 'Thread title' });
     fireEvent.change(title, { target: { value: 'Bread, the long way' } });
-    fireEvent.keyDown(title, { key: 'Enter' });
+    // The Enter ends in the title: the keyboard moves to the box within the same press, and the key must not follow it there as a new line.
+    expect(fireEvent.keyDown(title, { key: 'Enter' })).toBe(false);
     await waitFor(() => expect(last('rename')).toEqual({ kind: 'rename', id: 'bread', title: 'Bread, the long way' }));
+    await waitFor(() => expect(document.activeElement).toBe(box()));
+    expect(box().value).toBe('');
+  });
+
+  it('picks an option of the open card with 1 to 3 while the keyboard is in the card, and types the number in the box', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Which bed?', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: ASK }));
+    const card = screen.getByTestId('auto-question');
+    // Each option says its number, beside its name and not as part of it.
+    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['Bed 31', 'Bed 42']);
+    expect(within(card).getByRole('button', { name: 'Bed 3' })).toBeInTheDocument();
+    // In the box a number is a number: his answer may well start with one.
+    expect(fireEvent.keyDown(box(), { key: '2' })).toBe(true);
+    expect(auto.asked('answer')).toEqual([]);
+    const option = within(card).getByRole('button', { name: 'Bed 3' });
+    option.focus();
+    // Past the options, or with a modifier, nothing is picked.
+    key('3');
+    key('1', { metaKey: true });
+    expect(auto.asked('answer')).toEqual([]);
+    key('2');
+    await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'q1', answers: { 'Which bed?': 'Bed 4' } }));
     await waitFor(() => expect(document.activeElement).toBe(box()));
   });
 
@@ -342,62 +385,217 @@ describe('the box under the keyboard', () => {
 });
 
 describe('undo', () => {
-  it('takes back the last action with Cmd+Z, from a row and not from a field', async () => {
+  it('is on offer the moment the row leaves, before the service has answered', async () => {
     await open();
-    await openThread('trellis');
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
     rowButton('bread').focus();
     key('e');
-    await waitFor(() => expect(said()).toBe('Archived Sourdough timingsUndo'));
-    // In the box Cmd+Z undoes typing: the thread stays archived.
-    fireEvent.keyDown(box(), { key: 'z', metaKey: true });
-    expect(auto.asked('archive')).toHaveLength(1);
-    rowButton('seeds').focus();
+    expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']);
+    expect(said()).toBe('Sourdough timings, archivedUndo');
+    // While the archive is on its way, word of the thread from the service (a new title, say) does not bring the row back.
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, title: 'Sourdough, timed' } }));
+    expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']);
+    // Taken back while the archive is still on its way: the row is back at once, and the service hears both, in order.
     key('z', { metaKey: true });
-    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: false }));
-    await waitFor(() => expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']));
+    expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
     await waitFor(() => expect(focusedRow()).toBe('bread'));
     expect(screen.queryByTestId('auto-said')).toBeNull();
-    // With no Undo on offer the key is left alone.
-    const left = fireEvent.keyDown(rowButton('bread'), { key: 'z', metaKey: true });
-    expect(left).toBe(true);
+    // The archive lands, and the list stream says so before its undoing has: the row he brought back stays.
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, archived: true } }));
+    expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    release();
+    await waitFor(() => expect(auto.asked('archive')).toEqual([{ kind: 'archive', id: 'bread', archived: true }, { kind: 'archive', id: 'bread', archived: false }]));
+    expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    // Once both have landed the service has the last word again: archived somewhere else, the row leaves.
+    await waitFor(() => expect(unconfirmedThreads.has('bread')).toBe(false));
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, archived: true } }));
+    expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']);
   });
 
-  it('names the newest action only, one line at a time', async () => {
+  it('keeps the open thread open when it is archived from its header and brought back before the post lands', async () => {
+    await open();
+    await openThread('bread');
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    fireEvent.click(screen.getByTestId('auto-archive-open'));
+    await waitFor(() => expect(useThreadStore.getState().openId).toBe('seeds'));
+    key('z', { metaKey: true });
+    expect(useThreadStore.getState().openId).toBe('bread');
+    // The service's own word of the archive would close a thread that has left the list. This one has not.
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, archived: true } }));
+    expect(useThreadStore.getState().openId).toBe('bread');
+    expect(rowButton('bread').getAttribute('aria-current')).toBe('true');
+    release();
+    await waitFor(() => expect(auto.asked('archive')).toHaveLength(2));
+    expect(useThreadStore.getState().openId).toBe('bread');
+  });
+
+  it('keeps a snooze taken back while the service still says the thread is snoozed', async () => {
+    await open();
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    rowButton('bread').focus();
+    key('s');
+    fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: /^Tomorrow/ }));
+    expect(rowIds()).not.toContain('bread');
+    key('z', { metaKey: true });
+    expect(rowIds()).toContain('bread');
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, snoozed: 4_000_000_000 } }));
+    expect(rowIds()).toContain('bread');
+    release();
+    await waitFor(() => expect(auto.asked('snooze').map((route) => route.until === null)).toEqual([false, true]));
+    expect(rowIds()).toContain('bread');
+  });
+
+  it('keeps the last actions and takes them back newest first, saying how many more there are', async () => {
     await open();
     rowButton('bread').focus();
     key('e');
     await waitFor(() => expect(focusedRow()).toBe('seeds'));
     key('e');
-    await waitFor(() => expect(said()).toBe('Archived Seed orderUndo'));
+    await waitFor(() => expect(focusedRow()).toBe('trellis'));
+    key('e');
+    await waitFor(() => expect(focusedRow()).toBe('inspect'));
+    expect(rowIds()).toEqual(['beds', 'inspect']);
+    expect(said()).toBe('Tomato trellis, archivedUndo2 more');
     expect(screen.getAllByTestId('auto-said')).toHaveLength(1);
-    expect(useSaidStore.getState().said?.name).toBe('Seed order');
+    key('z', { metaKey: true });
+    await waitFor(() => expect(rowIds()).toEqual(['beds', 'trellis', 'inspect']));
+    expect(said()).toBe('Seed order, archivedUndo1 more');
+    key('z', { metaKey: true });
+    await waitFor(() => expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']));
+    expect(said()).toBe('Sourdough timings, archivedUndo');
+    key('z', { metaKey: true });
+    await waitFor(() => expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']));
+    expect(screen.queryByTestId('auto-said')).toBeNull();
+    await waitFor(() => expect(auto.asked('archive').filter((route) => route.archived === false).map((route) => route.id)).toEqual(['trellis', 'seeds', 'bread']));
+    // With nothing on offer the key is left alone.
+    expect(fireEvent.keyDown(rowButton('bread'), { key: 'z', metaKey: true })).toBe(true);
   });
 
-  it('takes a row away at once and brings it back with the service’s sentence when the post fails', async () => {
+  it('undoes from an empty box, and leaves Cmd+Z to the box while it holds text', async () => {
+    await open();
+    await openThread('bread');
+    fireEvent.click(screen.getByTestId('auto-archive-open'));
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('seeds'));
+    await waitFor(() => expect(document.activeElement).toBe(box()));
+    // Text in the box: Cmd+Z is the box's own undo, and the thread stays archived.
+    fireEvent.change(box(), { target: { value: 'half a thought' } });
+    expect(fireEvent.keyDown(box(), { key: 'z', metaKey: true })).toBe(true);
+    expect(rowIds()).not.toContain('bread');
+    // Empty, there is nothing of the box's to undo: the archive is taken back.
+    fireEvent.change(box(), { target: { value: '' } });
+    expect(fireEvent.keyDown(box(), { key: 'z', metaKey: true })).toBe(false);
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('bread'));
+    expect(rowIds()).toContain('bread');
+  });
+
+  it('follows the same rule in the note and in an entry’s box', async () => {
+    await open();
+    await openQueue();
+    key('ArrowDown');
+    key('e');
+    await waitFor(() => expect(entryIds()).toEqual(['item-1', 'text-b']));
+    key('ArrowUp');
+    key('n');
+    const note = await within(screen.getByTestId('auto-entry-item-1')).findByRole('textbox', { name: 'Your note' });
+    fireEvent.change(note, { target: { value: 'typing' } });
+    expect(fireEvent.keyDown(note, { key: 'z', metaKey: true })).toBe(true);
+    expect(entryIds()).toEqual(['item-1', 'text-b']);
+    const words = within(screen.getByTestId('auto-entry-item-1')).getByTestId('auto-entry-box');
+    expect(fireEvent.keyDown(words, { key: 'z', metaKey: true })).toBe(false);
+    await waitFor(() => expect(entryIds()).toEqual(['item-1', 'text-a', 'text-b']));
+  });
+
+  it('brings the row back with the service’s sentence when the post fails, and the offer goes', async () => {
     await open();
     let release: () => void = () => undefined;
     auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
     auto.state.failWrites = { kind: 'refused', message: 'Auto is busy.', code: 'busy', status: 503 };
     fireEvent.click(screen.getByTestId('auto-archive-bread'));
-    // Gone before the service has said a word.
+    // Gone, and on offer, before the service has said a word.
     expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']);
-    expect(screen.queryByTestId('auto-said')).toBeNull();
+    expect(said()).toBe('Sourdough timings, archivedUndo');
     release();
     await waitFor(() => expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']));
     expect(said()).toBe('Sourdough timings: Auto is busy.');
     expect(screen.getByTestId('auto-said').getAttribute('data-problem')).toBe('true');
     expect(within(screen.getByTestId('auto-said')).queryByRole('button')).toBeNull();
+    expect(useSaidStore.getState().stack).toEqual([]);
   });
 
-  it('undoes a snooze, and gives a thread snoozed again the time it had', async () => {
+  it('undoes a snooze, gives a thread snoozed again the time it had, and clears its line on Bring back', async () => {
     await open();
     fireEvent.click(screen.getByTestId('auto-snoozed-line'));
     await userEvent.setup().click(screen.getByTestId('auto-snooze-labels'));
-    fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: /^Next week/ }));
+    const menu = within(await screen.findByTestId('auto-snooze-menu'));
+    // A snoozed thread's clock also brings it back, so a key reaches that.
+    expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Bring back');
+    fireEvent.click(menu.getByRole('menuitem', { name: /^Next week/ }));
     await waitFor(() => expect(last('snooze')?.id).toBe('labels'));
-    await waitFor(() => expect(said()).toMatch(/^Snoozed until .+ Pantry labelsUndo$/));
+    expect(said()).toMatch(/^Pantry labels, until .+Undo$/);
     fireEvent.click(within(screen.getByTestId('auto-said')).getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until: 4_000_000_000 }));
+    // Snoozed again and then brought back: the line about the snooze no longer holds.
+    await userEvent.setup().click(screen.getByTestId('auto-snooze-labels'));
+    fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: /^Tomorrow/ }));
+    expect(said()).toMatch(/^Pantry labels, until /);
+    fireEvent.click(within(row('labels')).getByRole('button', { name: 'Bring back' }));
+    expect(screen.queryByTestId('auto-said')).toBeNull();
+    await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until: null }));
+    // Brought back, it is a row of the list again, and the keyboard goes with it.
+    await waitFor(() => expect(focusedRow()).toBe('labels'));
+  });
+
+  it('holds a row’s answer with Undo, and picks with 1 to 3 on a focused waiting row', async () => {
+    hold.ms = 120;
+    await open();
+    rowButton('beds').focus();
+    key('2');
+    expect(within(row('beds')).getByTestId('auto-row-held').textContent).toBe('Larch');
+    expect(said()).toBe('Raised bed plan, LarchUndo');
+    key('z', { metaKey: true });
+    expect(screen.queryByTestId('auto-row-held')).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    expect(auto.asked('answer')).toEqual([]);
+    // 1 picks the first; a number past the options, and any number on a row that asks nothing, does nothing.
+    key('3');
+    rowButton('bread').focus();
+    key('1');
+    expect(screen.queryByTestId('auto-row-held')).toBeNull();
+    rowButton('beds').focus();
+    key('1');
+    await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'beds', answer: { id: 'q0', answers: { 'Which wood for the frames?': 'Cedar' } } }));
+  });
+
+  it('offers nothing to undo, and posts no held answer, once the address has changed', async () => {
+    hold.ms = 80;
+    await open();
+    rowButton('bread').focus();
+    key('e');
+    rowButton('beds').focus();
+    key('1');
+    expect(useSaidStore.getState().stack).toHaveLength(2);
+    // Another address is another service: what was done at the old one is not this one's to take back.
+    act(() => useAutoStore.setState({ address: 'https://other.example/agent' }));
+    expect(useSaidStore.getState().stack).toEqual([]);
+    expect(screen.queryByTestId('auto-said')).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    expect(auto.asked('answer')).toEqual([]);
+    expect(useAutoStore.getState().held).toEqual({});
+  });
+
+  it('opens what the last action made with O, from a row or an entry', async () => {
+    await open();
+    await openQueue();
+    key('t');
+    expect(said()).toBe('Order the trays, made a threadOpenUndo');
+    await waitFor(() => expect(focusedRow()).toBe('text-a'));
+    await waitFor(() => expect(auto.asked('digest-thread')).toHaveLength(1));
+    key('o');
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('from-item-1'));
+    expect(screen.queryByTestId('auto-said')).toBeNull();
   });
 });
 
@@ -466,13 +664,35 @@ describe('the open thread’s own actions', () => {
     fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: 'Pick a time…' }));
     const dialog = within(await screen.findByTestId('auto-snooze-date'));
     expect(dialog.getByTestId('auto-snooze-name').textContent).toBe('Sourdough timings');
-    expect(dialog.getByLabelText('Time')).toHaveValue('08:00');
+    expect(dialog.getByLabelText('Time')).toHaveValue('09:00');
     const date = (dialog.getByLabelText('Date') as HTMLInputElement).value;
     fireEvent.change(dialog.getByLabelText('Time'), { target: { value: '14:30' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Snooze' }));
     const [year, month, dayOfMonth] = date.split('-').map(Number);
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'bread', until: new Date(year, month - 1, dayOfMonth, 14, 30).getTime() / 1000 }));
     expect(screen.queryByTestId('auto-snooze-date')).toBeNull();
+  });
+
+  it('takes any time from now on in the dialog, today included, and refuses one that has passed', async () => {
+    const now = new Date(2026, 10, 14, 15, 10).getTime();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    await open();
+    await userEvent.setup().click(screen.getByTestId('auto-snooze-bread'));
+    fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: 'Pick a time…' }));
+    const dialog = within(await screen.findByTestId('auto-snooze-date'));
+    const date = dialog.getByLabelText('Date') as HTMLInputElement;
+    // It opens on tomorrow morning, and today can be picked.
+    expect(date.value).toBe('2026-11-15');
+    expect(date.min).toBe('2026-11-14');
+    fireEvent.change(date, { target: { value: '2026-11-14' } });
+    fireEvent.change(dialog.getByLabelText('Time'), { target: { value: '15:10' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Snooze' }));
+    expect(dialog.getByRole('alert').textContent).toBe('Choose a time from now on, within a year.');
+    expect(auto.asked('snooze')).toEqual([]);
+    fireEvent.change(dialog.getByLabelText('Time'), { target: { value: '23:30' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Snooze' }));
+    await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'bread', until: new Date(2026, 10, 14, 23, 30).getTime() / 1000 }));
+    expect(said()).toBe('Sourdough timings, until 11:30 pmUndo');
   });
 
   it('offers a snoozed row another time beside Bring back', async () => {
@@ -528,11 +748,19 @@ describe('a thread that is slow or out of reach', () => {
     fireEvent.click(rowButton('bread'));
     expect(within(screen.getByTestId('auto-talk')).getByText('When do I start?')).toBeInTheDocument();
     expect(screen.queryByText('Loading…')).toBeNull();
-    // Never seen: the title at once, and Loading only after the wait.
+    // Never seen: its row is marked at once, and the pane keeps what it held, out of reach, for the short wait.
     fireEvent.click(rowButton('trellis'));
-    expect(screen.getByTestId('auto-title').textContent).toBe('Tomato trellis');
+    expect(rowButton('trellis').getAttribute('aria-current')).toBe('true');
+    expect(rowButton('bread').getAttribute('aria-current')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sourdough timings');
+    expect(within(screen.getByTestId('auto-talk')).getByText('When do I start?')).toBeInTheDocument();
+    expect(screen.getByTestId('auto-talk').querySelector('[aria-hidden="true"]')).not.toBeNull();
+    expect(screen.queryByTestId('auto-archive-open')).toBeNull();
     expect(screen.queryByText('Loading…')).toBeNull();
+    // Past the wait there is nothing left to hold on to: the title, and Loading.
     await new Promise((resolve) => setTimeout(resolve, SLOW_MS + 60));
+    expect(screen.getByTestId('auto-title').textContent).toBe('Tomato trellis');
+    expect(screen.queryByText('When do I start?')).toBeNull();
     expect(screen.getByText('Loading…')).toBeInTheDocument();
     release();
     await waitFor(() => expect(within(screen.getByTestId('auto-talk')).getByText('How far apart?')).toBeInTheDocument());
@@ -604,8 +832,47 @@ describe('his place in a thread', () => {
     expect(screen.queryByTestId('auto-jump')).toBeNull();
   });
 
-  it('marks the start of the newest reply in a thread he has not read, to open there', async () => {
+  it('stays at its end when the pane shrinks, and keeps the row at the top in place when he has scrolled up', async () => {
+    const watched: Array<{ run: () => void; on: Element[] }> = [];
+    vi.stubGlobal('ResizeObserver', class {
+      private readonly entry: { run: () => void; on: Element[] };
+      constructor(callback: () => void) {
+        this.entry = { run: callback, on: [] };
+        watched.push(this.entry);
+      }
+      observe(element: Element) { this.entry.on.push(element); }
+      unobserve() { /* nothing to do */ }
+      disconnect() { this.entry.on = []; }
+    });
+    const resized = (element: Element) => act(() => watched.filter((each) => each.on.includes(element)).forEach((each) => each.run()));
     await open();
+    await openThread('bread');
+    // At the end: the box grows by 200, the pane loses them, and the end of the reply is still in view.
+    let talk = sizeTalk(3000, 500);
+    talk.scrollTop = 2500;
+    fireEvent.scroll(talk);
+    talk = sizeTalk(3000, 300);
+    resized(talk);
+    expect(talk.scrollTop).toBe(3000);
+    expect(screen.queryByTestId('auto-jump')).toBeNull();
+    // Scrolled up: the row at the top of the pane stays at the top when the width, and so every height, changes.
+    const rows = [...talk.querySelectorAll<HTMLElement>('[data-row]')];
+    expect(rows.length).toBeGreaterThan(1);
+    const lay = (heights: number[]) => rows.forEach((each, index) => {
+      Object.defineProperty(each, 'offsetTop', { configurable: true, get: () => heights.slice(0, index).reduce((sum, height) => sum + height, 0) });
+      Object.defineProperty(each, 'offsetHeight', { configurable: true, get: () => heights[index] });
+    });
+    lay(rows.map(() => 400));
+    talk.scrollTop = 450;
+    fireEvent.scroll(talk);
+    lay(rows.map(() => 700));
+    resized(talk);
+    // The second row began 50 above the top of the pane, and still does.
+    expect(talk.scrollTop).toBe(750);
+  });
+
+  it('marks the start of the newest reply in a thread he has not read, to open there', async () => {
+    await open({ threads: [BEDS, BREAD, { ...SEEDS, unread: true }, TRELLIS, INSPECTION, LABELS] });
     await openThread('seeds');
     expect(useThreadStore.getState().openedUnread).toBe(true);
     const anchors = screen.getByTestId('auto-talk').querySelectorAll('[data-anchor]');
@@ -724,6 +991,64 @@ describe('the queue under the keyboard', () => {
     expect(screen.getByTestId('auto-queue-pane')).toBeInTheDocument();
   });
 
+  it('brings an entry that opens into view whole, so the last one does not open under the fold', async () => {
+    const into = vi.fn();
+    const had = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Element.prototype.scrollIntoView = into;
+    try {
+      await open();
+      await openQueue();
+      key('End');
+      expect(focusedRow()).toBe('text-b');
+      expect(into).not.toHaveBeenCalled();
+      key('Enter');
+      await waitFor(() => expect(screen.getByTestId('auto-entry-text-b').getAttribute('data-open')).toBe('true'));
+      expect(into).toHaveBeenCalledTimes(1);
+      expect(into).toHaveBeenCalledWith({ block: 'nearest' });
+      // It is the entry itself that is brought in, its box included.
+      expect(into.mock.contexts[0]).toBe(screen.getByTestId('auto-entry-text-b'));
+      expect(within(into.mock.contexts[0] as HTMLElement).getByTestId('auto-entry-box')).toBeInTheDocument();
+    } finally {
+      if (had) Object.defineProperty(Element.prototype, 'scrollIntoView', had);
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it('puts the keyboard on the entry after a click on Save the note', async () => {
+    await open();
+    await openQueue();
+    key('n');
+    const note = await within(screen.getByTestId('auto-entry-item-1')).findByRole('textbox', { name: 'Your note' });
+    fireEvent.change(note, { target: { value: 'Ask about peat-free' } });
+    const save = within(screen.getByTestId('auto-entry-item-1')).getByRole('button', { name: /Save the note/ });
+    save.focus();
+    fireEvent.click(save);
+    await waitFor(() => expect(last('digest-note')).toEqual({ kind: 'digest-note', date: DAY, id: 'item-1', text: 'Ask about peat-free' }));
+    // The button has gone with the save: the keyboard is on the entry it belonged to, not lost.
+    await waitFor(() => expect(focusedRow()).toBe('item-1'));
+    expect(within(screen.getByTestId('auto-entry-item-1')).queryByRole('button', { name: /Save the note/ })).toBeNull();
+  });
+
+  it('moves the keyboard to the other arrow when a day arrow reaches the last day', async () => {
+    const EARLIER = '2026-11-12';
+    await open({ digests: { [DAY]: day(), [EARLIER]: autoDigest(EARLIER, [['Top 3', [digestEntry('item-9', { kind: 'item', title: 'Sharpen the hoe' })]]]) } });
+    await openQueue();
+    const earlier = screen.getByRole('button', { name: 'Earlier day' });
+    const later = screen.getByRole('button', { name: 'Later day' });
+    // The arrows sit together at the right of the header, in a fixed place whatever the day is called.
+    expect(earlier.nextElementSibling).toBe(later);
+    earlier.focus();
+    fireEvent.click(earlier);
+    await waitFor(() => expect(screen.getByTestId('auto-queue-day').textContent).toBe('Thursday, November 12'));
+    // There is no earlier day: its arrow is dead, so the keyboard is on the one that still goes somewhere.
+    expect(earlier).toBeDisabled();
+    await waitFor(() => expect(document.activeElement).toBe(later));
+    fireEvent.click(later);
+    await waitFor(() => expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13'));
+    expect(later).toBeDisabled();
+    await waitFor(() => expect(document.activeElement).toBe(earlier));
+  });
+
   it('hands the keyboard to the queue’s first word when the last entry leaves', async () => {
     await open({ digests: { [DAY]: autoDigest(DAY, [['Yesterday', [digestEntry('only', { md: 'Fed the tomatoes.' })]]]) } });
     fireEvent.click(rowButton(':digest'));
@@ -763,7 +1088,7 @@ describe('the narrow layout', () => {
     fireEvent.click(rowButton('bread'));
     await screen.findByTestId('auto-thread');
     fireEvent.click(screen.getByTestId('auto-archive-open'));
-    await waitFor(() => expect(said()).toBe('Archived Sourdough timingsUndo'));
+    expect(said()).toBe('Sourdough timings, archivedUndo');
     const bar = screen.getByTestId('auto-said');
     const form = screen.getByTestId('auto-thread').querySelector('form') as HTMLElement;
     expect(screen.getByTestId('auto-thread').contains(bar)).toBe(true);
@@ -827,6 +1152,24 @@ describe('Auto in the palette', () => {
     palette = await show('>snooze');
     fireEvent.click(palette.getByTestId('palette-command-auto.snoozeThread'));
     expect(within(await screen.findByTestId('auto-snooze-date')).getByTestId('auto-snooze-name').textContent).toBe('Seed order');
+  });
+
+  it('gives the keyboard back to where it was opened from on Escape', async () => {
+    await open();
+    rowButton('trellis').focus();
+    let palette = await show('>');
+    fireEvent.keyDown(palette.getByRole('combobox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('command-palette')).toBeNull());
+    await waitFor(() => expect(focusedRow()).toBe('trellis'));
+    // From the box as well, with what was typed still there.
+    await openThread('bread');
+    fireEvent.change(box(), { target: { value: 'half a thought' } });
+    box().focus();
+    palette = await show('>');
+    fireEvent.keyDown(palette.getByRole('combobox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('command-palette')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(box()));
+    expect(box().value).toBe('half a thought');
   });
 
   it('finds a thread by its title once something is typed, and opens it', async () => {

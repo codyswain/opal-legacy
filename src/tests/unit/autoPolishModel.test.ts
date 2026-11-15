@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AutoThread } from '@/types/auto';
+import type { AutoAnswer, AutoQuestion, AutoThread } from '@/types/auto';
 import { afterLeaving, closedRow, entryName, homeLine, queueOrder, queueSections, withState } from '@/renderer/features/auto/model/digestModel';
 import { SNOOZE_TIME, attentionCount, moveBy, nextAfter, putBack, shownOrder, snoozeDate, snoozeDateRange } from '@/renderer/features/auto/model/listModel';
 import { END_SLACK, LIST_PLACE, forgetPlaces, keepPlace, placeIn, placeOf, queuePlace, threadPlace } from '@/renderer/features/auto/model/places';
-import { SAID_MS, useSaidStore } from '@/renderer/features/auto/store/saidStore';
+import { answerDeny, answerNo, answerTyped, keyOptions, mayAnswer } from '@/renderer/features/auto/model/questionModel';
+import { unconfirmed } from '@/renderer/features/auto/model/unconfirmed';
+import { NOTICE_MS, UNDO_DEPTH, UNDO_MS, selectMore, selectSaid, useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { autoDigest, autoThread, digestEntry } from '@/tests/helpers/autoApi';
 
 const ids = (threads: readonly AutoThread[]) => threads.map((each) => each.id);
@@ -89,9 +91,9 @@ describe('a snooze until a picked day and time', () => {
   const NOW = new Date(2026, 10, 14, 15, 10, 0).getTime();
   const at = (hour: number, minute: number) => new Date(2026, 10, 20, hour, minute).getTime() / 1000;
 
-  it('starts at 8:00 in the morning', () => {
-    expect(SNOOZE_TIME).toBe('08:00');
-    expect(snoozeDate('2026-11-20', NOW)).toBe(at(8, 0));
+  it('starts at 9:00 in the morning, as the phone’s choices do', () => {
+    expect(SNOOZE_TIME).toBe('09:00');
+    expect(snoozeDate('2026-11-20', NOW)).toBe(at(9, 0));
   });
 
   it('takes the time he picks', () => {
@@ -99,12 +101,13 @@ describe('a snooze until a picked day and time', () => {
     expect(snoozeDate('2026-11-20', NOW, '00:05')).toBe(at(0, 5));
   });
 
-  it('refuses a time that is not one, and a day outside the next year', () => {
+  it('refuses a time that is not one, a time that has passed, and a day past the next year', () => {
     expect(snoozeDate('2026-11-20', NOW, '')).toBeNull();
     expect(snoozeDate('2026-11-20', NOW, '25:00')).toBeNull();
     expect(snoozeDate('2026-11-20', NOW, '8:00')).toBeNull();
     expect(snoozeDate(snoozeDateRange(NOW).max, NOW, '09:00')).not.toBeNull();
-    expect(snoozeDate('2026-11-14', NOW, '18:00')).toBeNull();
+    expect(snoozeDate('2026-11-14', NOW, '18:00')).not.toBeNull();
+    expect(snoozeDate('2026-11-14', NOW, '12:00')).toBeNull();
     expect(snoozeDate('2028-01-01', NOW, '09:00')).toBeNull();
   });
 });
@@ -216,55 +219,179 @@ describe('his place', () => {
   });
 });
 
-describe('the line that says what the last action did', () => {
+describe('what his last actions did, and the way back from each', () => {
+  const state = () => useSaidStore.getState();
+  const shown = () => selectSaid(state());
+
   beforeEach(() => {
     vi.useFakeTimers();
-    useSaidStore.getState().clear();
+    state().clear();
   });
   afterEach(() => vi.useRealTimers());
 
-  it('holds one line at a time, the newest, and goes after a few seconds', () => {
-    const { say } = useSaidStore.getState();
-    say({ text: 'Archived', name: 'Rain barrel', undo: () => undefined });
-    say({ text: 'Archived', name: 'Compost bin', undo: () => undefined });
-    expect(useSaidStore.getState().said).toMatchObject({ text: 'Archived', name: 'Compost bin', problem: false });
-    vi.advanceTimersByTime(SAID_MS - 1);
-    expect(useSaidStore.getState().said).not.toBeNull();
-    vi.advanceTimersByTime(2);
-    expect(useSaidStore.getState().said).toBeNull();
+  it('shows the newest and says how many more Undo can reach', () => {
+    state().offer({ name: 'Rain barrel', text: 'archived', undo: () => undefined });
+    expect(selectMore(state())).toBe(0);
+    state().offer({ name: 'Compost bin', text: 'archived', undo: () => undefined });
+    state().offer({ name: 'Seed order', text: 'until Sun 9:00 am', undo: () => undefined });
+    expect(shown()).toMatchObject({ name: 'Seed order', text: 'until Sun 9:00 am', problem: false });
+    expect(selectMore(state())).toBe(2);
   });
 
-  it('gives a newer line its full time, whatever was left of the older one’s', () => {
-    const { say } = useSaidStore.getState();
-    say({ text: 'Archived', name: 'One' });
-    vi.advanceTimersByTime(SAID_MS - 100);
-    say({ text: 'Archived', name: 'Two' });
-    vi.advanceTimersByTime(SAID_MS - 100);
-    expect(useSaidStore.getState().said?.name).toBe('Two');
+  it('takes them back newest first', () => {
+    const order: string[] = [];
+    for (const name of ['one', 'two', 'three']) state().offer({ name, text: 'archived', undo: () => order.push(name) });
+    expect(state().undo()).toBe(true);
+    expect(shown()?.name).toBe('two');
+    expect(state().undo()).toBe(true);
+    expect(state().undo()).toBe(true);
+    expect(order).toEqual(['three', 'two', 'one']);
+    expect(state().undo()).toBe(false);
+    expect(shown()).toBeNull();
   });
 
-  it('undoes once, and says whether there was anything to undo', () => {
+  it('keeps each on offer for 30 seconds from its own start', () => {
+    state().offer({ name: 'one', text: 'archived', undo: () => undefined });
+    vi.advanceTimersByTime(20_000);
+    state().offer({ name: 'two', text: 'archived', undo: () => undefined });
+    vi.advanceTimersByTime(UNDO_MS - 20_000 - 1);
+    expect(state().stack.map((each) => each.name)).toEqual(['one', 'two']);
+    vi.advanceTimersByTime(3);
+    expect(state().stack.map((each) => each.name)).toEqual(['two']);
+    vi.advanceTimersByTime(20_000);
+    expect(shown()).toBeNull();
+  });
+
+  it('keeps the last ten of this session', () => {
+    for (let at = 1; at <= UNDO_DEPTH + 3; at += 1) state().offer({ name: String(at), text: 'archived', undo: () => undefined });
+    expect(state().stack).toHaveLength(UNDO_DEPTH);
+    expect(state().stack[0].name).toBe('4');
+    expect(selectMore(state())).toBe(UNDO_DEPTH - 1);
+  });
+
+  it('drops an offer whose post failed without running it, and every offer about one thread', () => {
     const undo = vi.fn();
-    useSaidStore.getState().say({ text: 'Resolved', name: 'The beans', undo });
-    expect(useSaidStore.getState().undo()).toBe(true);
-    expect(undo).toHaveBeenCalledTimes(1);
-    expect(useSaidStore.getState().said).toBeNull();
-    expect(useSaidStore.getState().undo()).toBe(false);
-    expect(undo).toHaveBeenCalledTimes(1);
+    const failed = state().offer({ name: 'one', text: 'archived', subject: 't1', undo });
+    state().offer({ name: 'two', text: 'archived', subject: 't2', undo });
+    state().offer({ name: 'two again', text: 'until Fri 9:00 am', subject: 't2', undo });
+    state().drop(failed);
+    expect(state().stack.map((each) => each.name)).toEqual(['two', 'two again']);
+    state().dropSubject('t2');
+    expect(shown()).toBeNull();
+    expect(undo).not.toHaveBeenCalled();
   });
 
-  it('has nothing to undo after a refusal, which is the service’s sentence', () => {
-    useSaidStore.getState().refuse('That thread is gone.', 'Rain barrel');
-    expect(useSaidStore.getState().said).toMatchObject({ text: 'That thread is gone.', name: 'Rain barrel', problem: true, undo: null, open: null });
-    expect(useSaidStore.getState().undo()).toBe(false);
-    expect(useSaidStore.getState().said).not.toBeNull();
+  it('holds an offer for less than the usual time when asked, as for an answer held before it is posted', () => {
+    state().offer({ name: 'Raised bed plan', text: 'Cedar', undo: () => undefined, lasts: 4_000 });
+    vi.advanceTimersByTime(3_999);
+    expect(shown()?.text).toBe('Cedar');
+    vi.advanceTimersByTime(2);
+    expect(shown()).toBeNull();
   });
 
-  it('goes on to what was made, and the line goes with it', () => {
+  it('shows a refusal as the service’s own sentence, with nothing to undo, and keeps what is still on offer behind it', () => {
+    const undo = vi.fn();
+    state().offer({ name: 'Compost bin', text: 'archived', undo });
+    state().refuse('That thread is gone.', 'Rain barrel');
+    expect(shown()).toMatchObject({ text: 'That thread is gone.', name: 'Rain barrel', problem: true, undo: null, open: null });
+    expect(selectMore(state())).toBe(0);
+    vi.advanceTimersByTime(NOTICE_MS + 1);
+    expect(shown()).toMatchObject({ name: 'Compost bin', problem: false });
+    // Undo reaches past a refusal to the action behind it.
+    state().refuse('Auto is busy.');
+    expect(state().undo()).toBe(true);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(shown()).toBeNull();
+  });
+
+  it('gives way to a newer action: a refusal does not sit on top of it', () => {
+    state().refuse('Auto is busy.');
+    state().offer({ name: 'Seed order', text: 'archived', undo: () => undefined });
+    expect(shown()).toMatchObject({ name: 'Seed order', problem: false });
+  });
+
+  it('goes on to what the newest action made, and the offer goes with it', () => {
     const open = vi.fn();
-    useSaidStore.getState().say({ text: 'Made a thread', name: 'Committee', open, undo: () => undefined });
-    useSaidStore.getState().open();
+    state().offer({ name: 'Committee', text: 'made a thread', open, undo: () => undefined });
+    expect(state().open()).toBe(true);
     expect(open).toHaveBeenCalledTimes(1);
-    expect(useSaidStore.getState().said).toBeNull();
+    expect(shown()).toBeNull();
+    state().offer({ name: 'Rain barrel', text: 'archived', undo: () => undefined });
+    expect(state().open()).toBe(false);
+    expect(shown()).not.toBeNull();
+  });
+});
+
+describe('an answer before it is posted', () => {
+  const grant: Extract<AutoQuestion, { kind: 'grant' }> = { id: 'g1', kind: 'grant', title: 'Send this Slack message to Robin?', detail: '', text: 'Hello.' };
+  const permission: Extract<AutoQuestion, { kind: 'permission' }> = { id: 'p1', kind: 'permission', tool: 'Bash', title: 'Run it?', detail: '', reason: '' };
+  const ask: AutoQuestion = { id: 'q1', kind: 'ask', questions: [{ question: 'Which bed?', header: 'Bed', multiSelect: false, options: [{ label: 'Bed 1', description: '' }, { label: 'Bed 2', description: '' }, { label: 'Bed 3', description: '' }, { label: 'Bed 4', description: '' }] }] };
+
+  it('lets only the plain no through for a send he is asked to allow, whatever built the answer', () => {
+    expect(mayAnswer(grant, { id: 'g1', allow: false })).toBe(true);
+    // Words sent with the no would be dropped by the service unread: they are not sent that way.
+    expect(mayAnswer(grant, { id: 'g1', allow: false, message: 'Not today' })).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: false, signature: 'abc' } as unknown as AutoAnswer)).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: false, answers: undefined })).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: true })).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: true, signature: 'abc' } as unknown as AutoAnswer)).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: true, message: 'yes' })).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', answers: { 'Send it?': 'Yes' } })).toBe(false);
+    expect(mayAnswer(grant, { id: 'other', allow: false })).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: 'true' } as unknown as AutoAnswer)).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1' } as unknown as AutoAnswer)).toBe(false);
+  });
+
+  it('leaves a permission request and a question as they were', () => {
+    expect(mayAnswer(permission, { id: 'p1', allow: true })).toBe(true);
+    expect(mayAnswer(ask, { id: 'q1', answers: { 'Which bed?': 'Bed 2' } })).toBe(true);
+    expect(mayAnswer(null, { id: 'q1', allow: true })).toBe(true);
+  });
+
+  it('builds the one answer to a send to allow, a no with nothing else, and keeps typed words for a permission request', () => {
+    expect(answerNo(grant)).toEqual({ id: 'g1', allow: false });
+    expect(mayAnswer(grant, answerNo(grant))).toBe(true);
+    expect(answerTyped(permission, 'Use the trash')).toEqual({ id: 'p1', allow: false, message: 'Use the trash' });
+    expect(answerDeny(permission, '')).toEqual({ id: 'p1', allow: false });
+    expect(answerDeny(permission, ' Not now ')).toEqual({ id: 'p1', allow: false, message: 'Not now' });
+  });
+
+  it('gives the keys 1 to 3 the first three options of one question with one choice, and nothing else', () => {
+    expect(keyOptions(ask)).toEqual(['Bed 1', 'Bed 2', 'Bed 3']);
+    expect(keyOptions(grant)).toEqual([]);
+    expect(keyOptions(permission)).toEqual([]);
+    expect(keyOptions(null)).toEqual([]);
+    expect(keyOptions({ id: 'q2', kind: 'ask', questions: [ask.kind === 'ask' ? { ...ask.questions[0], multiSelect: true } : null].filter(Boolean) as never })).toEqual([]);
+  });
+});
+
+describe('what he did and the service has yet to confirm', () => {
+  it('is laid over whatever arrives of the same thing, until it is ended', () => {
+    const changes = unconfirmed<{ id: string; archived: boolean; title: string }>();
+    const bread = { id: 'bread', archived: false, title: 'Bread' };
+    expect(changes.lay('bread', bread)).toBe(bread);
+    const archived = changes.keep('bread', (now) => ({ ...now, archived: true }));
+    expect(changes.has('bread')).toBe(true);
+    // The rest of what arrives is taken as it is.
+    expect(changes.lay('bread', { ...bread, title: 'Bread, timed' })).toEqual({ id: 'bread', archived: true, title: 'Bread, timed' });
+    expect(changes.lay('seeds', { ...bread, id: 'seeds' }).archived).toBe(false);
+    changes.end('bread', archived);
+    expect(changes.has('bread')).toBe(false);
+    expect(changes.lay('bread', bread)).toBe(bread);
+  });
+
+  it('gives way to a later change to the same thing, whose end is the only one that counts', () => {
+    const changes = unconfirmed<{ archived: boolean }>();
+    const archived = changes.keep('bread', () => ({ archived: true }));
+    const back = changes.keep('bread', () => ({ archived: false }));
+    expect(changes.lay('bread', { archived: true })).toEqual({ archived: false });
+    // The archive's own post lands and ends its change: the undo's is the one in place, and stays.
+    changes.end('bread', archived);
+    expect(changes.lay('bread', { archived: true })).toEqual({ archived: false });
+    changes.end('bread', back);
+    expect(changes.lay('bread', { archived: true })).toEqual({ archived: true });
+    changes.keep('bread', () => ({ archived: false }));
+    changes.clear();
+    expect(changes.has('bread')).toBe(false);
   });
 });

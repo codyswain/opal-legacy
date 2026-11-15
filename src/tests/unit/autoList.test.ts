@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { AutoThread } from '@/types/auto';
 import {
   applyOrder,
+  attentionCount,
   emptyList,
   fromDigest,
+  isFresh,
+  isYours,
+  listSummary,
   listView,
   moveTarget,
   moved,
@@ -11,6 +15,7 @@ import {
   rowLine,
   rowOptions,
   rowTime,
+  shortUntil,
   snoozeChoices,
   snoozeDate,
   snoozeDateRange,
@@ -26,7 +31,7 @@ function thread(id: string, fields: Partial<AutoThread> = {}): AutoThread {
   return {
     id, title: `Thread ${id}`, status: 'idle', last: `Last of ${id}`, activity: '', ask: null, unread: false, model: '',
     created: at(2026, 11, 13, 9), updated: at(2026, 11, 14, 14, 0), error: null, queued: 0, archived: false, snoozed: null, woke: null,
-    digest: null, waits: false, desk: null, ...fields,
+    digest: null, waits: false, desk: null, yours: '', ...fields,
   };
 }
 
@@ -44,14 +49,42 @@ describe('the list', () => {
     thread('g', { waits: true }),
   ];
 
-  it('puts the threads that wait on him first, then the rest, both in the service’s order', () => {
+  it('puts the threads that wait on him first, then what is new to him, then the rest in the service’s order', () => {
     const view = listView(threads);
     expect(view.groups.map((group) => [group.key, ids(group.threads)])).toEqual([
       ['needs', ['b', 'e']],
-      ['rest', ['a', 'd', 'g']],
+      // Back from snooze: lifted under the questions until he opens it.
+      ['fresh', ['d']],
+      ['rest', ['a', 'g']],
     ]);
     expect(view.needs).toBe(2);
     expect(needsCount(threads)).toBe(2);
+  });
+
+  it('lifts a thread with an unread reply or back from snooze under the questions, newest first, as the phone does', () => {
+    const lifted = [
+      thread('old', { unread: true, updated: at(2026, 11, 14, 9) }),
+      thread('rest'),
+      thread('new', { unread: true, updated: at(2026, 11, 14, 14) }),
+      thread('back', { woke: at(2026, 11, 14, 15), updated: at(2026, 11, 13, 9) }),
+      thread('failed', { unread: true, status: 'failed', updated: at(2026, 11, 14, 12) }),
+      // Still being worked on, or waiting on him, is not new: it has its own place.
+      thread('working', { unread: true, status: 'working' }),
+      thread('asks', { unread: true, status: 'waiting', ask }),
+    ];
+    expect(listView(lifted).groups.map((group) => [group.key, ids(group.threads)])).toEqual([
+      ['needs', ['asks']],
+      ['fresh', ['new', 'failed', 'old', 'back']],
+      ['rest', ['rest', 'working']],
+    ]);
+    for (const each of lifted) expect(isFresh(each)).toBe(['old', 'new', 'back', 'failed'].includes(each.id));
+    // Once he has opened it, it is back in its place in his order.
+    expect(listView(lifted.map((each) => ({ ...each, unread: false, woke: null }))).groups.map((group) => group.key)).toEqual(['needs', 'rest']);
+  });
+
+  it('puts the questions newest first', () => {
+    const asked = [thread('early', { status: 'waiting', ask, updated: at(2026, 11, 14, 9) }), thread('late', { status: 'waiting', ask, updated: at(2026, 11, 14, 14) })];
+    expect(ids(listView(asked).groups[0].threads)).toEqual(['late', 'early']);
   });
 
   it('hides snoozed threads behind the Snoozed line, the first to return first', () => {
@@ -69,11 +102,46 @@ describe('the list', () => {
 
   it('only lets the rest be dragged, and gives neither of the two a heading', () => {
     const view = listView(threads);
-    expect(view.groups.map((group) => [group.key, group.movable, group.heading])).toEqual([['needs', false, null], ['rest', true, null]]);
+    expect(view.groups.map((group) => [group.key, group.movable, group.heading])).toEqual([['needs', false, null], ['fresh', false, null], ['rest', true, null]]);
   });
 
   it('leaves out a group with nothing in it', () => {
     expect(listView([thread('a')]).groups.map((group) => group.key)).toEqual(['rest']);
+  });
+});
+
+describe('the line over the list', () => {
+  it('counts what needs him, what is new, what has not started and what is working, in the phone’s words', () => {
+    expect(listSummary([
+      thread('q', { status: 'waiting', ask }),
+      thread('new1', { unread: true }),
+      thread('new2', { woke: at(2026, 11, 14, 15) }),
+      thread('work', { status: 'working' }),
+      thread('rest'),
+    ])).toBe('1 needs you, 2 new, 1 working');
+    expect(listSummary([thread('a', { waits: true }), thread('b', { waits: true }), thread('c', { status: 'queued' }), thread('d', { status: 'working' })])).toBe('2 not started, 2 working');
+  });
+
+  it('counts a move that is his as needing him, whether or not he has read the reply', () => {
+    const his = { yours: 'Send the draft' };
+    expect(listSummary([thread('q', { status: 'waiting', ask }), thread('a', his)])).toBe('2 need you');
+    expect(listSummary([thread('a', { ...his, unread: true })])).toBe('1 needs you, 1 new');
+    expect(listSummary([thread('a', { ...his, status: 'working' })])).toBe('1 working');
+  });
+
+  it('is empty when every count is zero, and leaves out snoozed and archived threads', () => {
+    expect(listSummary([])).toBe('');
+    expect(listSummary([thread('a'), thread('b', { status: 'stopped' })])).toBe('');
+    expect(listSummary([thread('a', { status: 'waiting', ask, snoozed: at(2026, 11, 20) }), thread('b', { unread: true, archived: true })])).toBe('');
+  });
+
+  it('counts for the sidebar the threads that wait, the unread ones and the ones whose move is his', () => {
+    expect(attentionCount([thread('q', { status: 'waiting', ask }), thread('u', { unread: true }), thread('y', { yours: 'Send the draft' }), thread('rest')])).toBe(3);
+    // One thread is one, however many reasons it has; a snoozed one is none.
+    expect(attentionCount([thread('y', { yours: 'Send the draft', unread: true })])).toBe(1);
+    expect(attentionCount([thread('y', { yours: 'Send the draft', snoozed: at(2026, 11, 20) })])).toBe(0);
+    // A thread back from snooze counts, as it does in the line over the list.
+    expect(attentionCount([thread('w', { woke: at(2026, 11, 14) }), thread('rest')])).toBe(1);
   });
 });
 
@@ -102,7 +170,7 @@ describe('the mark for the Mac', () => {
     expect(view.groups[0].threads.find((each) => each.id === 'd')?.status).toBe('waiting');
     expect(view.needs).toBe(2);
     expect(needsCount(threads)).toBe(2);
-    expect(rowLine(view.groups[0].threads[1])).toEqual({ kind: 'ask', text: 'Which wood?' });
+    expect(rowLine(view.groups[0].threads[1])).toEqual({ kind: 'ask', text: 'Which wood?', under: '' });
     expect(rowOptions(view.groups[0].threads[1])).toEqual(['Cedar', 'Larch']);
   });
 
@@ -122,17 +190,19 @@ describe('the empty list', () => {
     expect(emptyList(listView([thread('a')]), NOW)).toBeNull();
   });
 
-  it('says Nothing left, how many are snoozed and when the next one returns', () => {
+  it('says Nothing left and when the next snoozed one returns, and leaves the count to the Snoozed line', () => {
     const view = listView([thread('c', { snoozed: at(2026, 11, 20, 8) }), thread('f', { snoozed: at(2026, 11, 15, 8) })]);
-    expect(emptyList(view, NOW)).toEqual({ title: 'Nothing left.', detail: '2 snoozed. The next one returns tomorrow at 8:00 am.' });
+    expect(emptyList(view, NOW)).toEqual({ title: 'Nothing left.', detail: 'The next snoozed one returns tomorrow at 8:00 am.' });
     expect(ids(view.snoozed)).toEqual(['f', 'c']);
   });
 
   it('reads right for one snoozed thread, and for none', () => {
-    expect(emptyList(listView([thread('c', { snoozed: at(2026, 11, 14, 18, 30) })]), NOW)).toEqual({ title: 'Nothing left.', detail: '1 snoozed. It returns today at 6:30 pm.' });
-    expect(emptyList(listView([thread('c', { snoozed: at(2026, 11, 18, 8) })]), NOW)?.detail).toBe('1 snoozed. It returns Wednesday at 8:00 am.');
-    expect(emptyList(listView([thread('c', { snoozed: at(2026, 12, 24, 8) })]), NOW)?.detail).toBe('1 snoozed. It returns Dec 24 at 8:00 am.');
+    expect(emptyList(listView([thread('c', { snoozed: at(2026, 11, 14, 18, 30) })]), NOW)).toEqual({ title: 'Nothing left.', detail: 'The snoozed one returns today at 6:30 pm.' });
+    expect(emptyList(listView([thread('c', { snoozed: at(2026, 11, 18, 8) })]), NOW)?.detail).toBe('The snoozed one returns Wednesday at 8:00 am.');
+    expect(emptyList(listView([thread('c', { snoozed: at(2026, 12, 24, 8) })]), NOW)?.detail).toBe('The snoozed one returns Dec 24 at 8:00 am.');
     expect(emptyList(listView([]), NOW)).toEqual({ title: 'Nothing left.', detail: null });
+    // The count is never in this line: the Snoozed line under it has it.
+    expect(emptyList(listView([thread('c', { snoozed: at(2026, 11, 20, 8) }), thread('f', { snoozed: at(2026, 11, 15, 8) })]), NOW)?.detail).not.toMatch(/\d snoozed/);
   });
 });
 
@@ -157,14 +227,32 @@ describe('changes from the service', () => {
 
 describe('a row', () => {
   it('shows the question while it waits, the live line while it works, and the last reply at rest', () => {
-    expect(rowLine(thread('a', { status: 'waiting', ask }))).toEqual({ kind: 'ask', text: 'Which wood?' });
-    expect(rowLine(thread('a', { status: 'working', activity: 'Reading plan.md' }))).toEqual({ kind: 'live', text: 'Reading plan.md' });
-    expect(rowLine(thread('a', { status: 'queued' }))).toEqual({ kind: 'live', text: 'Working' });
-    expect(rowLine(thread('a', { status: 'failed', error: 'It broke.' }))).toEqual({ kind: 'failed', text: 'Failed: It broke.' });
+    expect(rowLine(thread('a', { status: 'waiting', ask }))).toEqual({ kind: 'ask', text: 'Which wood?', under: '' });
+    expect(rowLine(thread('a', { status: 'working', activity: 'Reading plan.md' }))).toEqual({ kind: 'live', text: 'Reading plan.md', under: '' });
+    expect(rowLine(thread('a', { status: 'queued' }))).toEqual({ kind: 'live', text: 'Working', under: '' });
+    expect(rowLine(thread('a', { status: 'failed', error: 'It broke.' }))).toEqual({ kind: 'failed', text: 'Failed: It broke.', under: '' });
     expect(rowLine(thread('a', { status: 'failed' })).text).toBe('Failed: the turn did not finish');
-    expect(rowLine(thread('a', { status: 'stopped', last: 'An older reply' }))).toEqual({ kind: 'plain', text: 'Stopped' });
-    expect(rowLine(thread('a'))).toEqual({ kind: 'plain', text: 'Last of a' });
-    expect(rowLine(thread('a', { waits: true, last: 'The committee walks the plots' })).text).toBe('The committee walks the plots');
+    expect(rowLine(thread('a', { status: 'stopped', last: 'An older reply' }))).toEqual({ kind: 'plain', text: 'Stopped', under: '' });
+    expect(rowLine(thread('a'))).toEqual({ kind: 'plain', text: 'Last of a', under: '' });
+  });
+
+  it('says Not started for a thread nobody has started, with its entry’s first words under it', () => {
+    expect(rowLine(thread('a', { waits: true, last: 'The committee walks the plots' }))).toEqual({ kind: 'idle', text: 'Not started', under: 'The committee walks the plots' });
+    expect(rowLine(thread('a', { waits: true, last: '' }))).toEqual({ kind: 'idle', text: 'Not started', under: '' });
+  });
+
+  it('says Your move in the phone’s words when the next move is his, with the reply’s first line under it', () => {
+    const his = thread('a', { yours: 'Read and send the draft to the club', last: 'The draft is in Ideas.' });
+    expect(isYours(his)).toBe(true);
+    expect(rowLine(his)).toEqual({ kind: 'yours', text: 'Your move: Read and send the draft to the club', under: 'The draft is in Ideas.' });
+    // Only at rest: not while it works, waits on a question, has not started, or failed.
+    for (const fields of [{ status: 'working' as const }, { status: 'queued' as const }, { status: 'waiting' as const, ask }, { waits: true }, { status: 'failed' as const }]) {
+      expect(isYours({ ...his, ...fields })).toBe(false);
+      expect(rowLine({ ...his, ...fields }).kind).not.toBe('yours');
+    }
+    expect(isYours(thread('a'))).toBe(false);
+    // Words on the row, never something to press.
+    expect(rowOptions(his)).toEqual([]);
   });
 
   it('offers answer buttons only when the service gives options for a question', () => {
@@ -229,34 +317,70 @@ describe('dragging a row', () => {
 });
 
 describe('snooze', () => {
-  it('offers Later today, Tomorrow and Next week, with the times they mean', () => {
+  const labels = (now: number) => snoozeChoices(now).map((choice) => choice.label);
+
+  it('offers the phone’s choices with the times they mean, in the order of their times', () => {
+    // A Saturday afternoon: the weekend has begun, so there is no "this weekend" left to pick.
     const choices = snoozeChoices(NOW);
     expect(choices.map((choice) => [choice.label, choice.hint])).toEqual([
-      ['Later today', '6:30 pm'],
-      ['Tomorrow', 'Sun 8:00 am'],
-      ['Next week', 'Nov 16 8:00 am'],
+      ['Later today', '6:10 pm'],
+      ['Tonight', '7:00 pm'],
+      ['Tomorrow', 'Sun 9:00 am'],
+      ['Next week', 'Mon 9:00 am'],
     ]);
-    expect(choices.map((choice) => choice.until)).toEqual([at(2026, 11, 14, 18, 30), at(2026, 11, 15, 8), at(2026, 11, 16, 8)]);
+    expect(choices.map((choice) => choice.until)).toEqual([at(2026, 11, 14, 18, 10), at(2026, 11, 14, 19), at(2026, 11, 15, 9), at(2026, 11, 16, 9)]);
     expect(choices.every((choice) => choice.until * 1000 > NOW)).toBe(true);
   });
 
-  it('leaves out Later today once three hours on is tomorrow', () => {
-    expect(snoozeChoices(new Date(2026, 10, 14, 22, 0).getTime()).map((choice) => choice.label)).toEqual(['Tomorrow', 'Next week']);
+  it('offers This weekend from Monday to Friday, and on a Saturday before 9', () => {
+    const wednesday = new Date(2026, 10, 11, 10, 0).getTime();
+    expect(snoozeChoices(wednesday).map((choice) => [choice.label, choice.until])).toEqual([
+      ['Later today', at(2026, 11, 11, 13)],
+      ['Tonight', at(2026, 11, 11, 19)],
+      ['Tomorrow', at(2026, 11, 12, 9)],
+      ['This weekend', at(2026, 11, 14, 9)],
+      ['Next week', at(2026, 11, 16, 9)],
+    ]);
+    const early = new Date(2026, 10, 14, 7, 30).getTime();
+    expect(snoozeChoices(early).find((choice) => choice.label === 'This weekend')?.until).toBe(at(2026, 11, 14, 9));
+    expect(labels(new Date(2026, 10, 15, 10, 0).getTime())).not.toContain('This weekend');
   });
 
-  it('means the Monday after next when tomorrow is Monday', () => {
+  it('leaves out Later today once three hours on is tomorrow, and Tonight from 6 pm', () => {
+    expect(labels(new Date(2026, 10, 14, 22, 0).getTime())).toEqual(['Tomorrow', 'Next week']);
+    expect(labels(new Date(2026, 10, 14, 18, 0).getTime())).toEqual(['Later today', 'Tomorrow', 'Next week']);
+    // Late in the afternoon Tonight comes before Later today, since it is sooner.
+    expect(labels(new Date(2026, 10, 14, 17, 0).getTime()).slice(0, 2)).toEqual(['Tonight', 'Later today']);
+  });
+
+  it('shows one choice for one time: on a Sunday Next week is tomorrow, and on a Monday it is a week on', () => {
     const sunday = new Date(2026, 10, 15, 10, 0).getTime();
-    expect(snoozeChoices(sunday).map((choice) => choice.until).slice(-2)).toEqual([at(2026, 11, 16, 8), at(2026, 11, 23, 8)]);
+    expect(snoozeChoices(sunday).filter((choice) => choice.until === at(2026, 11, 16, 9)).map((choice) => choice.label)).toEqual(['Tomorrow']);
+    expect(labels(sunday)).not.toContain('Next week');
     const monday = new Date(2026, 10, 16, 10, 0).getTime();
-    expect(snoozeChoices(monday).at(-1)?.until).toBe(at(2026, 11, 23, 8));
+    expect(snoozeChoices(monday).at(-1)).toMatchObject({ label: 'Next week', until: at(2026, 11, 23, 9) });
   });
 
-  it('takes a picked day inside the next year, at 8 in the morning', () => {
-    expect(snoozeDateRange(NOW)).toEqual({ min: '2026-11-15', max: '2027-11-14' });
-    expect(snoozeDate('2026-12-01', NOW)).toBe(at(2026, 12, 1, 8));
-    expect(snoozeDate('2026-11-14', NOW)).toBeNull();
+  it('writes a time short: the clock today, the weekday within a week, else the date', () => {
+    expect(shortUntil(at(2026, 11, 14, 19), NOW)).toBe('7:00 pm');
+    expect(shortUntil(at(2026, 11, 15, 9), NOW)).toBe('Sun 9:00 am');
+    expect(shortUntil(at(2026, 11, 20, 14, 30), NOW)).toBe('Fri 2:30 pm');
+    expect(shortUntil(at(2026, 11, 21, 9), NOW)).toBe('Nov 21 9:00 am');
+  });
+
+  it('takes any time from now on for a time of his own, today included, to a year on', () => {
+    expect(snoozeDateRange(NOW)).toEqual({ min: '2026-11-14', max: '2027-11-14', start: '2026-11-15' });
+    expect(snoozeDate('2026-12-01', NOW)).toBe(at(2026, 12, 1, 9));
+    // Later today is a time from now on.
+    expect(snoozeDate('2026-11-14', NOW, '23:30')).toBe(at(2026, 11, 14, 23, 30));
+    expect(snoozeDate('2026-11-14', NOW, '15:11')).toBe(at(2026, 11, 14, 15, 11));
+    // Now, and earlier today, are not.
+    expect(snoozeDate('2026-11-14', NOW, '15:10')).toBeNull();
+    expect(snoozeDate('2026-11-14', NOW, '09:00')).toBeNull();
+    expect(snoozeDate('2026-11-13', NOW, '23:00')).toBeNull();
     expect(snoozeDate('2027-11-15', NOW)).toBeNull();
     expect(snoozeDate('next week', NOW)).toBeNull();
     expect(snoozeDate('', NOW)).toBeNull();
   });
+
 });

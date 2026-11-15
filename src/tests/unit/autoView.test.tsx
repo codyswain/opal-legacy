@@ -3,10 +3,11 @@ import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@t
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import type { AutoItem, AutoQuestion, AutoRoute } from '@/types/auto';
+import type { AutoAnswer, AutoItem, AutoQuestion, AutoRoute } from '@/types/auto';
 import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
-import { forgetPlaces } from '@/renderer/features/auto/model/places';
+import { LIST_PLACE, forgetPlaces, keepPlace, placeOf } from '@/renderer/features/auto/model/places';
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
+import { HOLD_MS, hold } from '@/renderer/features/auto/store/actions';
 import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { browseAuto, focusFile, isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
@@ -39,6 +40,11 @@ const ENTRY = 'Digest, Friday November 13, item 2: Book the inspection\n\nThe co
 const ASK: AutoQuestion = {
   id: 'q1', kind: 'ask',
   questions: [{ question: 'Which bed gets the tomatoes? Bed 1 should rest.', header: 'Bed', multiSelect: false, options: [{ label: 'Bed 3', description: 'Nearer the tap' }, { label: 'Bed 4', description: '' }] }],
+};
+// As the service words it: the title names the channel and the people, the detail is what it is about and how it would go.
+const GRANT: Extract<AutoQuestion, { kind: 'grant' }> = {
+  id: 'g1', kind: 'grant', title: 'Send this Slack message to Robin?', detail: 'the seed swap\n\nThese exact words, once, from this thread.',
+  text: 'I will bring the bean seedlings on Saturday.',
 };
 const PERMISSION: AutoQuestion = { id: 'p1', kind: 'permission', tool: 'Bash', title: 'Run a command: move three drafts', detail: 'mv Notes/drafts/*.md Archive/', reason: 'They are old.' };
 
@@ -114,6 +120,7 @@ beforeEach(() => {
   useThreadStore.setState({ ...useThreadStore.getInitialState(), box: { outbox: [], drafts: {} } }, true);
   useDigestStore.setState(useDigestStore.getInitialState(), true);
   useSaidStore.getState().clear();
+  hold.ms = HOLD_MS;
   forgetPlaces();
   forgetViews();
   installDiskApi();
@@ -206,13 +213,58 @@ describe('the list', () => {
   it('shows the threads that wait on him first, then the rest, and hides the snoozed', async () => {
     await open();
     const ids = [...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
-    expect(ids).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    // What waits on him, then what is new to him (an unread reply, a thread back from snooze), then the rest.
+    expect(ids).toEqual(['beds', 'seeds', 'trellis', 'bread', 'inspect']);
     expect(within(row('beds')).getByText('Which wood for the frames?')).toBeInTheDocument();
+    // One line over the list says what it holds; a thread nobody has started says so.
+    expect(screen.getByTestId('auto-summary').textContent).toBe('1 needs you, 2 new, 1 not started');
+    expect(within(row('inspect')).getByTestId('auto-not-started').textContent).toBe('Not started');
+    // The dot before a title, as on the phone: an unread reply, or a thread back from snooze. No other row has one.
     expect(within(row('seeds')).getByRole('img', { name: 'Unread' })).toBeInTheDocument();
+    expect(within(row('trellis')).getByRole('img', { name: 'Back from snooze' })).toBeInTheDocument();
+    expect(within(row('bread')).queryByRole('img')).toBeNull();
     expect(row('trellis').textContent).toMatch(/Back \d/);
+    // The rows that are his carry a heavier title: a question, something new, a thread nobody has started.
+    const weight = (id: string) => (within(row(id)).getByText(new RegExp(`^${useAutoStore.getState().threads.find((thread) => thread.id === id)?.title}$`)).className.match(/font-(semibold|medium)/) ?? [])[1];
+    expect(['beds', 'seeds', 'trellis', 'inspect', 'bread'].map(weight)).toEqual(['semibold', 'semibold', 'semibold', 'semibold', 'medium']);
     expect(row('inspect').textContent).toContain('The committee walks the plots.');
     expect(screen.getByTestId('auto-snoozed-line').textContent).toBe('Snoozed1');
     expect(screen.queryByTestId('auto-row-labels')).toBeNull();
+  });
+
+  it('says "Your move" on a thread that is his to act on, as words and never as a button', async () => {
+    const NOTE = autoThread('note', { title: 'Club note', last: 'Drafted the note.', yours: 'Read the note and send it to the club' });
+    await open({ threads: [BREAD, NOTE] });
+    const line = within(row('note')).getByTestId('auto-yours');
+    expect(line.textContent).toBe('Your move: Read the note and send it to the club');
+    expect(line.closest('button')).toBe(within(row('note')).getAllByRole('button')[0]);
+    expect(within(row('note')).getAllByRole('button').slice(1).map((button) => button.getAttribute('aria-label') ?? button.textContent).filter((name) => /move|send/i.test(name ?? ''))).toEqual([]);
+    // It stays where his order has it: only a question or something new lifts a row.
+    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'))).toEqual(['bread', 'note']);
+    expect(screen.getByTestId('auto-summary').textContent).toBe('1 needs you');
+    // Auto takes it back when the thread moves on.
+    act(() => auto.list({ kind: 'thread', thread: { ...NOTE, yours: '' } }));
+    expect(within(row('note')).queryByTestId('auto-yours')).toBeNull();
+    expect(screen.queryByTestId('auto-summary')).toBeNull();
+  });
+
+  it('says what the list holds in one line, counts working threads, and says nothing when there is nothing to count', async () => {
+    await open({ threads: [BREAD, TRELLIS, autoThread('herbs', { title: 'Herb spiral', status: 'working' })] });
+    expect(screen.getByTestId('auto-summary').textContent).toBe('1 new, 1 working');
+    act(() => auto.list({ kind: 'thread', thread: { ...TRELLIS, woke: null } }));
+    act(() => auto.list({ kind: 'thread', thread: autoThread('herbs', { title: 'Herb spiral' }) }));
+    expect(screen.queryByTestId('auto-summary')).toBeNull();
+  });
+
+  it('shows a send he is asked to allow on its row as a waiting thread, with its title and nothing to press', async () => {
+    await open({ threads: [BREAD, autoThread('swap', { title: 'Seed swap', status: 'waiting', ask: { id: 'g1', kind: 'grant', text: 'Send this Slack message to Robin?', options: [], question: null } })] });
+    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'))).toEqual(['swap', 'bread']);
+    expect(within(row('swap')).getByText('Send this Slack message to Robin?')).toBeInTheDocument();
+    expect(within(row('swap')).getAllByRole('button').slice(1).map((button) => button.getAttribute('aria-label') ?? button.textContent).filter((name) => /allow|yes|send/i.test(name ?? ''))).toEqual([]);
+    // A number picks nothing on it: it has no options.
+    fireEvent.keyDown(within(row('swap')).getAllByRole('button')[0], { key: '1' });
+    expect(screen.queryByTestId('auto-row-held')).toBeNull();
+    expect(auto.asked('answer')).toEqual([]);
   });
 
   it('opens the snoozed threads from their line, and brings one back', async () => {
@@ -227,7 +279,10 @@ describe('the list', () => {
 
   it('says Nothing left when every thread is snoozed, and the Snoozed line still shows them', async () => {
     await open({ threads: [LABELS, autoThread('herbs', { title: 'Herb spiral', snoozed: 4_000_100_000 })] });
-    expect(screen.getByTestId('auto-empty').textContent).toMatch(/^Nothing left\.2 snoozed\. The next one returns .+ at \d/);
+    expect(screen.getByTestId('auto-empty').textContent).toMatch(/^Nothing left\.The next snoozed one returns .+ at \d/);
+    // How many are snoozed is said once, on the Snoozed line.
+    expect(screen.getByTestId('auto-empty').textContent).not.toMatch(/2 snoozed/);
+    expect(screen.getByTestId('auto-snoozed-line').textContent).toBe('Snoozed2');
     fireEvent.click(screen.getByTestId('auto-snoozed-line'));
     expect([...screen.getByTestId('auto-snoozed').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'))).toEqual(['labels', 'herbs']);
   });
@@ -238,10 +293,31 @@ describe('the list', () => {
     expect(screen.queryByTestId('auto-snoozed-line')).toBeNull();
   });
 
-  it('answers a waiting row from its buttons', async () => {
+  it('holds a row’s answer a few seconds with Undo before it is posted, and shows the pick', async () => {
+    hold.ms = 60;
+    await open();
+    // No option is filled in: a filled button reads as already chosen.
+    expect(within(row('beds')).getAllByRole('button').slice(1, 3).every((button) => !button.className.includes('bg-primary'))).toBe(true);
+    fireEvent.click(within(row('beds')).getByRole('button', { name: 'Larch' }));
+    // Held: the row shows the pick, the foot of the list says it with Undo, and nothing has gone yet.
+    expect(within(row('beds')).getByTestId('auto-row-held').textContent).toBe('Larch');
+    expect(within(row('beds')).queryByRole('button', { name: 'Cedar' })).toBeNull();
+    expect(screen.getByTestId('auto-said').textContent).toBe('Raised bed plan, LarchUndo');
+    expect(auto.asked('answer')).toEqual([]);
+    await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'beds', answer: { id: 'q0', answers: { 'Which wood for the frames?': 'Larch' } } }));
+    // Posted, it can no longer be taken back.
+    await waitFor(() => expect(screen.queryByTestId('auto-said')).toBeNull());
+  });
+
+  it('takes a row’s answer back before it is posted', async () => {
+    hold.ms = 150;
     await open();
     fireEvent.click(within(row('beds')).getByRole('button', { name: 'Larch' }));
-    await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'beds', answer: { id: 'q0', answers: { 'Which wood for the frames?': 'Larch' } } }));
+    fireEvent.click(within(screen.getByTestId('auto-said')).getByRole('button', { name: 'Undo' }));
+    expect(within(row('beds')).getByRole('button', { name: 'Larch' })).toBeInTheDocument();
+    expect(screen.queryByTestId('auto-row-held')).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    expect(auto.asked('answer')).toEqual([]);
   });
 
   it('follows the list stream: a changed entry, a new one on top, an archived one gone, a new order', async () => {
@@ -252,7 +328,7 @@ describe('the list', () => {
     act(() => auto.list({ kind: 'thread', thread: { ...SEEDS, archived: true } }));
     act(() => auto.list({ kind: 'order', ids: ['trellis', 'bread', 'beds', 'inspect', 'labels'] }));
     const ids = [...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
-    expect(ids).toEqual(['beds', 'new1', 'trellis', 'bread', 'inspect']);
+    expect(ids).toEqual(['beds', 'trellis', 'new1', 'bread', 'inspect']);
   });
 
   it('snoozes from the row’s clock, with the times each choice means', async () => {
@@ -272,7 +348,7 @@ describe('the list', () => {
     const pointer = userEvent.setup();
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('bread')).getAllByRole('button')[0] });
     let menu = within(await screen.findByTestId('auto-row-menu-bread'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Pick a time…', 'Mark for the MacM', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Pick a time…', 'Mark for the MacM', 'Rename', 'ArchiveE']);
     // The keys beside the items are for the eye; an item is still called by its name.
     expect(menu.getByRole('menuitem', { name: 'Mark for the Mac' })).toBeInTheDocument();
     fireEvent.click(menu.getByRole('menuitem', { name: 'Archive' }));
@@ -281,7 +357,7 @@ describe('the list', () => {
 
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('inspect')).getAllByRole('button')[0] });
     menu = within(await screen.findByTestId('auto-row-menu-inspect'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the MacM', 'DoneD', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Mark for the MacM', 'Rename', 'DoneD', 'ArchiveE']);
     fireEvent.click(menu.getByRole('menuitem', { name: 'Done' }));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
   });
@@ -304,7 +380,7 @@ describe('the list', () => {
       setData: (type: string, value: string) => { data.store[type] = value; dataTransfer.types = Object.keys(data.store); },
       getData: (type: string) => data.store[type] ?? '',
     };
-    fireEvent.dragStart(row('trellis'), { dataTransfer });
+    fireEvent.dragStart(row('inspect'), { dataTransfer });
     // The pointer is above the middle of the first row of the group.
     vi.spyOn(row('bread'), 'getBoundingClientRect').mockReturnValue({ top: 100, height: 40, left: 0, width: 300, right: 300, bottom: 140, x: 0, y: 100, toJSON: () => ({}) });
     const over = createEvent.dragOver(row('bread'), { dataTransfer });
@@ -312,8 +388,10 @@ describe('the list', () => {
     fireEvent(row('bread'), over);
     expect(row('bread').getAttribute('data-drop')).toBe('above');
     fireEvent.drop(row('bread'), { dataTransfer });
-    await waitFor(() => expect(last('move')).toEqual({ kind: 'move', id: 'trellis', before: 'bread' }));
+    await waitFor(() => expect(last('move')).toEqual({ kind: 'move', id: 'inspect', before: 'bread' }));
+    // A thread that waits on him, and one lifted because it is new to him, do not drag.
     expect(within(row('beds')).getAllByRole('button')[0].closest('[draggable]')).toBeNull();
+    expect(within(row('seeds')).getAllByRole('button')[0].closest('[draggable]')).toBeNull();
   });
 });
 
@@ -500,6 +578,121 @@ describe('a thread', () => {
     expect(auto.asked('message')).toEqual([]);
   });
 
+  it('shows a send to allow up front as his phone does, as a card that can only say no', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Tell Robin about the swap', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: GRANT }));
+    const card = within(screen.getByTestId('auto-grant'));
+    // The title, the exact words, the detail on the lines the service gave it, then the no and where the yes is.
+    expect(screen.getByTestId('auto-grant').querySelector('p')?.textContent).toBe('Send this Slack message to Robin?');
+    expect(screen.getByTestId('auto-grant-words').textContent).toBe('I will bring the bean seedlings on Saturday.');
+    const detail = screen.getByTestId('auto-grant-detail');
+    expect(detail.textContent).toBe('the seed swap\n\nThese exact words, once, from this thread.');
+    expect(detail.className).toContain('whitespace-pre-line');
+    const order = [...screen.getByTestId('auto-grant').querySelectorAll('[data-testid], button')].map((element) => element.getAttribute('data-testid') ?? element.textContent);
+    expect(order).toEqual(['auto-grant-words', 'auto-grant-detail', 'No', 'auto-grant-phone']);
+    // The title already says who and how: there is no second line that says it again.
+    expect(screen.getByTestId('auto-grant').textContent).toBe('Send this Slack message to Robin?I will bring the bean seedlings on Saturday.the seed swap\n\nThese exact words, once, from this thread.NoThe yes is on your phone.');
+    // One button, and it is the no. The yes is not this app's to give.
+    expect(card.getAllByRole('button').map((button) => button.textContent)).toEqual(['No']);
+    expect(screen.getByTestId('auto-grant-phone').textContent).toBe('The yes is on your phone.');
+    expect(card.queryByRole('textbox')).toBeNull();
+    expect(box().placeholder).toBe('Say no, with a reason');
+    fireEvent.click(card.getByRole('button', { name: 'No' }));
+    await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'bread', answer: { id: 'g1', allow: false } }));
+    expect(auto.asked('message')).toEqual([]);
+    // Without words there is no box of words, and one with no title still has a card to say no to.
+    act(() => auto.thread({ kind: 'question', question: { ...GRANT, id: 'g2', title: '', detail: 'From this thread, once, in the next two hours. You will see what went out.', text: null } }));
+    expect(screen.queryByTestId('auto-grant-words')).toBeNull();
+    expect(screen.getByTestId('auto-grant').querySelector('p')?.textContent).toBe('Allow a send?');
+    expect(within(screen.getByTestId('auto-grant')).getAllByRole('button').map((button) => button.textContent)).toEqual(['No']);
+  });
+
+  it('says the plain no when he types while it waits, and then sends his words as a message', async () => {
+    await open({ snapshots: { bread: autoSnapshot(BREAD, { items: [user('When do I start the bread?')], live: { items: [user('Tell Robin about the swap', 'a1')], activity: 'Waiting for you', state: 'waiting', question: GRANT } }) } });
+    await openThread('bread');
+    expect(screen.getByTestId('auto-grant')).toBeInTheDocument();
+    await type('Not this week');
+    // The service reads only the no, so no words go with it. They follow it as an ordinary message, in that order.
+    await waitFor(() => expect(auto.asked('message')).toHaveLength(1));
+    expect(auto.asked('answer')).toEqual([{ kind: 'answer', id: 'bread', answer: { id: 'g1', allow: false } }]);
+    expect(last('message')).toEqual({ kind: 'message', id: 'bread', text: 'Not this week', cid: expect.any(String) });
+    const written = auto.routes().filter((route) => route.kind === 'answer' || route.kind === 'message').map((route) => route.kind);
+    expect(written).toEqual(['answer', 'message']);
+    expect(box().value).toBe('');
+    expect(JSON.stringify(auto.routes())).not.toContain('"sends"');
+  });
+
+  it('keeps his words in the box, and sends nothing, when the no is not taken', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Tell Robin about the swap', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: GRANT }));
+    auto.state.failWrites = { kind: 'refused', message: 'That question is no longer open.', code: 'conflict', status: 409 };
+    await type('Not this week');
+    await waitFor(() => expect(within(screen.getByTestId('auto-grant')).getByRole('alert').textContent).toBe('That question is no longer open.'));
+    expect(auto.asked('answer')).toEqual([{ kind: 'answer', id: 'bread', answer: { id: 'g1', allow: false } }]);
+    expect(auto.asked('message')).toEqual([]);
+    expect(box().value).toBe('Not this week');
+    expect(screen.queryByTestId('auto-not-sent')).toBeNull();
+    // The same when the service cannot be reached at all.
+    auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
+    await type('Not this week');
+    await waitFor(() => expect(auto.asked('answer')).toHaveLength(2));
+    expect(auto.asked('message')).toEqual([]);
+    expect(box().value).toBe('Not this week');
+  });
+
+  it('says the no once when Enter is pressed again while it is on its way', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Tell Robin about the swap', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: GRANT }));
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    fireEvent.change(box(), { target: { value: 'Not this week' } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    expect(auto.asked('answer')).toHaveLength(1);
+    expect(auto.asked('message')).toEqual([]);
+    release();
+    await waitFor(() => expect(auto.asked('message')).toHaveLength(1));
+    expect(auto.asked('answer')).toHaveLength(1);
+    expect(last('message')).toMatchObject({ id: 'bread', text: 'Not this week' });
+  });
+
+  it('never posts a yes to a send he is asked to allow, by any key or any path', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Tell Robin about the swap', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: GRANT }));
+    const card = screen.getByTestId('auto-grant');
+    // No key in the card, on its button or in the box allows it.
+    const no = within(card).getByRole('button', { name: 'No' });
+    for (const target of [card, no, box()]) {
+      for (const key of ['1', '2', '3', 'y', 'a', 'Enter', ' ']) fireEvent.keyDown(target, { key });
+      fireEvent.keyDown(target, { key: 'Enter', metaKey: true });
+    }
+    expect(auto.asked('answer')).toEqual([]);
+    // An answer built anywhere in the page is checked where it is posted: only the grant's own no gets through.
+    const { answer } = useThreadStore.getState();
+    expect(await answer({ id: 'g1', allow: true })).toBe(false);
+    expect(await answer({ id: 'g1', allow: true, message: 'Go on' })).toBe(false);
+    expect(await answer({ id: 'g1', allow: true, signature: 'abc' } as unknown as AutoAnswer)).toBe(false);
+    expect(await answer({ id: 'g1', allow: false, signature: 'abc' } as unknown as AutoAnswer)).toBe(false);
+    // A no with words is not posted either: the service would drop the words unread.
+    expect(await answer({ id: 'g1', allow: false, message: 'Not this week' })).toBe(false);
+    expect(await answer({ id: 'g1', answers: { 'Send it?': 'Yes' } })).toBe(false);
+    expect(await answer({ id: 'g1', allow: false, answers: { 'Send it?': 'Yes' } } as unknown as AutoAnswer)).toBe(false);
+    // A yes meant for a permission that has since given way to the grant goes nowhere either.
+    expect(await answer({ id: 'p1', allow: true })).toBe(false);
+    expect(auto.asked('answer')).toEqual([]);
+    expect(await answer({ id: 'g1', allow: false })).toBe(true);
+    expect(auto.asked('answer').map((route) => route.answer)).toEqual([{ id: 'g1', allow: false }]);
+    expect(auto.routes().some((route) => /"allow":true|signature/.test(JSON.stringify(route)))).toBe(false);
+  });
+
   it('shows a waiting entry as a card with Hand to Auto, which starts it', async () => {
     await open();
     await openThread('inspect');
@@ -552,9 +745,9 @@ describe('a thread', () => {
     fireEvent.click(within(row('bread')).getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(screen.queryByTestId('auto-row-bread')).toBeNull());
     // The row below takes its place in the pane.
-    expect(useThreadStore.getState().openId).toBe('seeds');
-    expect(row('seeds').querySelector('[aria-current]')).not.toBeNull();
-    expect(last('thread')).toEqual({ kind: 'thread', id: 'seeds' });
+    expect(useThreadStore.getState().openId).toBe('inspect');
+    expect(row('inspect').querySelector('[aria-current]')).not.toBeNull();
+    expect(last('thread')).toEqual({ kind: 'thread', id: 'inspect' });
     // Archived somewhere else, the pane is left with nothing.
     await openThread('inspect');
     act(() => auto.list({ kind: 'thread', thread: { ...INSPECTION, archived: true } }));
@@ -675,6 +868,36 @@ describe('the box', () => {
     expect(screen.getByTestId('auto-stop')).toBeInTheDocument();
   });
 
+  it('shows the words of a new thread at once, on their way, before the service has made it', async () => {
+    await open();
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    fireEvent.click(screen.getByTestId('auto-new-thread'));
+    await type('Plan the herb bed');
+    const bubble = screen.getByTestId('auto-message');
+    expect(bubble.textContent).toBe('Plan the herb bed');
+    expect(bubble.className).toContain('opacity-60');
+    expect(box().value).toBe('');
+    expect(auto.followed.thread).toBeNull();
+    release();
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('created1'));
+    await waitFor(() => expect(screen.getAllByTestId('auto-message')).toHaveLength(1));
+    expect(screen.getByTestId('auto-message').className).not.toContain('opacity-60');
+  });
+
+  it('shows what he says to a waiting entry at once, under its card', async () => {
+    await open();
+    await openThread('inspect');
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    await type('Move it to the 22nd');
+    expect(screen.getByTestId('auto-message').textContent).toBe('Move it to the 22nd');
+    expect(screen.getByTestId('auto-message').className).toContain('opacity-60');
+    expect(screen.getByTestId('auto-entry')).toBeInTheDocument();
+    release();
+    await waitFor(() => expect(last('message')).toMatchObject({ kind: 'message', id: 'inspect', text: 'Move it to the 22nd' }));
+  });
+
   it('keeps what is typed per thread', async () => {
     await open();
     await openThread('bread');
@@ -751,20 +974,28 @@ describe('the sidebar row', () => {
   }
   const autoTabs = () => useTabsStore.getState().tabs.filter((tab) => isAutoLocation(tabLocation(tab)));
 
-  it('counts what needs him with no tab open: the threads that wait and the unread ones, snoozed left out', async () => {
+  it('counts what needs him with no tab open: the threads that wait, the unread ones and the ones back from snooze, snoozed left out', async () => {
     resetTabs();
     install({ threads: [BEDS, BREAD, SEEDS, TRELLIS, INSPECTION, LABELS, autoThread('herbs', { status: 'waiting', unread: true, snoozed: 4_000_000_000 })] });
     renderSidebar();
     const button = await screen.findByRole('button', { name: /^Auto/ });
-    // Beds waits and Seeds has an unread reply.
-    await waitFor(() => expect(button.textContent).toBe('Auto2'));
+    // Beds waits, Seeds has an unread reply and Trellis is back from snooze.
+    await waitFor(() => expect(button.textContent).toBe('Auto3'));
     expect(kinds()).toEqual(['status', 'threads']);
     // The list's stream is followed with no tab open, so the count stays true. No thread's stream is.
     await waitFor(() => expect(auto.followed.list).not.toBeNull());
     expect(auto.followed.thread).toBeNull();
     act(() => auto.list({ kind: 'thread', thread: { ...BREAD, status: 'waiting' } }));
-    expect(button.textContent).toBe('Auto3');
+    expect(button.textContent).toBe('Auto4');
     act(() => auto.list({ kind: 'thread', thread: { ...SEEDS, unread: false } }));
+    expect(button.textContent).toBe('Auto3');
+    // Opened on another device, Trellis is no longer new.
+    act(() => auto.list({ kind: 'thread', thread: { ...TRELLIS, woke: null } }));
+    expect(button.textContent).toBe('Auto2');
+    // A thread that is his move counts as well, and stops counting when Auto takes it back.
+    act(() => auto.list({ kind: 'thread', thread: { ...TRELLIS, woke: null, yours: 'Read the note and send it to the club' } }));
+    expect(button.textContent).toBe('Auto3');
+    act(() => auto.list({ kind: 'thread', thread: { ...TRELLIS, woke: null, yours: '' } }));
     expect(button.textContent).toBe('Auto2');
     // The digest is not read until a tab opens.
     expect(kinds()).toEqual(['status', 'threads']);
@@ -778,6 +1009,22 @@ describe('the sidebar row', () => {
     await waitFor(() => expect(auto.api.config).toHaveBeenCalled());
     expect(button.textContent).toBe('Auto');
     expect(kinds()).toEqual([]);
+  });
+
+  it('starts the list of a tab opened fresh at its top, and keeps its place for a tab that is only left', async () => {
+    install();
+    openTabs(['/Vault/Recipes/Bread.md', browseAuto().location], 1);
+    renderSidebar();
+    await waitFor(() => expect(useAutoStore.getState().tabOpen).toBe(true));
+    const place = { top: 1243, height: 4000, atEnd: false };
+    keepPlace(LIST_PLACE, place);
+    // Another tab in front: the Auto tab is still there, and so is its place.
+    act(() => useTabsStore.getState().activate(useTabsStore.getState().tabs[0].id));
+    expect(placeOf(LIST_PLACE)).toEqual(place);
+    // Closed: the next one opened starts at the top.
+    act(() => useTabsStore.getState().close(autoTabs()[0].id));
+    expect(useAutoStore.getState().tabOpen).toBe(false);
+    expect(placeOf(LIST_PLACE)).toBeNull();
   });
 
   it('opens one Auto tab beside the page, and goes back to it after that', async () => {

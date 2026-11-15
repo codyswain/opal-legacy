@@ -81,6 +81,8 @@ export function SnoozeButton({ thread, now, from, open, onOpenChange, tabIndex }
           }
         }}
       >
+        {/* A snoozed thread's clock also brings it back, so a key reaches that too. */}
+        {thread.snoozed !== null ? <MenuItem onSelect={() => void snoozeThread(thread, null, { from })}>Bring back</MenuItem> : null}
         <MenuLabel>{thread.snoozed === null ? 'Snooze' : 'Snooze until another time'}</MenuLabel>
         <SnoozeItems menu="dropdown" thread={thread} now={now} from={from} />
       </MenuContent>
@@ -94,7 +96,7 @@ const field =
 function DateForm({ thread, from, onClose }: { thread: AutoThread; from: From; onClose: () => void }) {
   const now = React.useMemo(() => Date.now(), []);
   const range = snoozeDateRange(now);
-  const [date, setDate] = React.useState(range.min);
+  const [date, setDate] = React.useState(range.start);
   const [time, setTime] = React.useState(SNOOZE_TIME);
   const [invalid, setInvalid] = React.useState(false);
   return (
@@ -102,7 +104,8 @@ function DateForm({ thread, from, onClose }: { thread: AutoThread; from: From; o
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        const until = snoozeDate(date, now, time);
+        // Any time from now on, today included: measured against the clock when he presses Snooze.
+        const until = snoozeDate(date, Date.now(), time);
         if (until === null) {
           setInvalid(true);
           return;
@@ -143,7 +146,7 @@ function DateForm({ thread, from, onClose }: { thread: AutoThread; from: From; o
       </div>
       {invalid ? (
         <p role="alert" className="mt-2 text-ui font-medium text-foreground">
-          Choose a day in the next year, and a time.
+          Choose a time from now on, within a year.
         </p>
       ) : null}
       <DialogFooter>
@@ -156,7 +159,7 @@ function DateForm({ thread, from, onClose }: { thread: AutoThread; from: From; o
   );
 }
 
-/** A day and a time of his own for a snooze. It names the thread, and starts at 8:00 in the morning. */
+/** A day and a time of his own for a snooze. It names the thread, and starts at tomorrow, 9:00 in the morning. */
 export function SnoozeDateDialog() {
   const picking = useAutoStore((state) => state.picking);
   // What is being picked for stays while the dialog closes, so it knows where the keyboard came from.

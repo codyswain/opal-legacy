@@ -25,7 +25,7 @@ import { failure, parseEntry, sentLine, showsNext, stepLines, stepsSummary, turn
 import { archiveThread, snoozeThread } from '../store/actions';
 import { modelChoices, useAutoStore } from '../store/autoStore';
 import { draftKey, useThreadStore } from '../store/threadStore';
-import { EntryCardView, PermissionCard, QuestionCard } from './Cards';
+import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
 import { SaidBar } from './SaidBar';
 import { SnoozeButton } from './SnoozeMenu';
 
@@ -154,7 +154,10 @@ function NextLine({ line }: { line: string }) {
  * thread comes back where he left it.
  */
 function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivElement>; onScrolled: (scrolled: boolean) => void }) {
-  const view = useThreadStore((state) => state.view);
+  const own = useThreadStore((state) => state.view);
+  // What the pane held before a thread never seen was opened: it stays until that thread arrives, or 300 ms.
+  const ghost = useThreadStore((state) => state.ghost);
+  const view = own ?? ghost;
   const pending = useThreadStore((state) => state.pending);
   const slow = useThreadStore((state) => state.slow);
   const problem = useThreadStore((state) => state.problem);
@@ -166,7 +169,27 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
   const placedFresh = React.useRef<string | null>(null);
   const height = React.useRef(0);
   const [below, setBelow] = React.useState(false);
-  const threadId = view?.thread.id ?? null;
+  const threadId = own?.thread.id ?? null;
+
+  // The pane shrinks when the box grows, a notice shows or the width changes. At its end, the thread stays at
+  // its end; scrolled up, the row at the top of the pane stays at the top.
+  const anchor = React.useRef<{ key: string; gap: number } | null>(null);
+  React.useEffect(() => {
+    const element = scroller.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const hold = () => {
+      if (stuck.current) {
+        element.scrollTop = element.scrollHeight;
+        return;
+      }
+      const kept = anchor.current;
+      const row = kept ? element.querySelector<HTMLElement>(`[data-row="${kept.key}"]`) : null;
+      if (kept && row) element.scrollTop = row.offsetTop - kept.gap;
+    };
+    const observer = new ResizeObserver(hold);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [scroller]);
 
   // His own message always shows, wherever he had scrolled to.
   const sent = React.useRef(0);
@@ -212,6 +235,8 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
   if (!view) {
     if (problem) rows.push({ key: 'problem', quiet: false, node: <p role="alert" className="text-ui text-foreground-secondary">{problem}</p> });
     else if (slow) rows.push({ key: 'loading', quiet: false, node: <p role="status" className="text-ui text-foreground-tertiary">Loading…</p> });
+    // A new thread shows his words at once, on their way, before the service has made the thread.
+    for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, node: <Bubble text={message.text} faded /> });
   } else {
     const title = view.thread.title;
     const failed = failure(view);
@@ -243,6 +268,7 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
     items(view.live?.items ?? [], 'l');
     if (view.question?.kind === 'ask') rows.push({ key: view.question.id, quiet: false, node: <QuestionCard question={view.question} /> });
     if (view.question?.kind === 'permission') rows.push({ key: view.question.id, quiet: false, node: <PermissionCard question={view.question} /> });
+    if (view.question?.kind === 'grant') rows.push({ key: view.question.id, quiet: false, node: <GrantCard question={view.question} /> });
     if (view.live && !view.question) {
       rows.push({
         key: 'activity',
@@ -298,12 +324,16 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
           stuck.current = place.atEnd;
           if (place.atEnd) setBelow(false);
           if (threadId) keepPlace(threadPlace(threadId), place);
+          // The row at the top of the pane, and how far it is from the top: what a change of width keeps in place.
+          const top = [...element.querySelectorAll<HTMLElement>('[data-row]')].find((row) => row.offsetTop + row.offsetHeight > element.scrollTop);
+          anchor.current = top ? { key: top.getAttribute('data-row') ?? '', gap: top.offsetTop - element.scrollTop } : null;
           onScrolled(element.scrollTop > 0);
         }}
       >
-        <div className="auto-column relative flex flex-col pb-6 pt-2">
+        {/* What the pane held before is only shown, never acted on: its cards and buttons belong to another thread. */}
+        <div aria-hidden={own ? undefined : ghost ? true : undefined} className={cn('auto-column relative flex flex-col pb-6 pt-2', !own && ghost && 'pointer-events-none')}>
           {rows.map((row, at) => (
-            <div key={row.key} data-anchor={row.anchor || undefined} className={cn('flex flex-col', at === 0 ? '' : row.quiet && rows[at - 1].quiet ? 'mt-1' : 'mt-4')}>
+            <div key={row.key} data-row={row.key} data-anchor={row.anchor || undefined} className={cn('flex flex-col', at === 0 ? '' : row.quiet && rows[at - 1].quiet ? 'mt-1' : 'mt-4')}>
               {row.node}
             </div>
           ))}
@@ -358,6 +388,8 @@ function Title({ title, canRename, editing, setEditing }: { title: string; canRe
         }}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== 'Escape') return;
+          // The key ends here: the keyboard moves to the box in this same press, and the Enter must not follow it there as a new line.
+          event.preventDefault();
           event.stopPropagation();
           cancelled.current = event.key === 'Escape';
           event.currentTarget.blur();
@@ -428,15 +460,15 @@ function ThreadHeader({ narrow, scrolled }: { narrow: boolean; scrolled: boolean
   const status = useAutoStore((state) => state.status);
   // The list's own entry: the title shows from it while the thread loads, or cannot be read.
   const entry = useAutoStore((state) => state.threads.find((thread) => thread.id === openId));
-  const [renaming, setRenaming] = React.useState(false);
-  const { setModel } = useThreadStore.getState();
+  const renaming = useThreadStore((state) => state.renaming);
+  // While the pane still holds the thread before, its header does too.
+  const ghost = useThreadStore((state) => (state.view ? null : state.ghost));
+  const { setModel, setRenaming } = useThreadStore.getState();
   const isNew = paneThread(openId) === null;
-  const thread = isNew ? null : entry ?? view?.thread ?? null;
+  const thread = isNew ? null : ghost?.thread ?? entry ?? view?.thread ?? null;
   const models = modelChoices(status);
   const model = isNew ? newModel : thread?.model ?? '';
   const label = models.find(([key]) => key === model)?.[1] ?? model;
-
-  React.useEffect(() => setRenaming(false), [openId]);
 
   /** Back to the list, with the keyboard on the row he came from. */
   const back = () => {
@@ -455,7 +487,7 @@ function ThreadHeader({ narrow, scrolled }: { narrow: boolean; scrolled: boolean
         {isNew ? (
           <Title title="New thread" canRename={false} editing={false} setEditing={setRenaming} />
         ) : (
-          <Title key={openId} title={thread?.title ?? ''} canRename={thread !== null} editing={renaming} setEditing={setRenaming} />
+          <Title key={openId} title={thread?.title ?? ''} canRename={thread !== null && !ghost} editing={renaming && !ghost} setEditing={setRenaming} />
         )}
         <div className="flex shrink-0 items-center gap-0.5">
           {isNew || thread ? (
@@ -475,7 +507,7 @@ function ThreadHeader({ narrow, scrolled }: { narrow: boolean; scrolled: boolean
               </MenuContent>
             </Menu>
           ) : null}
-          {thread ? <ThreadActions thread={thread} onRename={() => setRenaming(true)} /> : null}
+          {thread && !ghost ? <ThreadActions thread={thread} onRename={() => setRenaming(true)} /> : null}
         </div>
       </div>
     </header>
@@ -523,6 +555,8 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
   const box = React.useRef<HTMLTextAreaElement>(null);
   const queue = view?.live ? waitingToGo(view, pending) : [];
   const answering = view?.question != null;
+  // A send he is asked to allow: words here are a "no" with a reason, and nothing here is a yes.
+  const refusing = view?.question?.kind === 'grant';
   const running = turnRuns(view);
   useGrow(box, draft);
 
@@ -585,9 +619,9 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
           <textarea
             ref={box}
             rows={1}
-            aria-label={answering ? 'Your answer' : 'Message'}
+            aria-label={refusing ? 'Why not' : answering ? 'Your answer' : 'Message'}
             data-testid="auto-box"
-            placeholder={answering ? 'Your answer' : view?.seed ? 'Say what to do with it' : 'Message Auto'}
+            placeholder={refusing ? 'Say no, with a reason' : answering ? 'Your answer' : view?.seed ? 'Say what to do with it' : 'Message Auto'}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={onKeyDown}
@@ -598,7 +632,7 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
               <Square aria-hidden className="h-2.5 w-2.5 fill-current" />
             </IconButton>
           ) : null}
-          <IconButton type="submit" label={answering ? 'Answer' : 'Send to Auto'} shortcut="↩" variant="subtle" disabled={!draft.trim()}>
+          <IconButton type="submit" label={refusing ? 'Say no' : answering ? 'Answer' : 'Send to Auto'} shortcut="↩" variant="subtle" disabled={!draft.trim()}>
             <ArrowUp aria-hidden className="h-4 w-4" />
           </IconButton>
         </form>

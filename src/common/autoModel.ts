@@ -8,6 +8,7 @@ import type {
   AutoItem,
   AutoListEvent,
   AutoLive,
+  AutoGrant,
   AutoQuestion,
   AutoQuestionPart,
   AutoQueued,
@@ -33,6 +34,8 @@ export const TEXT_LIMIT = 100_000;
 const ITEM_TEXT_LIMIT = 400_000;
 const LINE_LIMIT = 2_000;
 const TITLE_LIMIT = 300;
+/** What is his to do in a thread: a few words. */
+const YOURS_LIMIT = 80;
 const THREADS_LIMIT = 2_000;
 const ITEMS_LIMIT = 5_000;
 const STEPS_LIMIT = 500;
@@ -91,11 +94,12 @@ function toAsk(value: unknown): AutoAsk | null {
   const question = optional(ask.question, TEXT_LIMIT);
   return {
     id: ask.id,
-    kind: ask.kind === 'permission' ? 'permission' : 'ask',
+    kind: ask.kind === 'permission' ? 'permission' : ask.kind === 'grant' ? 'grant' : 'ask',
     text: text(ask.text, LINE_LIMIT),
     // Buttons need the question they answer; without it the thread is opened instead.
-    options: question ? options.map((label) => label.slice(0, LINE_LIMIT)) : [],
-    question: question && options.length > 0 ? question : null,
+    // A permission and a send to allow are never answered from a row.
+    options: question && ask.kind !== 'permission' && ask.kind !== 'grant' ? options.map((label) => label.slice(0, LINE_LIMIT)) : [],
+    question: question && options.length > 0 && ask.kind !== 'permission' && ask.kind !== 'grant' ? question : null,
   };
 }
 
@@ -128,6 +132,8 @@ export function toThread(value: unknown): AutoThread | null {
         : null,
     waits: thread.waits === true,
     desk: desk ? { at: time(desk.at) ?? 0, by: text(desk.by, 40) } : null,
+    // The service keeps it to 80 characters; a longer one is cut, never trusted.
+    yours: text(thread.yours, YOURS_LIMIT).trim(),
   };
 }
 
@@ -195,7 +201,27 @@ function toPart(value: unknown): AutoQuestionPart | null {
   };
 }
 
-/** An open question or permission request, or null. */
+/**
+ * A send he is asked to allow up front. The service's title and detail say
+ * who it goes to, by which channel and what it is about; the exact words,
+ * when it carries them, are in its `grant` part. One with none of these
+ * still shows, since he must be able to say no. The rest of the `grant`
+ * part is for his phone, which signs the yes: Opal reads none of it, and
+ * never a signature.
+ */
+function toGrant(question: Fields): AutoGrant | null {
+  if (!validThreadId(question.id)) return null;
+  const grant = fields(question.grant) ?? {};
+  return {
+    id: question.id,
+    kind: 'grant',
+    title: text(question.title, LINE_LIMIT),
+    detail: text(question.detail, TEXT_LIMIT),
+    text: optional(grant.text, TEXT_LIMIT),
+  };
+}
+
+/** An open question, permission request or send to allow, or null. */
 export function toQuestion(value: unknown): AutoQuestion | null {
   const question = fields(value);
   if (!question || !validThreadId(question.id)) return null;
@@ -209,6 +235,7 @@ export function toQuestion(value: unknown): AutoQuestion | null {
       reason: text(question.reason, LINE_LIMIT),
     };
   }
+  if (question.kind === 'grant') return toGrant(question);
   if (question.kind !== 'ask') return null;
   const questions = list(question.questions, OPTIONS_LIMIT).flatMap((entry) => {
     const part = toPart(entry);
