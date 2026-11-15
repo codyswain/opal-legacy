@@ -500,6 +500,18 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
     useAutoStore.getState().requestFocus(null);
   });
 
+  // The keyboard stays with its row when the row is drawn again in another group: a thread that gains a reply,
+  // a mark or a question moves, and the element the keyboard was on goes with the old place.
+  const keyboardOn = React.useRef<HTMLElement | null>(null);
+  React.useLayoutEffect(() => {
+    const was = keyboardOn.current;
+    if (!was || was.isConnected || document.activeElement !== document.body) return;
+    keyboardOn.current = null;
+    const id = was.getAttribute('data-row-id');
+    // A row that has left the list is not followed: the action that took it away says where the keyboard goes.
+    if (id && rows.has(id)) rowElement(id)?.focus();
+  });
+
   // The list is where he left it.
   const restored = React.useRef(false);
   React.useLayoutEffect(() => {
@@ -529,13 +541,18 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
       onKeyDown={onKeyDown}
       onFocus={(event) => {
         const id = (event.target as HTMLElement).getAttribute?.('data-row-id');
-        if (id) setActive(id);
+        if (id) {
+          setActive(id);
+          keyboardOn.current = event.target as HTMLElement;
+        }
       }}
       onBlur={(event) => {
         // The keyboard has left the list: Tab back in lands on the open thread's row, not on the row it left from.
         // A menu or a dialog opened from a row gives the keyboard back to that row when it closes.
         const to = event.relatedTarget as HTMLElement | null;
         if (to && !event.currentTarget.contains(to) && !to.closest('[role="menu"], [role="dialog"]')) setActive(null);
+        // He moved the keyboard somewhere, or put it down: only a row taken out from under it is followed.
+        if (to || (event.target as HTMLElement).isConnected) keyboardOn.current = null;
       }}
       className={cn('flex min-h-0 shrink-0 flex-col', narrow ? 'w-full' : 'w-auto-list border-r border-border-subtle')}
     >

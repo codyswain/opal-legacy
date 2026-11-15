@@ -280,7 +280,8 @@ not exist.
   thread, the list and the queue are kept in memory for the session
   (`threadStore.ts`, `model/places.ts`) and dropped with the address. The
   list and the queue are each one Tab stop with a roving focus
-  (`components/focus.ts`); single keys act only on a focused row or entry,
+  (`components/focus.ts`); a row drawn again in another group (a thread
+  that gains a reply, a mark or a question) keeps the keyboard; single keys act only on a focused row or entry,
   and Cmd+. and Cmd+Z act only while the tab is in front with the keyboard
   in it. In a field, Cmd+Z is the field's own undo while it holds text and
   takes the last action back when it is empty. While a question waits, the box is its answer field,

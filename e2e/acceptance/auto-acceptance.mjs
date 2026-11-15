@@ -1077,10 +1077,14 @@ async function tour() {
 
     // --- A reply he has not read, taller than the pane, opens at its start.
     await row(COMPOST).click();
+    // The keyboard is on the row that is about to move.
+    await row(TRELLIS).locator('[data-auto-row]').focus();
     await fromPhone(`/api/threads/${TRELLIS}/messages`, { text: 'Send the timings table again', cid: 'p3' });
     await until(() => service.thread(TRELLIS)?.status === 'idle' && service.thread(TRELLIS)?.unread === true);
     check('a reply nobody has opened counts in the sidebar', await until(async () => sidebarSays(needsHim())) && needsHim() > 0);
     check('a thread with an unread reply is lifted under the questions, newest first', await until(async () => (await groupIds('fresh'))[0] === TRELLIS && !(await groupIds('rest')).includes(TRELLIS)) && /\d new/.test(await summary()), `${(await groupIds('fresh')).join()} | ${await summary()}`);
+    check('the keyboard stays with a row that moves to another group', (await focused()) === TRELLIS, await focused());
+    await page.evaluate(() => document.activeElement?.blur());
     await shot(46, 'unread-lifted');
     await row(TRELLIS).click();
     check('once opened it goes back to its place in his order', await until(async () => (await groupIds('rest')).includes(TRELLIS) && !(await groupIds('fresh')).includes(TRELLIS)));

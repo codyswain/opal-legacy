@@ -864,6 +864,30 @@ describe('where the keyboard goes', () => {
     expect(auto.asked('answer')).toEqual([]);
   });
 
+  it('stays with a row that is drawn again in another group, and does not follow one that left the list', async () => {
+    await open();
+    act(() => rowButton('bread').focus());
+    expect(focusedRow()).toBe('bread');
+    // A reply nobody has read lifts the thread under the questions: its row is a new element in another group.
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, unread: true, last: 'A new reply.' } }));
+    expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    expect(screen.getByTestId('auto-group-fresh').querySelector('[data-thread-id="bread"]')).not.toBeNull();
+    expect(focusedRow()).toBe('bread');
+    // Marked for the Mac on another device: it moves again, and the keyboard with it.
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, unread: true, desk: { at: at(11, 14, 15), by: 'phone' } } }));
+    expect(screen.getByTestId('auto-group-desk').querySelector('[data-thread-id="bread"]')).not.toBeNull();
+    expect(focusedRow()).toBe('bread');
+    // Archived somewhere else, the row is gone and the keyboard is not sent after it.
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, archived: true } }));
+    expect(listed()).not.toContain('bread');
+    expect(document.activeElement).toBe(document.body);
+    // A row he put the keyboard down from is left alone when it moves.
+    act(() => rowButton('seeds').focus());
+    act(() => (document.activeElement as HTMLElement).blur());
+    act(() => auto.list({ kind: 'thread', thread: { ...SEEDS, unread: true } }));
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('lands on the open thread’s row when Tab comes back into the list', async () => {
     await open();
     await openThread('seeds');
