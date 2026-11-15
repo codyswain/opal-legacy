@@ -7,6 +7,7 @@ import { inlineSpans, linkAt, listItemOf, withoutEdgeMarks, writeLink } from './
 import { docMode } from './livePreview';
 import { literalText, rawAt } from './typing';
 import { webAddress } from './linkSchemes';
+import { markdownFromHtml } from './pasteHtml';
 
 /*
  * The clipboard in a document. Copy, cut and drag write balanced Markdown:
@@ -170,7 +171,7 @@ export function pasteSpec(state: EditorState, text: string, literal: boolean): T
     }
     return writeLink(state, range, state.sliceDoc(range.from, range.to), address, null);
   }
-  if (!literal) return listIntoItem(state, pasted);
+  if (!literal) return listIntoItem(state, pasted) ?? linesIntoItems(state, withoutMarkers(state, pasted)) ?? linesIntoItems(state, pasted) ?? blockIntoText(state, pasted);
   const prefix = containerPrefix(state, range.from);
   const insert = literalText(state, range.from, range.to, pasted, { prefix, table: inTable(state, range.from) });
   return {
@@ -185,9 +186,11 @@ export function pasteSpec(state: EditorState, text: string, literal: boolean): T
 const LIST_LINE = /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
 
 /**
- * A pasted list on an empty list item, as Enter at a list's end leaves it:
- * the pasted items take the empty item's place at its level, nested items
- * one level deeper each, in the list's own indent character.
+ * A pasted list at a list item, as a word processor pastes whole items: on
+ * an empty item the pasted items take its place, at the start of an item's
+ * text they go in above it, and at the end of its text below it. They sit at
+ * that item's level, nested items one level deeper each, in the list's own
+ * indent character. Numbers are put in order by the edit itself.
  */
 function listIntoItem(state: EditorState, pasted: string): TransactionSpec | null {
   const range = state.selection.main;
@@ -195,20 +198,113 @@ function listIntoItem(state: EditorState, pasted: string): TransactionSpec | nul
   const line = state.doc.lineAt(range.head);
   const item = listItemOf(state, line);
   const lines = pasted.replace(/\n+$/, '').split('\n');
-  if (!item || item.textFrom !== line.to || range.head !== line.to || !lines.every((each) => !/\S/.test(each) || LIST_LINE.test(each)) || !LIST_LINE.test(lines[0])) return null;
+  if (!item || !lines.every((each) => !/\S/.test(each) || LIST_LINE.test(each)) || !LIST_LINE.test(lines[0])) return null;
+  const empty = item.textFrom === line.to;
+  const above = !empty && range.head === item.textFrom;
+  if (!empty && !above && range.head !== line.to) return null;
   const lead = line.text.slice(0, item.markFrom - line.from);
   const indents = lines.map((each) => /^[ \t]*/.exec(each)?.[0] ?? '');
   const unit = Math.min(...indents.map((indent) => indent.replace(/\t/g, '    ').length).filter((width) => width > 0), Infinity);
   const tabs = /\t/.test(lead) || /^[ \t>]*\t/.test(state.doc.lineAt(Math.max(0, line.from - 1)).text);
-  const insert = lines.map((each, index) => {
+  const items = lines.map((each, index) => {
     if (!/\S/.test(each)) return lead.replace(/[ \t]+$/, '');
     const width = indents[index].replace(/\t/g, '    ').length;
     const level = unit === Infinity ? 0 : Math.round(width / unit);
     return `${lead}${tabs ? '\t'.repeat(level) : indents[index]}${each.slice(indents[index].length)}`;
   }).join('\n');
+  const change = empty ? { from: line.from, to: line.to, insert: items } : above ? { from: line.from, insert: `${items}\n` } : { from: line.to, insert: `\n${items}` };
   return {
-    changes: { from: line.from, to: line.to, insert },
-    selection: { anchor: line.from + insert.length },
+    changes: change,
+    selection: { anchor: above ? range.head + items.length + 1 : change.from + change.insert.length },
+    scrollIntoView: true,
+    userEvent: 'input.paste',
+    annotations: prefixed.of(true),
+  };
+}
+
+/**
+ * A pasted list as plain lines, for a caret in the middle of an item's
+ * text, where a word processor joins the first pasted item to the text
+ * before the caret and makes each further one an item of the list being
+ * typed in. `pasted` as it is for anything else.
+ */
+function withoutMarkers(state: EditorState, pasted: string): string {
+  const range = state.selection.main;
+  const line = state.doc.lineAt(range.from);
+  const item = listItemOf(state, line);
+  const lines = pasted.replace(/\n+$/, '').split('\n');
+  if (!item || range.from <= item.textFrom || range.from >= line.to || lines.length < 2 || !lines.every((each) => !/\S/.test(each) || LIST_LINE.test(each))) return pasted;
+  return lines.map((each) => each.replace(/^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+\[[ xX]\])?[ \t]*/, '')).join('\n');
+}
+
+// A plain line of text: nothing that opens a block of its own.
+const OWN_BLOCK = /^ {0,3}(?:[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|#{1,6}(?:[ \t]|$)|>|```|~~~|\||<|(?:-{3,}|\*{3,}|_{3,}|={3,})[ \t]*$)/;
+
+/**
+ * A pasted list, heading, quote, fence or table on a line of plain text
+ * that is no list item: the block goes on lines of its own, since Markdown
+ * reads it as text when it starts in the middle of a line. A pasted list
+ * that then sits right over text gets a blank line under it, so that text
+ * stays a paragraph, as when a list is typed there.
+ */
+function blockIntoText(state: EditorState, pasted: string): TransactionSpec | null {
+  const range = state.selection.main;
+  if (!state.facet(docMode) || rawAt(state, range.from)) return null;
+  const text = pasted.replace(/\n+$/, '');
+  const lines = text.split('\n');
+  if (!OWN_BLOCK.test(lines[0])) return null;
+  const line = state.doc.lineAt(range.from);
+  const end = state.doc.lineAt(range.to);
+  if (listItemOf(state, line)) return null;
+  const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '';
+  const blank = quote.replace(/[ \t]+$/, '');
+  const before = /\S/.test(state.doc.sliceString(line.from + quote.length, range.from));
+  const after = /\S/.test(state.doc.sliceString(range.to, end.to));
+  const below = end.number < state.doc.lines ? state.doc.line(end.number + 1) : null;
+  const endsInList = LIST_LINE.test(lines[lines.length - 1]);
+  // Text right under a list reads as more of its last item: what follows the caret, or the next line, gets a blank line first.
+  const tail = after ? `\n${endsInList ? `${blank}\n` : ''}${quote}` : endsInList && below && /\S/.test(below.text.slice(quote.length)) && !OWN_BLOCK.test(below.text.slice(quote.length)) ? `\n${blank}` : '';
+  if (!before && !tail) return null;
+  const body = prefixLines(text, quote);
+  const insert = `${before ? `\n${quote}` : ''}${body}${tail}`;
+  return {
+    changes: { from: range.from, to: range.to, insert },
+    selection: { anchor: range.from + (before ? 1 + quote.length : 0) + body.length },
+    scrollIntoView: true,
+    userEvent: 'input.paste',
+    annotations: prefixed.of(true),
+  };
+}
+
+// A line that is a Markdown block of its own: a list item, heading, quote, fence, table row or indented code.
+const BLOCK_LINE = /^(?:[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)| {0,3}(?:#{1,6}(?:[ \t]|$)|>|```|~~~|\|)|\t| {4})/;
+
+/**
+ * Plain lines pasted into a list item's text, as a word processor pastes
+ * paragraphs into a list: the first line joins the item, and each line after
+ * it becomes an item of its own, with the item's marker, the next numbers,
+ * or an empty box. Empty lines are left out. Lines that are Markdown blocks
+ * keep their meaning and are pasted as they are.
+ */
+function linesIntoItems(state: EditorState, pasted: string): TransactionSpec | null {
+  const range = state.selection.main;
+  if (!state.facet(docMode)) return null;
+  const lines = pasted.replace(/\n+$/, '').split('\n').filter((each, index) => index === 0 || /\S/.test(each));
+  const line = state.doc.lineAt(range.from);
+  if (lines.length < 2 || range.to > line.to || lines.some((each) => BLOCK_LINE.test(each))) return null;
+  const item = listItemOf(state, line);
+  const marker = item && /^(?:[-+*]|(\d{1,9})([.)]))/.exec(line.text.slice(item.markFrom - line.from));
+  if (!item || !marker || range.from < item.textFrom || rawAt(state, range.from)) return null;
+  const lead = line.text.slice(0, item.markFrom - line.from);
+  const box = item.kind === 'task' ? ' [ ]' : '';
+  const insert = lines.map((each, index) => {
+    if (index === 0) return each;
+    const mark = marker[1] ? `${Number(marker[1]) + index}${marker[2]}` : marker[0];
+    return `${lead}${mark}${box} ${each.trim()}`;
+  }).join('\n');
+  return {
+    changes: { from: range.from, to: range.to, insert },
+    selection: { anchor: range.from + insert.length },
     scrollIntoView: true,
     userEvent: 'input.paste',
     annotations: prefixed.of(true),
@@ -247,6 +343,9 @@ export async function pasteAndMatchStyle(target: Element | null = document.activ
   view.dispatch(spec ?? { ...view.state.replaceSelection(text.replace(/\r\n?/g, '\n')), scrollIntoView: true, userEvent: 'input.paste' });
 }
 
+// Marks only Markdown source holds: a link between notes, a Markdown link, a highlight, a fence, a list marker or heading at a line start.
+const MARKDOWN_SOURCE = /\[\[[^\]\n]+\]\]|\]\([^)\s]+\)|==[^=\n]+==|(?:^|\n) {0,3}(?:```|#{1,6} |[-+*] |\d{1,9}[.)] |> )/;
+
 const clipboardEvents = EditorView.domEventHandlers({
   copy(event, view) {
     if (!view.state.facet(docMode) || view.state.selection.ranges.some((range) => !range.empty)) return false;
@@ -260,9 +359,24 @@ const clipboardEvents = EditorView.domEventHandlers({
   },
   paste(event, view) {
     if (!view.state.facet(docMode) || view.state.readOnly) return false;
-    const text = event.clipboardData?.getData('text/plain') ?? '';
+    const data = event.clipboardData;
+    const plain = data?.getData('text/plain') ?? '';
+    // Formatting comes from the clipboard's HTML, except into code, which takes the plain text.
+    const html = data && data.files.length === 0 && !rawAt(view.state, view.state.selection.main.from) ? data.getData('text/html') : '';
+    // Plain text that is Markdown already, as an app that draws Markdown copies it, is the better copy: it keeps
+    // what the HTML beside it has lost, such as a link between notes.
+    const rich = html && !MARKDOWN_SOURCE.test(plain) ? markdownFromHtml(html) : null;
+    const text = rich ?? plain;
     if (!text) return false;
-    const spec = pasteSpec(view.state, text, false);
+    // A list pasted over a selection that runs across items: the selection goes first, as Backspace takes it, and
+    // the list is then pasted at the caret inside the item that is left.
+    const { main } = view.state.selection;
+    if (!main.empty && view.state.selection.ranges.length === 1 && view.state.doc.lineAt(main.from).number !== view.state.doc.lineAt(main.to).number
+      && LIST_LINE.test(text.split('\n')[0]) && listItemOf(view.state, view.state.doc.lineAt(main.from))) {
+      view.dispatch({ ...view.state.replaceSelection(''), userEvent: 'delete.selection' });
+    }
+    const spec = pasteSpec(view.state, text, false)
+      ?? (rich ? { ...view.state.replaceSelection(rich), scrollIntoView: true, userEvent: 'input.paste' } : null);
     if (!spec) return false;
     event.preventDefault();
     view.dispatch(spec);

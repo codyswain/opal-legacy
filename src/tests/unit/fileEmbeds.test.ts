@@ -25,6 +25,7 @@ import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installFilesApi } from '@/tests/helpers/filesApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
 import type { FileInfo, FileInfoStatus } from '@/types/files';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const toastError = vi.hoisted(() => vi.fn());
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { error: toastError }) }));
@@ -79,7 +80,7 @@ afterEach(() => {
 const resolved = Object.fromEntries(FILES.map((target) => [target, `/Vault/${target}`]));
 
 async function mount(doc: string, page = DOC) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   view.focus = vi.fn();
   views.push(view);
   act(() => { view.dispatch({ effects: linksResolved.of(resolved) }); });
@@ -96,7 +97,7 @@ const press = (view: EditorView, name: string) =>
 
 /** The file links in `doc`, read as a page at DOC with every fixture file resolved. */
 function refs(doc: string, page = DOC): FileRef[] {
-  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(page) }).update({ effects: linksResolved.of(resolved) }).state;
+  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }).update({ effects: linksResolved.of(resolved) }).state;
   const found: FileRef[] = [];
   syntaxTree(state).iterate({
     enter: (node) => {
@@ -264,7 +265,7 @@ describe('file widgets', () => {
     let answer: (value: { success: true; data: FileInfo }) => void = () => undefined;
     installFilesApi({ info: vi.fn(() => new Promise<{ success: true; data: FileInfo }>((resolve) => { answer = resolve; })) });
     const other = `Library/files/2026-11/other-clip.a3f9c2e1.mp4`;
-    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: `![[${other}|640]]\n`, extensions: markdownEditorExtensions('/Vault/Notes/A.mdo') }) });
+    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: `![[${other}|640]]\n`, extensions: markdownEditorExtensions('/Vault/Notes/A.mdo', undefined, plainUnlessDocument('/Vault/Notes/A.mdo')) }) });
     act(() => { view.dispatch({ effects: linksResolved.of({ [other]: `/Vault/${other}` }) }); });
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
     expect(view.contentDOM.querySelector('.cm-file-video')).not.toBeNull();
@@ -504,7 +505,7 @@ describe('file objects in a document', () => {
 
   it('frames a card on a click and follows it on Cmd+click', async () => {
     const openNote = vi.fn();
-    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: `Intro\n[[${PDF}|Q3.pdf]]\n`, extensions: markdownEditorExtensions(DOC, openNote) }) });
+    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: `Intro\n[[${PDF}|Q3.pdf]]\n`, extensions: markdownEditorExtensions(DOC, openNote, plainUnlessDocument(DOC)) }) });
     view.focus = vi.fn();
     views.push(view);
     act(() => { view.dispatch({ effects: linksResolved.of(resolved) }); });
@@ -527,7 +528,7 @@ describe('file objects in a document', () => {
 
   it('opens a PDF in an Opal tab and a deck in its app on Enter', async () => {
     const openNote = vi.fn();
-    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: `![[${PDF}]]\n[[${DECK}]]\n`, extensions: markdownEditorExtensions(DOC, openNote) }) });
+    const view = new EditorView({ parent: document.body, state: EditorState.create({ doc: `![[${PDF}]]\n[[${DECK}]]\n`, extensions: markdownEditorExtensions(DOC, openNote, plainUnlessDocument(DOC)) }) });
     views.push(view);
     act(() => { view.dispatch({ effects: linksResolved.of(resolved) }); });
     act(() => { view.dispatch({ selection: { anchor: `![[${PDF}]]`.length + 1 } }); });

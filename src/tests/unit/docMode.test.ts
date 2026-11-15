@@ -8,6 +8,7 @@ import { toggleMarker } from '@/renderer/features/disk-explorer/components/edito
 import { formatState } from '@/renderer/features/disk-explorer/components/editor/formatState';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -27,7 +28,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, page = DOC, openNote = vi.fn()) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, openNote) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, openNote, plainUnlessDocument(page)) }) });
   views.push(view);
   return view;
 }

@@ -82,9 +82,13 @@ describe('Markdown fidelity', () => {
       for (const name of await fixtureNames()) {
         const bytes = encode(await readFile(path.join(FIXTURES, name), 'utf8'));
         const { file, document, state } = await open(bytes, name);
-        // Type one character at the start of a middle line, as the keyboard would.
-        const at = state.doc.line(Math.ceil(state.doc.lines / 2)).from;
-        const edited = state.update({ changes: { from: at, insert: 'x' }, userEvent: 'input.type' }).state;
+        // Type one character at the start of a line of plain text near the middle, as the keyboard would.
+        // Beside a drawn table a typed character starts a line of its own, which is more than one character.
+        const middle = Math.ceil(state.doc.lines / 2);
+        const numbers = Array.from({ length: state.doc.lines }, (_, index) => ((middle - 1 + index) % state.doc.lines) + 1);
+        const plain = numbers.find((number) => /^[A-Za-z]/.test(state.doc.line(number).text));
+        const at = state.doc.line(isLogPage(file) || plain === undefined ? middle : plain).from;
+        const edited = state.update({ changes: { from: at, insert: 'x' }, selection: { anchor: at + 1 }, userEvent: 'input.type' }).state;
         if (isLogPage(file)) {
           // A log page is read-only, so the typed character never reaches the text.
           expect(edited.doc.toString(), name).toBe(document.body);

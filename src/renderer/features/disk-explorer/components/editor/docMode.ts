@@ -1,3 +1,4 @@
+import { redo } from '@codemirror/commands';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import {
   ChangeSet,
@@ -19,6 +20,7 @@ import { codeDocExtension } from './codeBlocks';
 import {
   EMPHASIS,
   STYLES,
+  clearFormattingAndCode,
   closingAt,
   inlineSpans,
   linkAt,
@@ -31,7 +33,7 @@ import {
   typingStyle,
 } from './formatCommands';
 import { imageFrame } from './imageFrame';
-import { setLinkEditor, type LinkEditor } from './linkEditorEffect';
+import { followLinkClicks, setLinkEditor, type LinkEditor } from './linkEditorEffect';
 import { firstLine } from './firstLine';
 import { insertImageItem } from './imageInsert';
 import { blockObjects } from './blockObjects';
@@ -39,6 +41,7 @@ import { blockPosition, docMode, drawnBlockAt, hiddenRanges, setCellCaret, setOp
 import { objectAt } from './extensionPoints';
 import { currentKeyEvent, deleteObject, focusObjectBar, objectFrameExtension, setFrame } from './objectFrame';
 import { headingKeys } from './headingKeys';
+import { withListEdges } from './listEdges';
 import { docListKeys } from './listKeys';
 import { quoteKeys } from './quoteKeys';
 import { insertTableItem } from './tableInsert';
@@ -409,7 +412,7 @@ const focusToolbar: Command = (view) => {
 
 /**
  * A click on a link puts the caret in it and shows its popover; Cmd+click
- * and middle-click still follow it. A click in a table's cell puts a cell
+ * and middle-click still follow it. In a note the click follows the link. A click in a table's cell puts a cell
  * caret there (livePreview.ts), and a click elsewhere on a table or on a
  * drawn code block frames it with the caret after it. A double-click on
  * either shows its Markdown to edit.
@@ -434,7 +437,7 @@ const docClicks = EditorView.domEventHandlers({
       return true;
     }
     const linkElement = target.closest('[data-href], [data-wiki-target]');
-    if (!linkElement || opensNewTab(event)) return false;
+    if (!linkElement || view.state.facet(followLinkClicks) || opensNewTab(event)) return false;
     event.preventDefault();
     const at = view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.posAtDOM(linkElement);
     const link = linkAt(view.state, at) ?? linkAt(view.state, view.posAtDOM(linkElement));
@@ -494,15 +497,36 @@ const docKeymap = [
   { key: 'Mod-Shift-8', run: toggleList('bullet') },
   { key: 'Mod-Shift-9', run: toggleList('task') },
   { key: 'Mod-k', run: editLink },
+  // Redo on Cmd+Y too, as a word processor has it beside Shift+Cmd+Z.
+  { key: 'Mod-y', run: redo, preventDefault: true },
+  // Markdown has no underline, so the key does nothing rather than undo the selection, its meaning in a code editor.
+  { key: 'Mod-u', run: () => true },
   { key: 'Alt-F10', run: focusToolbar },
   { key: 'Ctrl-Alt-t', run: focusToolbar },
 ];
 
-/** Doc mode's extensions. Each editor gets its own, since they track that editor's input method. */
-export function docModeExtensions(): Extension {
+/**
+ * Cmd+\ clears formatting, as in a word processor. Read off the event, so
+ * that Cmd+Shift+\, the app menu's key for the right sidebar, is never taken.
+ */
+const clearFormattingKey = keymap.of([{
+  any: (view, event) => {
+    if (event.key !== '\\' || event.shiftKey || event.altKey || !(event.metaKey || event.ctrlKey)) return false;
+    return clearFormattingAndCode(view);
+  },
+}]);
+
+/**
+ * Doc mode's extensions. Each editor gets its own, since they track that
+ * editor's input method. With `followLinks`, a note's setting, a click on a
+ * link follows it rather than putting the caret in it to edit; Cmd+K still
+ * edits the link at the caret.
+ */
+export function docModeExtensions({ followLinks = false }: { followLinks?: boolean } = {}): Extension {
   const input = { composing: false };
   return [
     docMode.of(true),
+    followLinkClicks.of(followLinks),
     firstLine,
     objectFrameExtension,
     codeDocExtension({ toggleInline: toggleInlineCode, editLink }),
@@ -544,6 +568,17 @@ export function docModeExtensions(): Extension {
     Prec.highest(docClicks),
     imageFrame,
     [typingExtension(replaceVisible), visibleSearch(replaceVisible), wordMotion(replaceVisible), clipboard(replaceVisible)],
+    clearFormattingKey,
+    // After every other filter and just before the numbering (editorSetup.ts), which then counts the lists as they will be read.
+    Prec.highest(EditorState.transactionFilter.of(withListEdges)),
+    // Undo and redo skip the filters, so a caret they leave inside what the page hides is moved out here.
+    EditorView.updateListener.of((update) => {
+      if (!update.transactions.some((tr) => tr.isUserEvent('undo') || tr.isUserEvent('redo'))) return;
+      const { state } = update;
+      const selection = settle(state, state.selection);
+      if (selection === state.selection) return;
+      queueMicrotask(() => { if (update.view.state === state) update.view.dispatch({ selection, userEvent: 'select' }); });
+    }),
     Prec.high(keymap.of([
       { key: 'ArrowLeft', run: moveVisibly(false, false), shift: moveVisibly(false, true) },
       { key: 'ArrowRight', run: moveVisibly(true, false), shift: moveVisibly(true, true) },

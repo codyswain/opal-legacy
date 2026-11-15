@@ -17,6 +17,7 @@ import { formatState } from '@/renderer/features/disk-explorer/components/editor
 import { focusObjectBar, objectBars, objectFrame, setFrame } from '@/renderer/features/disk-explorer/components/editor/objectFrame';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -42,7 +43,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, at = 0, page = DOC) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: at }, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: at }, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   ensureSyntaxTree(view.state, view.state.doc.length, 5_000);
   view.dispatch({});
   views.push(view);

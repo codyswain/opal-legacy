@@ -297,16 +297,16 @@ try {
   }, `${filled(TODAY)}Plan the **week**`);
   check('Bold left the caret in the text', (await focusIn()) === todayDoc, String(await focusIn()));
   check('Bold shows as pressed', (await tool('Bold').getAttribute('aria-pressed')) === 'true');
-  // A line, Enter, then the toolbar's list on the empty line, then the item's text.
+  // A line, Enter, then the toolbar's list on the empty line, then the item's text: a blank line apart in the file, right under the line on the page.
   today = await edit('Enter, the toolbar\'s Bulleted list and typing put a list item right under the line', todayDoc, async () => {
     await press('ArrowRight', 'End', 'Enter');
     await tool('Bulleted list').click();
     await type('First item');
-  }, `${filled(TODAY)}Plan the **week**\n- First item`);
+  }, `${filled(TODAY)}Plan the **week**\n\n- First item`);
   today = await edit('Enter carries the list on', todayDoc, async () => {
     await press('End', 'Enter');
     await type('Second item');
-  }, `${filled(TODAY)}Plan the **week**\n- First item\n- Second item`);
+  }, `${filled(TODAY)}Plan the **week**\n\n- First item\n- Second item`);
   today = await edit('Enter twice ends the list', todayDoc, () => press('Enter', 'Enter'), (bytes) => /\n- Second item\n\n?$/.test(bytes));
   const beforeTable = today;
   today = await edit('Insert > Table writes a 3 by 3 table under the list', todayDoc, async () => {

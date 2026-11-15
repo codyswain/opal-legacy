@@ -4,6 +4,7 @@ import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { markdownEditorExtensions } from '@/renderer/features/disk-explorer/components/editor/editorSetup';
 import { indentList } from '@/renderer/features/disk-explorer/components/editor/formatCommands';
 import { protectedRanges } from '@/renderer/features/disk-explorer/components/editor/extensionPoints';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -21,7 +22,7 @@ function mount(marked: string, page = DOC) {
   const end = marked.indexOf('‸', at + 1);
   const doc = marked.replace(/‸/g, '');
   const selection = end === -1 ? { anchor: at } : { anchor: at, head: end - 1 };
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   views.push(view);
   return view;
 }
@@ -94,20 +95,21 @@ describe('Tab and Shift+Tab in lists', () => {
 });
 
 describe('Enter in a document\'s numbered list', () => {
-  it('changes only the caret\'s line and the new one in a 40-item list', () => {
+  it('numbers the new item and every item below it in a 40-item list', () => {
     const items = Array.from({ length: 40 }, (_, index) => `${index + 1}. item ${index + 1}`);
     const doc = `${items[0]}‸\n${items.slice(1).join('\n')}\n`;
     const result = after(doc, 'Enter');
-    expect(result).toBe(`${items[0]}\n2. \n${items.slice(1).join('\n')}\n`);
+    const below = items.slice(1).map((item, index) => item.replace(/^\d+/, String(index + 3)));
+    expect(result).toBe(`${items[0]}\n2. \n${below.join('\n')}\n`);
   });
 
-  it('repeats the number in a list numbered 1., 1., 1.', () => {
-    expect(after('1. a\n1. b‸\n1. c\n', 'Enter')).toBe('1. a\n1. b\n1. \n1. c\n');
-    expect(after('1. a‸\n1. b\n', 'Enter')).toBe('1. a\n1. \n1. b\n');
+  it('puts a list numbered 1., 1., 1. in order once an item is added', () => {
+    expect(after('1. a\n1. b‸\n1. c\n', 'Enter')).toBe('1. a\n2. b\n3. \n4. c\n');
+    expect(after('1. a‸\n1. b\n', 'Enter')).toBe('1. a\n2. \n3. b\n');
   });
 
-  it('leaves the items below an item with children alone', () => {
-    expect(after('1. a‸\n\t1. x\n2. b\n', 'Enter')).toBe('1. a\n2. \n\t1. x\n2. b\n');
+  it('numbers the items below an item with children too, and leaves the children\'s own list', () => {
+    expect(after('1. a‸\n\t1. x\n2. b\n', 'Enter')).toBe('1. a\n2. \n\t1. x\n3. b\n');
   });
 
   it('still renumbers in a note, which shows the written numbers', () => {
@@ -118,16 +120,16 @@ describe('Enter in a document\'s numbered list', () => {
 describe('lists in a document', () => {
   const shown = (view: EditorView, selector: string) => [...view.contentDOM.querySelectorAll(selector)].map((element) => element.textContent);
 
-  it('shows computed numbers from the list\'s start and keeps the bytes; a note shows them as written', () => {
+  it('shows computed numbers from the list\'s start and keeps the bytes, on every page', () => {
     const view = mount('1. a\n1. b\n1. c\n‸');
     expect(shown(view, '.cm-md-number')).toEqual(['1.', '2.', '3.']);
     expect(text(view)).toBe('1. a\n1. b\n1. c\n');
     expect(shown(mount('3) a\n5) b\n‸'), '.cm-md-number')).toEqual(['3)', '4)']);
-    expect(shown(mount('1. a\n1. b\n‸', NOTE), '.cm-md-number')).toEqual(['1.', '1.']);
+    expect(shown(mount('1. a\n1. b\n‸', NOTE), '.cm-md-number')).toEqual(['1.', '2.']);
   });
 
   it('takes the first item out of a numbered list on Backspace at its start, the next item taking its number', () => {
-    expect(after('1. ‸a\n2. b\n3. c\n', 'Backspace')).toBe('a\n1. b\n3. c\n');
+    expect(after('1. ‸a\n2. b\n3. c\n', 'Backspace')).toBe('a\n\n1. b\n2. c\n');
     const view = mount('1. ‸a\n2. b\n3. c\n');
     press(view, 'Backspace');
     expect(shown(view, '.cm-md-number')).toEqual(['1.', '2.']);
@@ -151,7 +153,7 @@ describe('lists in a document', () => {
   });
 
   it('starts the next item on Enter at the end of an item\'s second paragraph', () => {
-    expect(after('1. a\n\n   more‸\n2. b\n', 'Enter')).toBe('1. a\n\n   more\n2. \n2. b\n');
+    expect(after('1. a\n\n   more‸\n2. b\n', 'Enter')).toBe('1. a\n\n   more\n2. \n3. b\n');
     expect(after('- a\n\n  more‸\n- b\n', 'Enter')).toBe('- a\n\n  more\n- \n- b\n');
   });
 
@@ -183,7 +185,7 @@ describe('list keys next to inline objects and formatting', () => {
   it('nests and outdents an item that holds an inline protected range, such as a formula', () => {
     const formulas = protectedRanges.of((state, from, to) => [...state.sliceDoc(from, to).matchAll(/\$[^$\n]+\$/g)].map((match) => ({ from: from + (match.index ?? 0), to: from + (match.index ?? 0) + match[0].length })));
     const make = (doc: string) => {
-      const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: doc.length }, extensions: [markdownEditorExtensions(DOC), formulas] }) });
+      const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: doc.length }, extensions: [markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)), formulas] }) });
       views.push(view);
       return view;
     };

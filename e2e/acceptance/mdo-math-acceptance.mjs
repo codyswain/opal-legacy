@@ -418,18 +418,20 @@ try {
   check('loads mhchem and draws \\ce', chemistry);
   await shoot('math-gallery-bottom');
 
-  // A note shows a formula's TeX while the caret is in it, and a block's source lines with the formula drawn under them.
+  // A note is edited as a document: a click on a formula keeps it drawn and opens its box, and no source shows.
   await page.evaluate((target) => { window.location.hash = `#/files?mode=focus&file=${encodeURIComponent(target)}`; }, NOTE);
   await page.waitForFunction(() => document.querySelector('.cm-content')?.textContent?.includes('Inline formulas'), null, { timeout: 15_000 });
   await page.waitForTimeout(500);
   await formula('E=mc^2').click();
-  await page.waitForTimeout(200);
-  const source = await page.evaluate(() => document.querySelector('.cm-math-source')?.textContent ?? '');
-  check('a note shows a formula\'s TeX while the caret is in it', source === '$E=mc^2$', source);
+  await page.waitForTimeout(300);
+  const inNote = await page.evaluate(() => ({ source: document.querySelectorAll('.cm-math-source, .cm-math-source-line').length, drawn: document.querySelectorAll('.cm-content .katex').length }));
+  check('a note keeps a clicked formula drawn, with no source showing', inNote.source === 0 && inNote.drawn > 0, JSON.stringify(inNote));
+  await page.keyboard.press('Escape');
   await page.locator('.cm-math-block').first().click();
-  await page.waitForTimeout(200);
-  const lines = await page.evaluate(() => document.querySelectorAll('.cm-math-source-line').length);
-  check('a note shows a block\'s source lines with the formula drawn under them', lines >= 3, String(lines));
+  await page.waitForTimeout(300);
+  const blockInNote = await page.evaluate(() => document.querySelectorAll('.cm-math-source-line').length);
+  check('a note keeps a clicked formula block drawn too', blockInNote === 0, String(blockInNote));
+  await page.keyboard.press('Escape');
   await shoot('math-note-source');
 } catch (error) {
   check('runs without an exception', false, String(error));

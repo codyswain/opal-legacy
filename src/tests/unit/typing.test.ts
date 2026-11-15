@@ -13,6 +13,7 @@ import { pasteSpec } from '@/renderer/features/disk-explorer/components/editor/c
 import { countWords, pageWords } from '@/renderer/features/disk-explorer/components/editor/wordMotion';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -31,7 +32,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, page = DOC) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   ensureSyntaxTree(view.state, view.state.doc.length, 5_000);
   view.dispatch({});
   views.push(view);
@@ -130,11 +131,11 @@ describe('typing in a document', () => {
     at(after, 7);
     type(after, '3. x');
     expect(text(after)).toBe('Intro\n\n3\\. x');
+    // On the empty line right under the list, the page's last line.
     const list = mount('1. a\n2. b\n');
-    at(list, 9);
-    act(() => { list.dispatch({ changes: { from: 9, insert: '\n' }, selection: { anchor: 10 } }); });
+    at(list, 10);
     type(list, '3. c');
-    expect(text(list)).toBe('1. a\n2. b\n3. c\n');
+    expect(text(list)).toBe('1. a\n2. b\n3. c');
     const one = mount('\n');
     at(one, 0);
     type(one, '1. go');
@@ -186,7 +187,7 @@ describe('typing in a document', () => {
     expect(text(equals)).toBe('abc\n\n===\n');
   });
 
-  it('starts a list on the empty line under a paragraph, and the typed item sits right under it', () => {
+  it('starts a list on the empty line under a paragraph, a blank line apart in the file and right under it on the page', () => {
     for (const [kind, marker] of [['bullet', '- '], ['number', '1. '], ['task', '- [ ] ']] as const) {
       const view = mount('Plan the week\n', '/Vault/Library/daily/2026-11-04.mdo');
       at(view, text(view).length);
@@ -194,7 +195,8 @@ describe('typing in a document', () => {
       // The empty item draws as a list item, not as the paragraph's heading underline.
       expect(formatState(view.state).list).toBe(kind);
       type(view, 'First item');
-      expect(text(view)).toBe(`Plan the week\n${marker}First item`);
+      expect(text(view)).toBe(`Plan the week\n\n${marker}First item`);
+      expect(view.contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
     }
   });
 

@@ -183,18 +183,19 @@ try {
 
   // 5 to 9. A numbered list, nested with Tab, back out with Shift+Tab, ended with a second Enter.
   const intro = '# Weekly plan\nThe team ships the **new** editor this week.';
+  // A list under a line of text is a blank line apart in the file, and right under it on the page.
   doc = await edit('a numbered list starts from "1. "', async () => {
     await press('Meta+ArrowDown', 'Enter');
     await type('1. Draft the outline');
-  }, `${intro}\n1. Draft the outline`);
+  }, `${intro}\n\n1. Draft the outline`);
   doc = await edit('Enter continues the list at 2', async () => {
     await press('Enter');
     await type('Write the tests');
-  }, `${intro}\n1. Draft the outline\n2. Write the tests`);
+  }, `${intro}\n\n1. Draft the outline\n2. Write the tests`);
   doc = await edit('Enter and Tab nest the next item under 2', async () => {
     await press('Enter', 'Tab');
     await type('Unit tests');
-  }, (bytes) => /\n2\. Write the tests\n[ \t]+\d+\. Unit tests$/.test(bytes) && bytes.startsWith(`${intro}\n1. Draft the outline\n`));
+  }, (bytes) => /\n2\. Write the tests\n[ \t]+\d+\. Unit tests$/.test(bytes) && bytes.startsWith(`${intro}\n\n1. Draft the outline\n`));
   const nested = doc;
   doc = await edit('Enter and Shift+Tab bring the next item back out', async () => {
     await press('Enter', 'Shift+Tab');

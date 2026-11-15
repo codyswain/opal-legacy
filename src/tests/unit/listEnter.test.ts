@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EditorState } from '@codemirror/state';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { insertNewlineInList, markdownEditorExtensions } from '@/renderer/features/disk-explorer/components/editor/editorSetup';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const PAGE = '/Vault/Library/daily/2026-10-31.md';
 
@@ -14,7 +15,7 @@ function enter(text: string): string | null {
   const state = EditorState.create({
     doc: text.slice(0, at) + text.slice(at + 1),
     selection: { anchor: at },
-    extensions: markdownEditorExtensions(PAGE),
+    extensions: markdownEditorExtensions(PAGE, undefined, plainUnlessDocument(PAGE)),
   });
   let next: EditorState | null = null;
   if (!insertNewlineInList({ state, dispatch: (tr) => { next = tr.state; } })) return null;
@@ -34,7 +35,7 @@ function withCaret(state: EditorState): string {
 function press(text: string, key: string, init: KeyboardEventInit = {}): string {
   const at = text.indexOf('|');
   const view = new EditorView({
-    state: EditorState.create({ doc: text.slice(0, at) + text.slice(at + 1), selection: { anchor: at }, extensions: markdownEditorExtensions(PAGE) }),
+    state: EditorState.create({ doc: text.slice(0, at) + text.slice(at + 1), selection: { anchor: at }, extensions: markdownEditorExtensions(PAGE, undefined, plainUnlessDocument(PAGE)) }),
   });
   runScopeHandlers(view, new KeyboardEvent('keydown', { key, ...init }), 'editor');
   const pressed = withCaret(view.state);
