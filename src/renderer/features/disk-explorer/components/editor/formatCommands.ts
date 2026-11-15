@@ -660,6 +660,13 @@ export function listItemOf(state: EditorState, line: Line): ListLine | null {
   };
 }
 
+/** The first lines of the items of the list that the item `line` starts is in, itself included. */
+function siblingItems(state: EditorState, line: Line): Line[] {
+  const mark = latestTree(state).resolveInner(textStart(state, line, QUOTE_MARK), 1);
+  const list = mark.name === 'ListMark' ? mark.parent?.parent : null;
+  return list ? list.getChildren('ListItem').map((item) => state.doc.lineAt(item.from)) : [];
+}
+
 /** Whether the list item that `line` starts goes on past that line with more text, which reads from its content column. */
 function carriesOn(state: EditorState, line: Line): boolean {
   if (line.number >= state.doc.lines) return false;
@@ -688,7 +695,8 @@ const blankFor = (line: Line) => quoteOf(line).replace(/[ \t]+$/, '');
 
 /**
  * A bulleted, numbered or check list on the selected lines, or plain text
- * again when every one already is that list. Numbers carry on from a
+ * again when every one already is that list. A list item given another
+ * kind takes the items beside it along. Numbers carry on from a
  * numbered item above. Text right below a list item would belong to it, so a
  * blank line keeps the paragraph next to a list a paragraph.
  */
@@ -698,9 +706,23 @@ export function toggleList(kind: ListKind): StateCommand {
     if (!treeFor(state, selectionEnd(state))) return true;
     // A callout's title line never becomes a list item.
     const touched = selectedLines(state).filter((line) => !calloutMarker(state, line));
-    const lines = touched.length === 1 ? touched : touched.filter((line) => /[^\s>]/.test(line.text));
+    let lines = touched.length === 1 ? touched : touched.filter((line) => /[^\s>]/.test(line.text));
     if (lines.length === 0) return false;
-    const items = lines.map((line) => listItemOf(state, line));
+    let items = lines.map((line) => listItemOf(state, line));
+    // An item given another kind takes its whole list with it, as in a word processor: the items beside it
+    // of the kind it had change too. One item of another kind would cut a Markdown list in three.
+    if (!items.every((item) => item?.kind === kind)) {
+      const all = new Map(lines.map((line) => [line.number, line]));
+      lines.forEach((line, index) => {
+        const from = items[index]?.kind;
+        if (!from || from === kind) return;
+        for (const sibling of siblingItems(state, line)) if (listItemOf(state, sibling)?.kind === from) all.set(sibling.number, sibling);
+      });
+      if (all.size > lines.length) {
+        lines = [...all.values()].sort((a, b) => a.number - b.number);
+        items = lines.map((line) => listItemOf(state, line));
+      }
+    }
     const first = lines[0];
     const last = lines[lines.length - 1];
     const above = first.number > 1 ? state.doc.line(first.number - 1) : null;

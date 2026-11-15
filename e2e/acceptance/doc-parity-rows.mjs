@@ -58,7 +58,7 @@ export const ROWS = [
   { id: 'N9', area: 'Numbers', does: 'Nested levels count 1, a, i', start: '1. one\n   1. two\n      1. ‸three', keys: [], expect: '1. one\n   1. two\n      1. ‸three', shows: ['number:1.:0', 'number:a.:1', 'number:i.:2'] },
   { id: 'N10', area: 'Numbers', does: 'Enter on an empty item ends the list, and the items below carry on counting', start: '1. one\n2. ‸\n3. three', keys: ['Enter'], expect: '1. one\n\n‸\n\n2. three' },
   { id: 'N11', area: 'Numbers', does: 'Moving an item up with cut and paste renumbers', start: '1. one\n2. two\n«3. three\n»', keys: ['cut', 'caret:0', 'paste'], expect: '1. three\n‸2. one\n3. two\n', alt: ['1. three\n2. ‸one\n3. two\n'] },
-  { id: 'N12', area: 'Numbers', does: 'Typing "3. " on an empty line stays text: only "1. " starts a list', start: '‸', keys: ['t:3. x'], expect: '3\\. x‸', shows: [] },
+  { id: 'N12', area: 'Numbers', does: 'Typing "3. " on an empty line stays text: only "1. " starts a list', start: '‸', keys: ['t:3. x'], expect: '3\\. x‸' },
   { id: 'N13', area: 'Numbers', does: 'A decimal at a line start stays text', start: '‸', keys: ['t:3.14 is pi'], expect: '3.14 is pi‸', shows: [] },
   { id: 'N14', area: 'Numbers', does: 'Undo after Enter in the middle of a list is one step', start: '1. one‸\n2. two\n3. three', keys: ['Enter', 'Meta+z'], expect: '1. one‸\n2. two\n3. three' },
   { id: 'N15', area: 'Numbers', does: 'A list that reaches 10 keeps its text in line', start: '8. eight\n9. nine‸', keys: ['Enter', 't:ten'], expect: '8. eight\n9. nine\n10. ten‸', shows: ['number:8.:0', 'number:9.:0', 'number:10.:0'] },
@@ -77,6 +77,8 @@ export const ROWS = [
   { id: 'M2', area: 'Mixed', does: 'Cmd+Shift+8 turns numbers into bullets', start: '«1. one\n2. two»', keys: ['Meta+Shift+8'], expect: '«- one\n- two»' },
   { id: 'M3', area: 'Mixed', does: 'Cmd+Shift+8 on a bullet makes it plain text', start: '- one\n- tw‸o', keys: ['Meta+Shift+8'], expect: '- one\n\ntw‸o' },
   { id: 'M4', area: 'Mixed', does: 'Cmd+Shift+7 on one nested bullet numbers that item', start: '1. one\n   - tw‸o\n2. three', keys: ['Meta+Shift+7'], expect: '1. one\n   1. tw‸o\n2. three' },
+  { id: 'M7', area: 'Mixed', does: 'Cmd+Shift+8 on one item of a numbered list turns the whole list into bullets', start: '1. one\n2. tw‸o\n3. three', keys: ['Meta+Shift+8'], expect: '- one\n- tw‸o\n- three' },
+  { id: 'M8', area: 'Mixed', does: 'Cmd+Shift+9 on one bullet turns the whole list into a checklist', start: '- one\n- tw‸o', keys: ['Meta+Shift+9'], expect: '- [ ] one\n- [ ] tw‸o' },
   { id: 'M5', area: 'Mixed', does: 'Enter in a bullet under a number keeps the kinds apart', start: '1. one\n   - two‸\n2. three', keys: ['Enter', 't:x'], expect: '1. one\n   - two\n   - x‸\n2. three' },
   { id: 'M6', area: 'Mixed', does: 'Cmd+Shift+7 on three paragraphs numbers them 1, 2, 3', start: '«one\ntwo\nthree»', keys: ['Meta+Shift+7'], expect: '«1. one\n2. two\n3. three»', alt: ['1. «one\n2. two\n3. three»'] },
 

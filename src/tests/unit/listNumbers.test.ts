@@ -92,6 +92,24 @@ describe('numbers that count for themselves', () => {
     expect(after('1. one\n2. ‸\n3. three\n', 'Enter')).toBe('1. one\n\n\n\n2. three\n');
   });
 
+  it('turns the whole list at that level into the new kind when one item is given another kind', () => {
+    const numbers = mount('1. one\n2. tw‸o\n   - kid\n3. three\n');
+    toggleList('bullet')(numbers);
+    // The item with a nested list keeps its text column, so the nested list stays under it.
+    expect(text(numbers)).toBe('- one\n-  two\n   - kid\n- three\n');
+    const bullets = mount('- one\n- tw‸o\n- three\n');
+    toggleList('number')(bullets);
+    expect(text(bullets)).toBe('1. one\n2. two\n3. three\n');
+    // Only the items of the kind it had: a box beside a bullet keeps its box.
+    const mixed = mount('- one\n- [x] done\n- tw‸o\n');
+    toggleList('task')(mixed);
+    expect(text(mixed)).toBe('- [ ] one\n- [x] done\n- [ ] two\n');
+    // The same kind again takes only that item out of the list.
+    const off = mount('- one\n- tw‸o\n- three\n');
+    toggleList('bullet')(off);
+    expect(text(off)).toBe('- one\n\ntwo\n\n- three\n');
+  });
+
   it('numbers a nested bullet turned into a number from 1', () => {
     const view = mount('1. one\n   - tw‸o\n2. three\n');
     toggleList('number')(view);
