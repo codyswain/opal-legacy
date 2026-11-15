@@ -17,6 +17,12 @@ export interface Command {
   keywords: string[];
   /** Kept out of the palette, as the Cmd+1 to Cmd+9 tab keys are. */
   hidden?: boolean;
+  /** The name exactly as the palette shows it, where sentence case would spoil it: a proper name, or a title someone wrote. */
+  label?: string;
+  /** A quiet word at the row's end, where a shortcut would be, saying what kind of thing it is. */
+  hint?: string;
+  /** Listed only once something is typed: an entry that comes and goes with the app's data, such as a thread by its title. */
+  searchOnly?: boolean;
   /** `newTab` comes from the palette's New Tab mode or Cmd+Enter; navigation commands honour it. */
   perform: (options?: CommandOptions) => void;
 }

@@ -212,6 +212,8 @@
    * attribute.
    */
   :root[data-roomy] {
+    /* Auto's list, wider with its larger text, so a row that takes one line in today's look still takes one. */
+    --auto-list-width: 20.5rem;
     --text-metadata-size: 0.75rem;
     --text-metadata-line: 1rem;
     --text-control-size: 0.8125rem;

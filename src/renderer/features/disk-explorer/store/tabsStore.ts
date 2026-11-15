@@ -13,6 +13,7 @@ import {
   collectionOf,
   fileLocation,
   filesLocationKey,
+  isAutoLocation,
   locationPath,
   remapFilesLocation,
   stackLocation,
@@ -314,6 +315,14 @@ function openState(
   const location = canonical(target);
   const active = selectActiveTab(state);
   if (!active || options.newTab) {
+    const tab = createTab([{ location }]);
+    return { tabs: insertBesideActive(state, tab), activeId: tab.id };
+  }
+  // The Auto tab is a place of its own, not a page: what is opened from it
+  // goes to the tab that already shows it, else to a new tab beside it.
+  if (isAutoLocation(tabLocation(active)) && !isAutoLocation(location)) {
+    const shown = state.tabs.find((tab) => filesLocationKey(tabLocation(tab)) === filesLocationKey(location));
+    if (shown) return { activeId: shown.id };
     const tab = createTab([{ location }]);
     return { tabs: insertBesideActive(state, tab), activeId: tab.id };
   }
