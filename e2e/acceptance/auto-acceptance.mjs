@@ -1745,6 +1745,9 @@ async function tour() {
     await hideLine('snoozed');
     await hideLine('waiting');
     await hideLine('archived');
+    // Tall enough that the rows fit in both looks, then short enough that they scroll.
+    await page.setViewportSize({ width: WIDTH, height: 1100 });
+    await wait(400);
     await listRows.evaluate((element) => { element.scrollTop = 0; });
     const edgesAtRest = await rowEnds();
     const restOverflow = await listRows.evaluate((element) => element.scrollHeight - element.clientHeight);
@@ -1821,11 +1824,13 @@ async function tour() {
     await wait(400);
 
     // --- Thirteen threads and a short tree: Threads takes what it needs, and the put-away lines are in view.
+    // At 1100 px of window, a common laptop height: thirteen threads need more than 70% of 933 px's room.
+    await page.setViewportSize({ width: WIDTH, height: 1100 });
     for (let made = 0; (await listedIds()).length < 13 && made < 13; made += 1) {
+      const before = (await listedIds()).length;
       await fromPhone('/api/threads', { text: `Extra thread ${made + 1} for the height check`, cid: `h${made}` });
-      await until(async () => (await listedIds()).length > 0, 2_000);
+      await until(async () => (await listedIds()).length > before, 5_000);
     }
-    await until(async () => (await listedIds()).length >= 13);
     await until(() => service.entries().every((thread) => thread.status !== 'working'), 15_000);
     await listRows.evaluate((element) => { element.scrollTop = 0; });
     await wait(300);
@@ -1848,6 +1853,8 @@ async function tour() {
     });
     check('with a long tree and Archived open, Threads stops at 70% and Library keeps at least 30%', longTree.threads <= longTree.column * 0.7 + 1 && longTree.library >= longTree.column * 0.3 - 1, JSON.stringify(longTree));
     await hideLine('archived');
+    await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+    await wait(400);
 
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);
