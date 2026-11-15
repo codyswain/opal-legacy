@@ -77,6 +77,8 @@ From Library/digests/2026-11-13 digest.md`;
 const now = () => Date.now() / 1000;
 const hex = (bytes) => randomBytes(bytes).toString('hex');
 const firstLine = (text) => (text.split('\n').find((line) => line.trim()) ?? '').replace(/^#+\s*/, '').slice(0, 200);
+/** A line's words without their Markdown marks, links by their text. */
+const plainWords = (text) => text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim();
 
 /** The made-up threads the list starts with, first on top. */
 function fixtureThreads(kind) {
@@ -773,7 +775,7 @@ export async function startStandIn(options = {}) {
         }
         const t = now();
         const thread = add({
-          id: hex(6), title: (found.title || firstLine(found.md)).slice(0, 80), status: 'idle', last: firstLine(found.md), activity: '', unread: false, model: '',
+          id: hex(6), title: (found.title || plainWords(firstLine(found.md))).slice(0, 80), status: 'idle', last: plainWords(firstLine(found.md)), activity: '', unread: false, model: '',
           created: t, updated: t, error: null, archived: false, snoozed: null, woke: null, digest: { date: data.date, id: found.id },
           waits: true, items: [], next: [], seed: seedOf(data.date, found, section),
         }, true);

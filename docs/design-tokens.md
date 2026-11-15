@@ -243,6 +243,14 @@ What Auto did is `text-control` in `text-foreground-tertiary`. List rows are
 take its time's place on hover. Cards (a question, a permission request)
 are `rounded-card` with a `border-border-strong` ring and no fill.
 
+The digest queue takes the thread's place, in the same `max-w-reading`
+column. A section's name is `text-label` in `text-foreground-tertiary`. An
+entry is a `rounded-row` with the neutral hover fill, its words at
+`text-reply` and cut to three lines while closed (`.auto-clip`); opened in
+place it takes `bg-surface-sunken`. Its actions are a small
+`bg-surface-raised` bar at its top right, shown on hover. His note has a
+2 px `border-foreground` rule at its left.
+
 ## Page headings
 
 Page headings are in the page's serif, bold, in em of the 16 px body
