@@ -571,6 +571,14 @@ export function docModeExtensions({ followLinks = false }: { followLinks?: boole
     clearFormattingKey,
     // After every other filter and just before the numbering (editorSetup.ts), which then counts the lists as they will be read.
     Prec.highest(EditorState.transactionFilter.of(withListEdges)),
+    // Undo and redo skip the filters, so a caret they leave inside what the page hides is moved out here.
+    EditorView.updateListener.of((update) => {
+      if (!update.transactions.some((tr) => tr.isUserEvent('undo') || tr.isUserEvent('redo'))) return;
+      const { state } = update;
+      const selection = settle(state, state.selection);
+      if (selection === state.selection) return;
+      queueMicrotask(() => { if (update.view.state === state) update.view.dispatch({ selection, userEvent: 'select' }); });
+    }),
     Prec.high(keymap.of([
       { key: 'ArrowLeft', run: moveVisibly(false, false), shift: moveVisibly(false, true) },
       { key: 'ArrowRight', run: moveVisibly(true, false), shift: moveVisibly(true, true) },

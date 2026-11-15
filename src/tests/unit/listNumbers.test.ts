@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { undo } from '@codemirror/commands';
+import { redo, undo } from '@codemirror/commands';
 import { EditorState, Transaction } from '@codemirror/state';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { pasteSpec } from '@/renderer/features/disk-explorer/components/editor/clipboard';
@@ -493,6 +493,17 @@ describe('what the fresh review found', () => {
   it('keeps the row after a callout that ends in a list', () => {
     const view = mount('> [!note] Title\n> - one\n\nAfter‸\n');
     expect(view.contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
+  });
+
+  it('moves the caret off the line that takes no room after a redo, so typing goes on in the item', async () => {
+    const view = mount('Top\n‸\nBottom\n');
+    toggleList('bullet')(view);
+    type(view, 'a');
+    undo(view);
+    redo(view);
+    await Promise.resolve();
+    type(view, 'z');
+    expect(text(view)).toBe('Top\n\n- az\n\nBottom\n');
   });
 
   it('redoes on Cmd+Y', () => {

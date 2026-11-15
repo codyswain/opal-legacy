@@ -103,11 +103,13 @@ not exist.
   levels are drawn 1, a, i (`levelNumeral`) while the file keeps digits.
   A number that grows a digit indents the lines nested under its item, so
   they stay inside it. Markdown reads a line of text right under an item as
-  more of that item, so the editor writes a blank line wherever a list
-  meets text (a bullet typed over a line, text typed or pasted under a
-  list, Backspace moving an item's text to the margin), and
-  `livePreview.ts` gives that blank line no room when the list sits right
-  under the text above it, the caret stepping over it. Backspace at an
+  more of that item, an empty item under text as its heading underline and
+  a number past 1 under text as text. So `listEdges.ts`, a filter that runs
+  just before the numbering, writes a blank line wherever an edit of the
+  person's own leaves a list line touching a line of text, and
+  `livePreview.ts` gives a single blank line between a list and text no
+  room, on either side (`listGaps`), the caret stepping over it. Lines that
+  already touched before the edit stay as written. Backspace at an
   item's start takes three steps: marker off, text to the margin, text
   joined to the item above. Paste reads the clipboard's HTML into Markdown
   (`pasteHtml.ts`), and pasted lines become items (`clipboard.ts`). The
