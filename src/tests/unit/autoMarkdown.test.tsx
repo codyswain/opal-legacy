@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from 'fs';
+import path from 'path';
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -207,6 +209,25 @@ describe('where a link goes', () => {
     expect(codeTarget('npm test', CONTEXT)).toBeNull();
     expect(codeTarget('Elsewhere/readme.md', CONTEXT)).toBeNull();
     expect(codeTarget('Projects/Garden', CONTEXT)).toBeNull();
+  });
+});
+
+describe('the Auto feature’s source', () => {
+  it('never sets HTML, builds no address and reaches no network from the page', () => {
+    const collect = (directory: string): string[] =>
+      readdirSync(directory).flatMap((name) => {
+        const file = path.join(directory, name);
+        if (statSync(file).isDirectory()) return collect(file);
+        return /\.tsx?$/.test(name) ? [file] : [];
+      });
+    const files = collect(path.resolve(__dirname, '../../renderer/features/auto'));
+    expect(files.length).toBeGreaterThan(10);
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8');
+      expect(source, file).not.toMatch(/dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|document\.write|DOMParser/);
+      expect(source, file).not.toMatch(/\bfetch\(|XMLHttpRequest|EventSource|WebSocket|sendBeacon/);
+      expect(source, file).not.toMatch(/sends\s*:/);
+    }
   });
 });
 

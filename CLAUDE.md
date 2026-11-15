@@ -68,7 +68,7 @@ not exist.
 - **IPC bridge:** Main <-> Preload <-> Renderer via context bridge
   - Exposed APIs: `systemAPI`, `credentialAPI`, `diskAPI`, `activityAPI`,
     `collectionsAPI`, `markdownAPI`, `vaultAPI`, `pinsAPI`, `filesAPI`,
-    `hiddenAPI`, `updatesAPI`, `agentAPI`
+    `hiddenAPI`, `updatesAPI`, `agentAPI`, `autoAPI`
 - **Pins:** each opened folder keeps its pinned files in `.opal/pins.json`
   (paths from the folder's top), so git syncs them across Macs. `PinsService`
   in `src/main/pins` reads and writes it (`pins:list`, `pins:set`, which
@@ -171,6 +171,30 @@ not exist.
   acceptance runs use `src/tests/fixtures/agent/fake-agent.mjs`; under the
   test profile `OPAL_TEST_AGENT_HOME` and `OPAL_TEST_AGENT_PATH` keep the
   lookup away from a real install
+- **Auto:** a tab (the sidebar's Auto row, under Recent) that is a screen
+  for a service on another machine that runs agent threads. Opal holds no
+  sign-in and starts no run itself; it reads, answers, starts, stops,
+  snoozes, reorders and archives threads through the service's HTTP API, and
+  no control in it starts or confirms a send to anyone.
+  `AutoService` in `src/main/auto` makes every request, since the page's
+  policy allows it no network. The address comes from `<userData>/auto.json`
+  alone (`{ "version": 1, "url": "https://host.example/agent" }`; https, or
+  http for a loopback host; a folder can never set it). The page names one
+  of a fixed list of routes (`autoRequests.ts`), each rebuilt field by field
+  into a fixed path, with thread ids and cursors checked first; requests
+  carry a time limit and a size limit and follow no redirect. Two streams
+  (`sseReader.ts`): the list's while an Auto tab is open, one thread's while
+  the tab is in view, each opened again after a wait from its last cursor,
+  and read again from scratch on a `reset`. Every answer is read into
+  Opal's own shapes by `src/common/autoModel.ts`, which drops what does not
+  fit. In the renderer, `features/auto`: `listModel.ts` (the list's groups,
+  set in one place), `threadModel.ts` (a thread reduced from its snapshot
+  and events), `outbox.ts` (a message is kept until the service has it; a
+  failed one returns to the box), and `markdown/` (replies parsed with
+  `@lezer/markdown` and drawn as elements, never as HTML). A vault path in a
+  step or a reply is looked up by `autoPages.ts` through `RootRegistry` and
+  opens as a page in its own tab. Tests and `auto-acceptance.mjs` talk only
+  to the stand-in service in `src/tests/fixtures/auto`, on 127.0.0.1
 - **Path alias:** `@/*` maps to `src/*`
 
 ## Directory Structure
@@ -188,7 +212,7 @@ src/
     services/          # Credentials, system
     window/            # Window state, navigation guard
   renderer/            # React renderer
-    features/          # disk-explorer, shell, day-sidebar, variants, settings, theme, commands
+    features/          # disk-explorer, shell, day-sidebar, auto, variants, settings, theme, commands
     shared/            # Reusable components, hooks, utils, types
     store/             # Zustand stores
     styles/            # Global CSS

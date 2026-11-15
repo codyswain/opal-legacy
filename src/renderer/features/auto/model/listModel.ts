@@ -120,8 +120,8 @@ export function rowOptions(thread: AutoThread): string[] {
   return ask.options;
 }
 
-/** A thread that came from a digest's to-do: Done archives it and ticks its box. */
-export const isDigestItem = (thread: AutoThread): boolean => thread.digest !== null && thread.digest.id.startsWith('item-');
+/** A thread that came from a digest entry: Done archives it and marks its entry done in the digest. */
+export const fromDigest = (thread: AutoThread): boolean => thread.digest !== null;
 
 const startOfDay = (date: Date): number => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 

@@ -19,7 +19,7 @@ import {
 import { cn } from '@/renderer/shared/utils';
 import {
   emptyList,
-  isDigestItem,
+  fromDigest,
   listView,
   moveTarget,
   rowLine,
@@ -101,7 +101,7 @@ function ThreadRow({ thread, now, current, snoozed = false, drop = null, draggin
   const open = useThreadStore((state) => state.open);
   const { snooze, archive, answer } = useAutoStore.getState();
   const options = snoozed ? [] : rowOptions(thread);
-  const digestItem = isDigestItem(thread);
+  const digestEntry = fromDigest(thread);
   const time = snoozed && thread.snoozed ? snoozedUntil(thread.snoozed, now) : rowTime(thread, now);
   const unread = thread.unread && !current;
   const title = thread.title || 'Untitled';
@@ -173,7 +173,7 @@ function ThreadRow({ thread, now, current, snoozed = false, drop = null, draggin
                   </MenuContent>
                 </Menu>
               )}
-              {digestItem ? (
+              {digestEntry ? (
                 <IconButton label="Done" data-testid={`auto-done-${thread.id}`} onClick={() => void archive(thread, true)}>
                   <Check aria-hidden className="h-3.5 w-3.5" />
                 </IconButton>
@@ -195,7 +195,7 @@ function ThreadRow({ thread, now, current, snoozed = false, drop = null, draggin
             </>
           )}
           <ContextMenuSeparator />
-          {digestItem ? <ContextMenuItem onSelect={() => void archive(thread, true)}>Done</ContextMenuItem> : null}
+          {digestEntry ? <ContextMenuItem onSelect={() => void archive(thread, true)}>Done</ContextMenuItem> : null}
           <ContextMenuItem onSelect={() => void archive(thread)}>Archive</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { toast } from 'sonner';
 import type { AutoAPI, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
-import { applyOrder, isDigestItem, moved, upsertThread } from '../model/listModel';
+import { applyOrder, fromDigest, moved, upsertThread } from '../model/listModel';
 
 /*
  * What the page knows about Auto as a whole: its address, whether it
@@ -48,7 +48,7 @@ export interface AutoStore {
   checkStatus: () => Promise<void>;
 
   snooze: (id: string, until: number | null) => Promise<void>;
-  /** Archives a thread; `done` also ticks the digest box of one that came from a to-do. */
+  /** Archives a thread; `done` also marks the digest entry it came from as done. */
   archive: (thread: AutoThread, done?: boolean) => Promise<void>;
   move: (id: string, before: string | null) => Promise<void>;
   /** An option of a waiting row, clicked. */
@@ -185,7 +185,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
 
     archive: async (thread, done = false) => {
       const api = autoApi();
-      const result = await api?.request({ kind: 'archive', id: thread.id, archived: true, ...(done && isDigestItem(thread) ? { done: true } : {}) }).catch((): null => null);
+      const result = await api?.request({ kind: 'archive', id: thread.id, archived: true, ...(done && fromDigest(thread) ? { done: true } : {}) }).catch((): null => null);
       if (!result) return;
       if (!result.success) {
         said(result.error.message);

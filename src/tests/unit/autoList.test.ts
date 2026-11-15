@@ -3,7 +3,7 @@ import type { AutoThread } from '@/types/auto';
 import {
   applyOrder,
   emptyList,
-  isDigestItem,
+  fromDigest,
   listView,
   moveTarget,
   moved,
@@ -158,10 +158,10 @@ describe('a row', () => {
     expect(snoozedUntil(at(2026, 11, 20, 8), NOW)).toBe('Friday 8:00 am');
   });
 
-  it('knows a thread that came from a digest’s to-do', () => {
-    expect(isDigestItem(thread('a', { digest: { date: '2026-11-13', id: 'item-3' } }))).toBe(true);
-    expect(isDigestItem(thread('a', { digest: { date: '2026-11-13', id: 'meeting-1' } }))).toBe(false);
-    expect(isDigestItem(thread('a'))).toBe(false);
+  it('knows a thread that came from a digest entry, of any kind', () => {
+    expect(fromDigest(thread('a', { digest: { date: '2026-11-13', id: 'item-3' } }))).toBe(true);
+    expect(fromDigest(thread('a', { digest: { date: '2026-11-13', id: 'text-garden-3d20bff3' } }))).toBe(true);
+    expect(fromDigest(thread('a'))).toBe(false);
   });
 });
 

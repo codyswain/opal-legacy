@@ -296,6 +296,17 @@ describe('a digest entry', () => {
     expect(entry?.body).not.toContain('says:');
   });
 
+  it('reads an entry of any kind, and words that follow a blank line', () => {
+    const entry = parseEntry('Digest, Friday November 13, garden notes: The beds are dug\n\nThe beds are dug and the paths are laid.\n\nFrom Library/digests/2026-11-13 digest.md\n\nRobin says:\n\nOrder the mulch first.\n\nThen the netting.');
+    expect(entry).toEqual({
+      source: 'Friday November 13, garden notes',
+      title: 'The beds are dug',
+      body: 'The beds are dug and the paths are laid.',
+      from: 'Library/digests/2026-11-13 digest.md',
+      says: 'Order the mulch first.\n\nThen the netting.',
+    });
+  });
+
   it('is not made of any other message', () => {
     expect(parseEntry('Plan the beds')).toBeNull();
     expect(parseEntry('Digest for today')).toBeNull();
