@@ -51,6 +51,27 @@ function type(view: EditorView, typed: string) {
 
 const gaps = (text: string) => listGaps(Text.of(text.split('\n')), 1, text.split('\n').length);
 
+/** A page with the selection between "«" and "»" (anchor first). */
+function mountSelected(markedText: string, page: string) {
+  const anchor = markedText.indexOf('«');
+  const head = markedText.replace('«', '').indexOf('»');
+  const view = mount(`‸${markedText.replace('«', '').replace('»', '')}`, page);
+  view.dispatch({ selection: { anchor, head } });
+  return view;
+}
+/** What copy writes for the selection. */
+const copied = (view: EditorView) => {
+  const { from, to } = view.state.selection.main;
+  return view.state.facet(EditorView.clipboardOutputFilter).reduce((written, filter) => filter(written, view.state), view.state.sliceDoc(from, to));
+};
+/** Pastes `text` through the page's paste event, with no system clipboard. */
+function pasteText(view: EditorView, text: string) {
+  const event = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'clipboardData', { value: { getData: (kind: string) => (kind === 'text/plain' ? text : ''), files: [] } });
+  view.contentDOM.dispatchEvent(event);
+}
+const caretToEnd = (view: EditorView) => view.dispatch({ selection: { anchor: view.state.doc.length } });
+
 describe('the blank lines beside a list that get no room', () => {
   it('gives one blank line between a list and text no room, and shows each further one', () => {
     expect(gaps('Text\n\n- a\n\nMore')).toEqual([2, 4]);
@@ -86,6 +107,13 @@ describe('the blank lines beside a list that get no room', () => {
     expect(listGaps(Text.of(['Text', '', '\\- ']), 1, 3, 5)).toEqual([]);
     // Once the marker has made an item, the text decides again.
     expect(listGaps(Text.of(['Text', '', '- ']), 1, 3, 5)).toEqual([2]);
+  });
+
+  it('shows the blank line between a quote and a list under it as a row', () => {
+    expect(gaps('> quote\n\n- a')).toEqual([]);
+    expect(gaps('> quote\n\n\n- a')).toEqual([]);
+    // Inside the quote the blank line is the list's gap, as anywhere else.
+    expect(gaps('> Text\n>\n> - a')).toEqual([2]);
   });
 
   it('finds the list an item would stand beside', () => {
@@ -727,14 +755,23 @@ for (const [name, page] of PAGES) {
     });
 
     it('shows "1." as typed until its space makes it a number', () => {
-      const view = mount('Text\n‸', page);
+      const markers = (view: EditorView) => view.contentDOM.querySelectorAll('.cm-md-list-marker').length;
+      const view = mount('‸', page);
       type(view, '1.');
-      expect(marked(view)).toBe('Text\n1.‸');
-      expect(view.contentDOM.querySelectorAll('.cm-md-list-marker')).toHaveLength(0);
+      expect(marked(view)).toBe('1.‸');
+      expect(markers(view)).toBe(0);
       type(view, ' ');
-      expect(marked(view)).toBe('Text\n\n1. ‸');
-      expect(view.contentDOM.querySelectorAll('.cm-md-list-marker')).toHaveLength(1);
-      expect(rows(view)).toBe(2);
+      expect(marked(view)).toBe('1. ‸');
+      expect(markers(view)).toBe(1);
+      // On the line under an empty row the same, and the row stays.
+      const under = mount('Text\n\n‸', page);
+      type(under, '1.');
+      expect(marked(under)).toBe('Text\n\n1.‸');
+      expect(markers(under)).toBe(0);
+      expect(rows(under)).toBe(3);
+      type(under, ' ');
+      expect(markers(under)).toBe(1);
+      expect(rows(under)).toBe(3);
     });
 
     it('redoes an edit that kept its rows as one step', () => {
@@ -744,6 +781,206 @@ for (const [name, page] of PAGES) {
       redo(view);
       expect(view.state.doc.toString()).toBe('Text\na\n\n- b');
       expect(caretShown(view)).toBe(true);
+    });
+
+    it('keeps a blank line between text that leaves a list and a rule under it, so the rule never underlines the text', () => {
+      const headings = (view: EditorView) => view.contentDOM.querySelectorAll('.cm-md-heading').length;
+      const view = mount('- a\n- ‸b\n\n---\n\nText', page);
+      press(view, 'Backspace');
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('- a\n\n‸b\n\n---\n\nText');
+      expect(headings(view)).toBe(0);
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('- a‸b\n\n---\n\nText');
+      expect(headings(view)).toBe(0);
+      const button = mount('- a\n- b‸\n\n---\n\nText', page);
+      toggleList('bullet')(button);
+      expect(marked(button)).toBe('- a\n\nb‸\n\n---\n\nText');
+      expect(headings(button)).toBe(0);
+      // The blank line over the item still goes, so the text stays under the paragraph above.
+      const first = mount('Top\n\n- ‸a\n\n---\n\nText', page);
+      press(first, 'Backspace');
+      expect(marked(first)).toBe('Top\n‸a\n\n---\n\nText');
+      expect(headings(first)).toBe(0);
+      const between = mount('---\n\n- ‸a\n\n---', page);
+      press(between, 'Backspace');
+      expect(marked(between)).toBe('---\n‸a\n\n---');
+      const equals = mount('- a\n- ‸b\n\n===\n\nText', page);
+      press(equals, 'Backspace');
+      press(equals, 'Backspace');
+      expect(marked(equals)).toBe('- a\n\n‸b\n\n===\n\nText');
+      expect(headings(equals)).toBe(0);
+    });
+
+    it('keeps the empty row between a quote and a list under it when the item leaves the list', () => {
+      const view = mount('> quote\n\n- ‸', page);
+      expect(rows(view)).toBe(3);
+      press(view, 'Enter');
+      expect(marked(view)).toBe('> quote\n\n‸');
+      expect(rows(view)).toBe(3);
+      type(view, 'x');
+      expect(marked(view)).toBe('> quote\n\nx‸');
+      const back = mount('> quote\n\n- ‸a', page);
+      press(back, 'Backspace');
+      expect(marked(back)).toBe('> quote\n\n‸a');
+      expect(rows(back)).toBe(3);
+      const button = mount('> quote\n\n- a‸', page);
+      toggleList('bullet')(button);
+      expect(marked(button)).toBe('> quote\n\na‸');
+    });
+
+    it('selects past a first item\'s marker with Shift+Right from the end of the line over the list', () => {
+      const selectRight = (view: EditorView) => press(view, 'ArrowRight', { shiftKey: true });
+      const view = mount('Top‸\n\n- a\n- b', page);
+      selectRight(view);
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('Top‸a\n\n- b');
+      const numbered = mount('Top‸\n\n1. a\n2. b', page);
+      selectRight(numbered);
+      press(numbered, 'Delete');
+      expect(marked(numbered)).toBe('Top‸a\n\n1. b');
+      // A letter typed over the selection takes its place.
+      const typed = mount('Top‸\n\n- a\n- b', page);
+      selectRight(typed);
+      const { from, to } = typed.state.selection.main;
+      typed.dispatch(typed.state.update({ changes: { from, to, insert: 'x' }, selection: { anchor: from + 1 }, userEvent: 'input.type' }));
+      expect(marked(typed)).toBe('Topx‸a\n\n- b');
+      // Shift+Left from the start of the item's text selects back to the end of the line over the list.
+      const back = mount('Top\n\n- ‸a', page);
+      press(back, 'ArrowLeft', { shiftKey: true });
+      expect([back.state.selection.main.from, back.state.selection.main.to]).toEqual([3, 7]);
+    });
+
+    it('copies the first item\'s marker with a selection from the start of its text to a later line', () => {
+      const view = mountSelected('- «a\n- b»\n\n', page);
+      const list = copied(view);
+      expect(list).toBe('- a\n- b');
+      caretToEnd(view);
+      pasteText(view, list);
+      expect(marked(view)).toBe('- a\n- b\n\n- a\n- b‸');
+      const onItem = mountSelected('- «a\n- b»\n- ', page);
+      const text = copied(onItem);
+      caretToEnd(onItem);
+      pasteText(onItem, text);
+      expect(marked(onItem)).toBe('- a\n- b\n- a\n- b‸');
+      const numbered = mountSelected('1. «a\n2. b»\n\nPara\n\n', page);
+      expect(copied(numbered)).toBe('1. a\n2. b');
+      // A selection inside one item copies only its text.
+      expect(copied(mountSelected('- «a»b', page))).toBe('a');
+    });
+
+    it('pastes plain lines over a selection that runs across items as items, with the caret after them', () => {
+      const view = mountSelected('- o«ne\n- tw»o', page);
+      pasteText(view, 'X\nY');
+      expect(marked(view)).toBe('- oX\n- Y‸o');
+      const three = mountSelected('- a«b\n- c»d\n\nPara', page);
+      pasteText(three, 'X\nY\nZ');
+      expect(marked(three)).toBe('- aX\n- Y\n- Z‸d\n\nPara');
+      const list = mountSelected('- o«ne\n- tw»o\n- three', page);
+      pasteText(list, '- X\n- Y');
+      expect(marked(list)).toBe('- oX\n- Y‸o\n- three');
+    });
+
+    it('takes an empty row over a list with one Delete, with the caret then at the start of the item\'s text', () => {
+      const view = mount('Text\n‸\n\n- a', page);
+      expect(rows(view)).toBe(3);
+      press(view, 'Delete');
+      expect(marked(view)).toBe('Text\n\n- ‸a');
+      expect(rows(view)).toBe(2);
+      type(view, 'x');
+      expect(marked(view)).toBe('Text\n\n- x‸a');
+      // At the top of the page, and between two lists, the blank line that would then show goes too.
+      const top = mount('‸\n\n- a\n- b', page);
+      press(top, 'Delete');
+      expect(marked(top)).toBe('- ‸a\n- b');
+      const between = mount('- a\n\n‸\n\n- b', page);
+      press(between, 'Delete');
+      expect(marked(between)).toBe('- a\n\n- ‸b');
+      expect(rows(between)).toBe(2);
+      // With no list under it, the empty line goes and the caret stays where it was.
+      const plain = mount('Text\n‸\nPara', page);
+      press(plain, 'Delete');
+      expect(marked(plain)).toBe('Text\n‸Para');
+    });
+
+    it('puts the caret back on the empty row when an item ended by a key is redone', async () => {
+      for (const key of ['Enter', 'Backspace']) {
+        const view = mount('- a\n- ‸\n\nPara', page);
+        press(view, key);
+        expect(marked(view)).toBe('- a\n\n‸\nPara');
+        undo(view);
+        redo(view);
+        // The caret is moved after the redo, in a microtask.
+        await Promise.resolve();
+        expect(marked(view)).toBe('- a\n\n‸\nPara');
+        type(view, 'x');
+        expect(marked(view)).toBe('- a\n\nx‸\nPara');
+      }
+    });
+
+    it('keeps an emptied item\'s row when Enter ends it one empty row under the list above', () => {
+      const view = mount('- a\n- b\n\n\n- ‸\n- d', page);
+      expect(rows(view)).toBe(5);
+      press(view, 'Enter');
+      expect(marked(view)).toBe('- a\n- b\n\n\n‸\n\n- d');
+      expect(rows(view)).toBe(5);
+      type(view, 'x');
+      expect(marked(view)).toBe('- a\n- b\n\n\nx‸\n\n- d');
+      expect(rows(view)).toBe(5);
+      // The list under it counts on from the one above, as Markdown reads them.
+      const numbered = mount('1. a\n2. b\n\n\n1. ‸\n2. d', page);
+      press(numbered, 'Enter');
+      expect(marked(numbered)).toBe('1. a\n2. b\n\n\n‸\n\n3. d');
+      expect(rows(numbered)).toBe(5);
+    });
+
+    it('makes a box of "[] " typed in front of text, as "- " makes a bullet', () => {
+      const boxes = (view: EditorView) => view.contentDOM.querySelectorAll('.cm-md-task').length;
+      const view = mount('‸milk', page);
+      type(view, '[] ');
+      expect(marked(view)).toBe('- [ ] ‸milk');
+      expect(boxes(view)).toBe(1);
+      // With a paragraph right under it, that paragraph keeps its own line.
+      const between = mount('- a\n\n‸Para\nMore', page);
+      type(between, '[] ');
+      expect(marked(between)).toBe('- a\n- [ ] ‸Para\n\nMore');
+      expect(boxes(between)).toBe(1);
+      expect(rows(between)).toBe(3);
+    });
+
+    it('keeps a marker typed with no space after it, and starts a plain line under it on Enter', () => {
+      for (const typed of ['1.', '1)', '-', '*']) {
+        const view = mount('‸', page);
+        type(view, typed);
+        press(view, 'Enter');
+        type(view, 'x');
+        expect(marked(view)).toBe(`${typed}\nx‸`);
+        expect(rows(view)).toBe(2);
+      }
+      const under = mount('Text\n‸', page);
+      type(under, '1.');
+      press(under, 'Enter');
+      type(under, 'x');
+      expect(marked(under)).toBe('Text\n1.\nx‸');
+      expect(rows(under)).toBe(3);
+      // An empty item, with its space, still ends its list.
+      const item = mount('1. one\n2. ‸', page);
+      press(item, 'Enter');
+      expect(marked(item)).toBe('1. one\n\n‸');
+    });
+
+    it('shows "1. " or "* " typed on an empty line under a paragraph as typed again with one Backspace, as "- ", with no row opened', () => {
+      for (const typed of ['1. ', '1) ', '* ', '- ']) {
+        const view = mount('Text\n‸\nBelow', page);
+        type(view, typed);
+        expect(rows(view)).toBe(3);
+        press(view, 'Backspace');
+        expect(rows(view)).toBe(3);
+        expect(view.contentDOM.querySelectorAll('.cm-md-list-marker')).toHaveLength(0);
+        type(view, 'x');
+        expect(rows(view)).toBe(3);
+        expect(view.state.doc.toString()).toBe(`Text\n${typed.replace(/([-*.)]) $/, '\\$1 ')}x\nBelow`);
+      }
     });
   });
 }

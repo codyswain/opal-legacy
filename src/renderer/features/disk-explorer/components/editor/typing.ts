@@ -357,6 +357,20 @@ function finishesFormula(state: EditorState, at: number): boolean {
   return false;
 }
 
+/**
+ * Whether the space at `at` ends a bullet or number marker, alone at the
+ * margin of `line`, that would start an empty item were a blank line over it:
+ * right under a paragraph Markdown reads it as more of the paragraph.
+ */
+function emptyItemUnderText(state: EditorState, line: { from: number; to: number; number: number }, prefix: string, lead: string, at: number): boolean {
+  if (prefix !== '' || line.number < 2 || !/^(?:[-+*]|\d{1,9}[.)])$/.test(lead) || /\S/.test(state.sliceDoc(at + 1, line.to))) return false;
+  if (!/\S/.test(state.doc.line(line.number - 1).text)) return false;
+  const trial = state.update({ changes: { from: line.from, insert: '\n' }, filter: false }).state;
+  const tree = ensureSyntaxTree(trial, at + 1, 50);
+  const mark = tree?.resolveInner(at + 1, -1);
+  return mark?.name === 'ListMark' && mark.from === line.from + 1 && mark.to === at + 1;
+}
+
 /** An extra change that keeps a typed character as typed, or null when it shows as typed already. */
 function escapeTyped(tr: Transaction): TransactionSpec | null {
   const typed = typedCharacter(tr);
@@ -412,8 +426,9 @@ function escapeTyped(tr: Transaction): TransactionSpec | null {
     if (text !== ' ') return null;
   }
 
-  // "[]" or "[ ]" alone on a line, then a space, starts a task, as in Notion: one autoformat step, like the others.
-  if (text === ' ' && /^\[ ?\]$/.test(lead) && !/\S/.test(after.sliceDoc(at + 1, line.to)) && QUOTE_ONLY.test(prefix)) {
+  // "[]" or "[ ]" at a line's start, then a space, starts a task, as in Notion: one autoformat step, like the
+  // others. In front of text already on the line, that text is the task's, as "- " makes it a bullet's.
+  if (text === ' ' && /^\[ ?\]$/.test(lead) && QUOTE_ONLY.test(prefix)) {
     const from = line.from + prefix.length;
     const gap = gapUnder(after, line);
     // A box typed right after a bulleted list was ended carries that list on, as a typed bullet does.
@@ -424,12 +439,16 @@ function escapeTyped(tr: Transaction): TransactionSpec | null {
   // A space that turns "#", "-", "1." or "[ ]" at the line's text start into formatting is an autoformat.
   if (text === ' ') {
     const mark = latestTree(after).resolveInner(at, -1);
-    if (!LINE_FORMATS.has(mark.name) || mark.to !== at || mark.from !== line.from + prefix.length) return null;
-    const numbered = mark.name === 'ListMark' && /\d/.test(after.sliceDoc(mark.from, mark.from + 1));
+    const formats = LINE_FORMATS.has(mark.name) && mark.to === at && mark.from === line.from + prefix.length;
+    // "1. " or "* " right under a paragraph reads as more of it until the list's blank line goes in, which the
+    // formatting step writes (listEdges.ts): it is an autoformat all the same, so Backspace shows it as typed again.
+    if (!formats && !emptyItemUnderText(after, line, prefix, lead, at)) return null;
+    const numbered = /\d/.test(after.sliceDoc(line.from + prefix.length, line.from + prefix.length + 1));
     // A list item typed right over a line of text: that line stays a paragraph. The backslash moves the line's end by one.
-    const gap = mark.name === 'ListMark' ? gapUnder(after, line) : null;
-    const over = mark.name === 'ListMark' ? gapOver(after, line) : null;
-    return autoformatSpec(at, text.length, [numbered ? mark.to - 1 : mark.from], [], [
+    const listed = !formats || mark.name === 'ListMark';
+    const gap = listed ? gapUnder(after, line) : null;
+    const over = listed ? gapOver(after, line) : null;
+    return autoformatSpec(at, text.length, [numbered ? at - 1 : line.from + prefix.length], [], [
       ...(over ? [{ from: over.from, to: over.to }] : []),
       ...(gap ? [{ from: gap.at + 1, to: gap.at + 1, insert: gap.insert }] : []),
     ]);

@@ -3,7 +3,7 @@ import { keymap } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { deleteHandlers, latestTree, protectedIn } from './extensionPoints';
 import { listItemOf, selectedLines } from './formatCommands';
-import { keepsRows } from './listEdges';
+import { keepsRows, lineKind } from './listEdges';
 import { docMode } from './livePreview';
 
 /*
@@ -533,7 +533,8 @@ const paragraphUnderList = EditorState.transactionFilter.of((tr) => {
   const waiting = MARKER_SO_FAR.test(body) || (MARKER_TYPED.test(body) && !itemOn(state, line));
   if (line.number === 1 || main.head !== line.to || !waiting) return tr;
   const above = state.doc.line(line.number - 1);
-  if (!hasText(above) || !ITEM_LINE.test(above.text) && !itemAround(state, above.to)) return tr;
+  // A marker alone with no space after it, "-" or "1.", is typed text and no item, though Markdown parses one.
+  if (!hasText(above) || lineKind(above.text) === 'pending' || !ITEM_LINE.test(above.text) && !itemAround(state, above.to)) return tr;
   // A quote opened under a list is a block of its own, and needs no blank line.
   if (quote.split('>').length !== quoteOf(above.text).split('>').length) return tr;
   // A blank line inside code, a table or HTML that the item holds is theirs.

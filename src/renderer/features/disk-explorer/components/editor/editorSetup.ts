@@ -145,6 +145,9 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
   });
 }
 
+// A number marker alone at the margin, with no space after it.
+const LONE_NUMBER = /^\d{1,9}[.)]$/;
+
 // A list item's line that ends at its marker or box, with no space after it.
 const BARE_MARKER = /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]+\[[ xX]\])?$/;
 
@@ -177,6 +180,11 @@ function withMarkerSpaces(tr: Transaction): Transaction {
  * newline runs.
  */
 export const insertNewlineInList: StateCommand = ({ state, dispatch }) => {
+  // A number marker with no space after it, "1." alone on a line, is typed text, as a lone "-" is: Enter starts a
+  // new line under it and keeps it, rather than end an empty item.
+  const { main } = state.selection;
+  const line = state.doc.lineAt(main.head);
+  if (state.selection.ranges.length === 1 && main.empty && main.head === line.to && LONE_NUMBER.test(line.text)) return false;
   let unchanged = false;
   const handled = continueMarkup({
     state,

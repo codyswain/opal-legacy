@@ -129,6 +129,20 @@ function rowBefore(old: Text, was: number | null, changes: ChangeDesc, line: { f
 }
 
 /**
+ * The line of `old` with text on it that the blank line `line` of the text
+ * after `changes` was, as an item whose marker the edit took off: 0 for a
+ * line the edit wrote, or one that was blank before.
+ */
+function emptiedBefore(old: Text, changes: ChangeDesc, line: { from: number; to: number }): number {
+  let written = false;
+  changes.iterChangedRanges((_fromA, _toA, fromB, toB) => { if (fromB <= line.from && line.to < toB) written = true; });
+  if (written) return 0;
+  const at = changes.invertedDesc.mapPos(line.from, -1);
+  const before = old.lineAt(at);
+  return before.from === at && lineKind(before.text) !== 'blank' ? before.number : 0;
+}
+
+/**
  * The empty row over a marker that is still being typed, as the position of
  * its line after `changes`, or null. The text alone cannot tell the blank
  * line written for a marker typed right under a paragraph, which is that
@@ -268,6 +282,22 @@ export const keepsRows = Annotation.define<boolean>();
 
 const blankAt = (doc: Text, number: number) => lineKind(doc.line(number).text) === 'blank';
 
+// A line Markdown can read as the underline of a heading, past its quote marks: "---" or "===".
+const UNDERLINE = /^ {0,3}(?:-+|=+)[ \t]*$/;
+
+/**
+ * Whether the blank line `number` keeps a line of text from standing right
+ * over a "---" rule or a "===" line. Without it Markdown reads the text as a
+ * heading and the rule is gone, so the line stays even where it shows as a row.
+ */
+function holdsRuleApart(doc: Text, number: number): boolean {
+  if (number < 2 || number >= doc.lines) return false;
+  const above = doc.line(number - 1).text;
+  const below = doc.line(number + 1).text;
+  const kind = lineKind(above);
+  return kind !== 'blank' && !listy(kind) && UNDERLINE.test(below.slice(quoteOf(below).length));
+}
+
 // A list marker as typed, whole or in part, with or without the backslash that keeps it text.
 const TYPED_MARKER = /^(?:\\?[-+*]|\d{1,9}\\?[.)]?)[ \t]?$/;
 
@@ -353,12 +383,13 @@ function rowsKept(tr: Transaction, doc: Text, desc: ChangeDesc, head: number): {
       let pick = 0;
       let gapped = false;
       for (let number = first; number <= end; number += 1) {
-        if (number === at || gaps.has(number) || !blankAt(text, number)) continue;
+        if (number === at || gaps.has(number) || !blankAt(text, number) || holdsRuleApart(text, number)) continue;
         const gap = linesBefore(old, whole, text.line(number)).some((before) => gapThen(old, was, before));
         const nearer = pick === 0 || Math.abs(number - at) < Math.abs(pick - at);
         if (pick === 0 || (gap && !gapped) || (gap === gapped && nearer)) { pick = number; gapped = gap; }
       }
-      if (pick === 0) return null;
+      // None is left that can go, as when the last one keeps text off a rule: what was done so far stands.
+      if (pick === 0) return gaps.has(at) || (total.empty && caret === head) ? null : { changes: total, head: caret };
       const line = text.line(pick);
       // The line with the line break after it, as a blank line written for a marker is tracked (typing.ts).
       step = ChangeSet.of(pick < text.lines ? { from: line.from, to: line.to + 1 } : { from: line.from - 1, to: line.to }, text.length);
@@ -371,18 +402,25 @@ function rowsKept(tr: Transaction, doc: Text, desc: ChangeDesc, head: number): {
       end += 1;
     } else {
       // An empty row the person had reads as the gap of the list the edit made beside it: the nearest such row
-      // gets a blank line after it, and one of the two is the gap.
+      // gets a blank line after it, and one of the two is the gap. So does an item's own row that the edit emptied
+      // and that now reads as the gap over the list under it, with the caret moved up off it; the caret goes back to
+      // it when it was there. An edit that moved the caret down to a blank line under the item used that line instead.
       let pick = 0;
       let row = 0;
+      let emptied = false;
       for (const number of gaps) {
-        const before = rowBefore(old, was, whole, text.line(number));
+        // A row is kept by its line number before the edit, an emptied item's line by that number made negative.
+        const empty = rowBefore(old, was, whole, text.line(number));
+        const item = empty === 0 && number > at ? emptiedBefore(old, whole, text.line(number)) : 0;
+        const before = empty !== 0 ? empty : -item;
         if (before === 0 || given.has(before)) continue;
-        if (pick === 0 || Math.abs(number - at) < Math.abs(pick - at)) { pick = number; row = before; }
+        if (pick === 0 || Math.abs(number - at) < Math.abs(pick - at)) { pick = number; row = before; emptied = item !== 0; }
       }
       // Fewer rows and no empty row lost: the edit used a blank line that was there, and that stands.
       if (pick === 0) return total.empty && caret === head ? null : { changes: total, head: caret };
       given.add(row);
       const line = text.line(pick);
+      if (emptied && -row === old.lineAt(tr.startState.selection.main.head).number) caret = line.to;
       step = ChangeSet.of({ from: line.to, insert: `\n${quoteOf(line.text).replace(/[ \t]+$/, '')}` }, text.length);
       end += 1;
     }
@@ -439,7 +477,7 @@ function orphanGaps(tr: Transaction, doc: Text, desc: ChangeDesc, head: number):
     const now = doc.lineAt(at);
     if (now.from !== at || now.number === caret || lineKind(now.text) !== 'blank' || listGaps(doc, now.number, now.number, own).length > 0) continue;
     // Only a line that is still whole: its own line break was not part of the deletion.
-    if (now.number === 1 || now.number === doc.lines) continue;
+    if (now.number === 1 || now.number === doc.lines || holdsRuleApart(doc, now.number)) continue;
     out.push({ from: now.from, to: now.to + 1 });
   }
   return out;
@@ -557,16 +595,19 @@ export function listGaps(doc: Text, first: number, last: number, own: number | n
     if ((!mark && !typed) || depthOf(below.text) !== depth) continue;
     // An empty row the person left over the marker they are typing is theirs until the marker makes an item.
     if (lower !== 'item' && line.from === own) continue;
+    // Text in another quote, as a quote over a list outside it, stands apart from the list on its own: the blank
+    // line between them is a row, as it is between a quote and a paragraph.
     if (upper === 'text' || upper === 'pending') {
-      gaps.push(number);
+      if (depthOf(above.text) === depth) gaps.push(number);
     } else if (upper === 'blank') {
       // The last of several blank lines: what stands above them says whether it is a gap.
       let start = number - 1;
       while (start > 1 && lineKind(doc.line(start - 1).text) === 'blank') start -= 1;
       // Blank lines that open the page: the first is the page's own empty line, the last the gap.
       const before = start === 1 ? 'text' : lineKind(doc.line(start - 1).text);
+      const sameQuote = start === 1 || depthOf(doc.line(start - 1).text) === depth;
       // Under a list the first of them is the gap already, so the last is one only with an empty line between.
-      if (before === 'text' || before === 'pending' || (listy(before) && number - start >= 2)) gaps.push(number);
+      if (((before === 'text' || before === 'pending') && sameQuote) || (listy(before) && number - start >= 2)) gaps.push(number);
     }
   }
   return gaps;
