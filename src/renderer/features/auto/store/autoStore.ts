@@ -128,6 +128,24 @@ const placed = (threads: AutoThread[]): AutoThread[] => {
   return next;
 };
 
+/**
+ * The service's order, applied. A thread he has just brought back, which
+ * the service still has as put away, is not named in it yet: it stays
+ * where it is, above the thread it sat above, and does not jump to the top
+ * as a thread the order has never heard of does.
+ */
+const ordered = (threads: AutoThread[], ids: readonly string[]): AutoThread[] => {
+  let next = applyOrder(threads, ids);
+  const named = new Set(ids);
+  const waiting = threads.filter((thread) => !named.has(thread.id) && unconfirmedThreads.has(thread.id));
+  // From the last to the first, so two of them side by side stay in their order.
+  for (const thread of [...waiting].reverse()) {
+    const below = threads.slice(threads.indexOf(thread) + 1)[0];
+    next = moved(next, thread.id, below ? below.id : null);
+  }
+  return placed(next);
+};
+
 /** The row last asked to take the focus, and when. */
 let wanted: { row: string; at: number } | null = null;
 
@@ -261,7 +279,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
           set({ threads: upsertThread(get().threads, laid(event.thread)) });
           get().archiveChanged(laid(event.thread));
         }
-        else if (event.kind === 'order') set({ threads: placed(applyOrder(get().threads, event.ids)) });
+        else if (event.kind === 'order') set({ threads: ordered(get().threads, event.ids) });
         else if (event.kind === 'status') set({ status: event.status });
         // The service can no longer say what was missed: read everything again.
         else if (event.kind === 'reset') void get().refresh();

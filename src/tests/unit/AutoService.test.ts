@@ -569,6 +569,22 @@ describe('what is put away', () => {
     expect(items.at(-1)).toMatchObject({ role: 'assistant', text: expect.stringMatching(/^Waiting on Robin in Slack\. The wait gives up /) });
   });
 
+  it('asks who he means when his words name nobody, which brings the thread back until he answers', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const until_ = tomorrow();
+    await auto.request({ kind: 'snooze', id: TRELLIS, until: until_, wait: { say: 'someone at the club' } });
+    // A question brings a snoozed thread back at once. The wait stays, with no conversation named yet.
+    await until(() => listed(TRELLIS).at(-1)?.status === 'waiting', 'the question');
+    expect(listed(TRELLIS).at(-1)).toMatchObject({ snoozed: null, ask: { kind: 'ask', text: 'Who are you waiting on?', options: ['Robin', 'Sam'] }, wait: { state: 'finding', on: '' } });
+    const snapshot = await auto.request({ kind: 'thread', id: TRELLIS });
+    const question = snapshot.success ? (snapshot.data as AutoSnapshot).live?.question : null;
+    await auto.request({ kind: 'answer', id: TRELLIS, answer: { id: question?.id ?? '', answers: { 'Who are you waiting on?': 'Sam' } } });
+    await until(() => listed(TRELLIS).at(-1)?.wait?.state === 'watching', 'the wait to be watched');
+    expect(listed(TRELLIS).at(-1)).toMatchObject({ snoozed: until_, wait: { on: 'Sam', expires: until_ } });
+  });
+
   it('gives a wait with no time of his own the service’s: two working days on at 5 pm', async () => {
     const auto = await connected();
     const put = await auto.request({ kind: 'snooze', id: TRELLIS, until: null, wait: { say: 'Robin' } });

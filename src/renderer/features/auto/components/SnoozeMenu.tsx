@@ -212,8 +212,9 @@ function ReplyForm({ thread, from, onClose }: { thread: AutoThread; from: From; 
         <DialogDescription className="truncate" data-testid="auto-snooze-name">{thread.title || 'Untitled'}</DialogDescription>
       </DialogHeader>
       <p className="mt-2 text-ui text-foreground-secondary">It comes back when they reply.</p>
+      {/* The dialog puts the caret in its first field itself. `autoFocus` would do it before the dialog
+          has begun to hold the keyboard, and the menu's close would then take it to the row. */}
       <input
-        autoFocus
         value={say}
         maxLength={WAIT_SAY_LIMIT}
         onChange={(event) => setSay(event.target.value)}

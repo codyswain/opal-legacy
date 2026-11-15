@@ -89,7 +89,23 @@ rsync --archive --delete --exclude ".cache" --exclude "*.tmp" ~/Garden/plans/ /V
 
 That is everything.`;
 
-const firstLine = (text) => (text.split('\n').find((line) => line.trim()) ?? '').replace(/^#+\s*/, '').slice(0, 200);
+/**
+ * The first line of some words as the service keeps it for a list row:
+ * without its Markdown marks, a link by its text, and cut with an ellipsis.
+ */
+function firstLine(text, limit = 160) {
+  for (const raw of (text ?? '').split('\n')) {
+    const line = raw
+      .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)+/, '')
+      .replace(/\*\*|__|`/g, '')
+      .trim()
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1')
+      .split(/\s+/).filter(Boolean).join(' ');
+    if (line) return line.length <= limit ? line : `${line.slice(0, limit - 1).trimEnd()}…`;
+  }
+  return '';
+}
 /** A line's words without their Markdown marks, links by their text. */
 const plainWords = (text) => text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim();
 
@@ -829,7 +845,7 @@ export async function startStandIn(options = {}) {
     const wait = thread.wait;
     const who = wait.on || 'them';
     Object.assign(wait, { state: outcome, reply: outcome === 'met' ? line : null, checked: now() });
-    Object.assign(thread, { snoozed: null, snoozed_at: null, woke: now(), last: outcome === 'met' ? firstLine(line) : `No reply from ${who}.`, updated: now() });
+    Object.assign(thread, { snoozed: null, snoozed_at: null, woke: now(), last: outcome === 'met' ? firstLine(line, 300) : `No reply from ${who}.`, updated: now() });
     toTop(thread);
     changed(thread);
     // The turn opens with a note in place of his words, and Auto says in a line or two what happened.

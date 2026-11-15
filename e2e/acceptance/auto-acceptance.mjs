@@ -26,8 +26,15 @@
 // held and taken back; keys 1 to 3; three archives taken back one by one
 // with Cmd+Z while their posts are still on the way; Cmd+Z from an empty
 // box; the last entry of the queue opened and in view; and a long message
-// typed at the end of a thread. Saves light and dark screenshots of each
-// at 1500 x 933 for people to look at; nothing compares them. Run from the repository root after the Vite bundles are built (see
+// typed at the end of a thread. Then what is put away: the three lines at
+// the foot of the list, the archive read when its line opens and a thread
+// brought back from it four ways, a thread waiting on a reply (what was
+// heard, the reply, "Until a reply" from the snooze menu, nobody replying),
+// the digest archived and brought back, how long a thread has been
+// working, words before a digest thread, what Undo leaves behind, words
+// begun before a card arrived, and the queue's own keys. Saves light and
+// dark screenshots of each at 1500 x 933 for people to look at; nothing
+// compares them. Run from the repository root after the Vite bundles are built (see
 // README.md here):
 //
 //   node e2e/acceptance/auto-acceptance.mjs [--out dir] [--sides a,b]
@@ -67,6 +74,9 @@ const TRELLIS = '5a0000000005';
 const INSPECTION = '5a0000000006';
 const BARREL = '5a0000000009';
 const HERBS = '5a0000000008';
+const GLASS = '5a000000000a';
+const FENCE = '5b0000000001';
+const FEEDER = '5b0000000002';
 
 await mkdir(outDir, { recursive: true });
 const errors = [];
@@ -200,6 +210,29 @@ async function tour() {
     await entry(id).getByRole('button', { name, exact: true }).click();
   };
   const posts = (path) => service.requests.filter((request) => request.method === 'POST' && request.path === path).map((request) => request.body);
+  /** The threads in the list proper, without what is put away behind the lines at its foot. */
+  const listedIds = () => page.locator('[data-testid^="auto-group-"] [data-thread-id]').evaluateAll((rows) => rows.map((element) => element.getAttribute('data-thread-id')));
+  const textOf = async (id) => ((await page.getByTestId(id).textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ');
+  /** One line of a row, by its test id: who it waits on, what for, when it was archived. */
+  const lineOf = async (id, part) => ((await row(id).getByTestId(part).textContent().catch(() => '')) ?? '');
+  /** A row's time slot, read whether or not the row's icons are over it. */
+  const rowTime = async (id) => ((await row(id).locator('[data-auto-row] .tabular-nums').first().textContent().catch(() => '')) ?? '');
+  const waitingLine = page.getByTestId('auto-waiting-line');
+  const archivedLine = page.getByTestId('auto-archived-line');
+  const listRowsPane = page.getByTestId('auto-list-rows');
+  const archivedIds = () => page.getByTestId('auto-archived').locator('[data-thread-id]').evaluateAll((rows) => rows.map((element) => element.getAttribute('data-thread-id')));
+  /** Opens one of the three lines at the foot of the list, if it is not open already, and closes it. Each remembers whether it was open. */
+  const showLine = async (name) => {
+    if ((await page.getByTestId(`auto-${name}`).count()) === 0) await page.getByTestId(`auto-${name}-line`).click();
+    await page.getByTestId(`auto-${name}`).waitFor({ timeout: 10_000 });
+  };
+  const hideLine = async (name) => {
+    if ((await page.getByTestId(`auto-${name}`).count()) === 1) await page.getByTestId(`auto-${name}-line`).click();
+    await until(async () => (await page.getByTestId(`auto-${name}`).count()) === 0);
+  };
+  const archivedReads = () => service.requests.filter((request) => request.method === 'GET' && request.path.startsWith('/api/threads?archived=1')).map((request) => request.path);
+  /** A time as the lines say it, seen from today: the clock, "tomorrow" and the clock, a weekday, or a date. */
+  const WHEN = '(?:tomorrow |[A-Z][a-z]{2} |[A-Z][a-z]{2} \\d{1,2} )?\\d{1,2}:\\d{2} [ap]m';
   const toAuto = async () => {
     await sidebarRow.click();
     await auto.waitFor({ timeout: 10_000 });
@@ -287,6 +320,13 @@ async function tour() {
     check('a thread back from snooze says Back and when', /Back \d/.test((await row(TRELLIS).textContent()) ?? ''));
     check('a failed row says so', ((await row(COMPOST).textContent()) ?? '').includes('Failed: The turn ended early'));
     check('snoozed threads are behind one line with their count', ((await page.getByTestId('auto-snoozed-line').textContent()) ?? '').replace(/\s+/g, ' ').includes('Snoozed2'));
+    check('what is put away sits behind three quiet lines at the foot of the list: waiting and snoozed with their counts, the archive with none', (await textOf('auto-waiting-line')) === 'Waiting on a reply1' && (await textOf('auto-snoozed-line')) === 'Snoozed2' && (await textOf('auto-archived-line')) === 'Archived' && await page.evaluate(() => {
+      const top = (id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? -1;
+      const [waiting, snoozed, archived] = [top('auto-waiting-line'), top('auto-snoozed-line'), top('auto-archived-line')];
+      const lastRow = Math.max(...[...document.querySelectorAll('[data-testid^="auto-group-"] [data-thread-id]')].map((element) => element.getBoundingClientRect().bottom));
+      return waiting > lastRow && snoozed > waiting && archived > snoozed;
+    }), `${await textOf('auto-waiting-line')} | ${await textOf('auto-snoozed-line')} | ${await textOf('auto-archived-line')}`);
+    check('none of them is open, and nothing of the archive has been read', (await page.locator('[data-testid="auto-waiting"], [data-testid="auto-snoozed"], [data-testid="auto-archived"]').count()) === 0 && archivedReads().length === 0);
     check('the sidebar row counts the threads that wait on him, the ones with an unread reply and the ones back from snooze', (await sidebarSays(needsHim())) && needsHim() === 3, await sidebarRow.textContent());
 
     // --- The mark for the Mac: set from a row's menu, first under its own heading, ended by the service.
@@ -344,6 +384,20 @@ async function tour() {
     check('Stop sits beside the send button, not in the header', (await page.locator('[data-testid="auto-thread"] form [data-testid="auto-stop"]').count()) === 1 && (await page.locator('[data-testid="auto-thread"] header [data-testid="auto-stop"]').count()) === 0);
     check('Stop shows while a turn runs', (await page.getByTestId('auto-stop').count()) === 1);
     await shot(5, 'streaming');
+    // How long it has been working, in the row's time slot, in the phone's words.
+    check('a thread that has just begun to work says "now" where its time was', await until(async () => (await rowTime(BREAD)) === 'now', 3_000), await rowTime(BREAD));
+    service.age(BREAD, 12 * 60 + 40);
+    check('twelve minutes in it says "12 min"', await until(async () => (await rowTime(BREAD)) === '12 min', 3_000), await rowTime(BREAD));
+    service.age(BREAD, 53 * 60);
+    check('past the hour it says the hours and the minutes left over: "1 h 5 min"', await until(async () => (await rowTime(BREAD)) === '1 h 5 min', 3_000), await rowTime(BREAD));
+    check('the time sits in the row’s time slot, on the title’s line, in the quiet colour', await row(BREAD).evaluate((element) => {
+      const time = element.querySelector('[data-auto-row] .tabular-nums');
+      const title = element.querySelector('[data-auto-row] .truncate');
+      if (!time || !title) return false;
+      const [slot, words] = [time.getBoundingClientRect(), title.getBoundingClientRect()];
+      return slot.left >= words.right - 1 && Math.abs(slot.top + slot.height / 2 - (words.top + words.height / 2)) < 4 && time.scrollWidth <= time.clientWidth + 1;
+    }));
+    await shot(67, 'working-time');
     await box.fill('And add the sowing depths');
     await box.press('Enter');
     check('a message sent while a turn runs waits above the box', await until(async () => ((await page.getByTestId('auto-queue').textContent().catch(() => '')) ?? '').includes('And add the sowing depths')));
@@ -360,12 +414,19 @@ async function tour() {
     const card = page.getByTestId('auto-question');
     check('a question is a card: its first sentence, the rest and the options, with no field of its own', ((await card.locator('p').first().textContent()) ?? '') === 'Which bed gets the tomatoes this year?' && (await card.getByRole('button', { name: /Bed 4/ }).count()) === 1 && (await card.getByRole('textbox').count()) === 0);
     check('while a question waits the box is the answer field', (await box.getAttribute('placeholder')) === 'Your answer' && (await focused()) === 'auto-box');
-    check('no option is filled in, and each says its number', await card.evaluate((element) => {
+    check('no option is filled in', await card.evaluate((element) => {
       const options = [...element.querySelectorAll('button')];
       const page = getComputedStyle(element).backgroundColor;
-      return options.length === 2 && options.every((option, at) => getComputedStyle(option).backgroundColor === getComputedStyle(options[0]).backgroundColor && getComputedStyle(option).backgroundColor !== 'rgb(0, 0, 0)' && (option.textContent ?? '').includes(String(at + 1))) && page !== 'rgb(0, 0, 0)';
+      return options.length === 2 && options.every((option) => getComputedStyle(option).backgroundColor === getComputedStyle(options[0]).backgroundColor && getComputedStyle(option).backgroundColor !== 'rgb(0, 0, 0)') && page !== 'rgb(0, 0, 0)';
     }));
+    // From the box a digit is typed, so the numbers beside the options show only while the card has the keyboard.
+    const optionKeys = () => card.getByTestId('auto-option-key').evaluateAll((keys) => keys.map((element) => `${element.textContent}:${getComputedStyle(element).visibility}`).join());
+    check('the options’ numbers are hidden while the caret is in the box', (await optionKeys()) === '1:hidden,2:hidden', await optionKeys());
     await shot(7, 'question');
+    await card.getByRole('button', { name: /Bed 3/ }).focus();
+    check('and show once the card has the keyboard, which is when a number picks', await until(async () => (await optionKeys()) === '1:visible,2:visible'), await optionKeys());
+    await shot(72, 'question-keys', () => card.getByRole('button', { name: /Bed 3/ }).focus());
+    await box.focus();
     await box.fill('Bed 2, by the wall');
     await box.press('Enter');
     check('words typed in the box answer the question, and are not queued behind it', await until(async () => ((await talk.textContent()) ?? '').includes('Tomatoes go in Bed 2, by the wall')) && posts(`/api/threads/${BREAD}/answer`).at(-1)?.answers?.[Object.keys(posts(`/api/threads/${BREAD}/answer`).at(-1)?.answers ?? {})[0]] === 'Bed 2, by the wall' && !posts(`/api/threads/${BREAD}/messages`).some((body) => body.text === 'Bed 2, by the wall'));
@@ -383,6 +444,27 @@ async function tour() {
     check('2 picks the second option of the open card, and the keyboard goes back to the box', await until(async () => ((await talk.textContent()) ?? '').includes('Tomatoes go in Bed 4')) && (await focused()) === 'auto-box' && Object.values(posts(`/api/threads/${BREAD}/answer`).at(-1)?.answers ?? {})[0] === 'Bed 4');
     await atRest(BREAD);
 
+    // --- Words begun before a card arrived stay a message.
+    await box.click();
+    await box.fill('Also add the oven temperature to the');
+    await fromPhone(`/api/threads/${BREAD}/messages`, { text: 'Which bed, asked from the phone?', cid: 'p8' });
+    await card.waitFor({ timeout: 10_000 });
+    check('a question that arrives while he is typing leaves the box a message box, with his words in it', (await box.getAttribute('placeholder')) === 'Message Auto' && (await box.inputValue()) === 'Also add the oven temperature to the', (await box.getAttribute('placeholder')) ?? '');
+    await shot(69, 'words-before-card');
+    const answersSoFar = posts(`/api/threads/${BREAD}/answer`).length;
+    await box.pressSequentially(' note');
+    await box.press('Enter');
+    check('Enter sends those words as a message, which waits behind the turn, and answers nothing', await until(async () => posts(`/api/threads/${BREAD}/messages`).some((body) => body.text === 'Also add the oven temperature to the note') && ((await page.getByTestId('auto-queue').textContent().catch(() => '')) ?? '').includes('Also add the oven temperature to the note')) && posts(`/api/threads/${BREAD}/answer`).length === answersSoFar && service.thread(BREAD)?.status === 'waiting');
+    check('emptied once, the box is the card’s answer field', await until(async () => (await box.inputValue()) === '' && (await box.getAttribute('placeholder')) === 'Your answer'), (await box.getAttribute('placeholder')) ?? '');
+    await box.fill('Bed 1, by the gate');
+    await box.press('Enter');
+    check('words typed into the empty box answer the card, as before', await until(() => posts(`/api/threads/${BREAD}/answer`).length === answersSoFar + 1 && Object.values(posts(`/api/threads/${BREAD}/answer`).at(-1)?.answers ?? {})[0] === 'Bed 1, by the gate') && !posts(`/api/threads/${BREAD}/messages`).some((body) => body.text === 'Bed 1, by the gate'));
+    check('the message he began first gets its own turn after the answer', await until(async () => {
+      const messages = await talk.getByTestId('auto-message').allTextContents();
+      return messages.at(-1) === 'Also add the oven temperature to the note' && service.thread(BREAD)?.status === 'idle' && !service.thread(BREAD)?.live;
+    }, 15_000));
+    await atRest(BREAD);
+
     // --- A question in two parts: clicks pick, and Send posts the picks once each part has one.
     await say('Ask me two things about the squash');
     await card.waitFor({ timeout: 10_000 });
@@ -395,11 +477,37 @@ async function tour() {
     check('Send posts the picks together, and the keyboard goes back to the box', await until(async () => ((await talk.textContent()) ?? '').includes('Squash: Bed 2. Beside it: Borage and Dill.')) && (await focused()) === 'auto-box');
     await atRest(BREAD);
 
+    // --- Words typed after every part has its pick: the picks go as the answer, and the words follow as a message.
+    await say('Ask me two things about the squash, once more');
+    await card.waitFor({ timeout: 10_000 });
+    await card.getByRole('button', { name: 'Bed 1' }).click();
+    await card.getByRole('button', { name: 'Nasturtiums' }).click();
+    await box.click();
+    await box.fill('And leave room for the path');
+    await shot(70, 'parts-then-words');
+    const writesBefore = service.requests.length;
+    await box.press('Enter');
+    check('the picks go as the answer, with none of his words in it', await until(() => {
+      const body = posts(`/api/threads/${BREAD}/answer`).at(-1);
+      return JSON.stringify(Object.values(body?.answers ?? {})) === JSON.stringify(['Bed 1', ['Nasturtiums']]);
+    }), JSON.stringify(posts(`/api/threads/${BREAD}/answer`).at(-1)));
+    check('and his words follow as an ordinary message, after the answer', await until(() => {
+      const writes = service.requests.slice(writesBefore).filter((request) => request.method === 'POST' && (request.path === `/api/threads/${BREAD}/answer` || request.path === `/api/threads/${BREAD}/messages`));
+      return writes.length === 2 && writes[0].path.endsWith('/answer') && writes[1].path.endsWith('/messages') && writes[1].body.text === 'And leave room for the path' && Object.keys(writes[1].body).sort().join() === 'cid,text';
+    }) && (await box.inputValue()) === '');
+    check('both show in the thread: the turn’s reply to the picks, then his message with a reply of its own', await until(async () => {
+      const text = (await talk.textContent()) ?? '';
+      const messages = await talk.getByTestId('auto-message').allTextContents();
+      return text.includes('Squash: Bed 1. Beside it: Nasturtiums.') && messages.at(-1) === 'And leave room for the path' && text.lastIndexOf('Beans and peas go in bed 2') > text.lastIndexOf('And leave room for the path');
+    }, 15_000), ((await talk.textContent()) ?? '').slice(-200));
+    await atRest(BREAD);
+
     // --- A permission request, allowed.
     await say('Tidy the old drafts');
     await page.getByTestId('auto-permission').waitFor({ timeout: 10_000 });
     const permission = page.getByTestId('auto-permission');
-    check('a permission request is a card with its title, its detail, Allow and Deny, and no field', ((await permission.textContent()) ?? '').includes('mv Notes/drafts/2024-*.md Archive/drafts/') && (await permission.getByRole('button', { name: 'Allow' }).count()) === 1 && (await permission.getByRole('button', { name: 'Deny' }).count()) === 1 && (await permission.getByRole('textbox').count()) === 0 && (await box.getAttribute('placeholder')) === 'Your answer');
+    check('a permission request is a card with its title, its detail, Allow and Deny, and no field', ((await permission.textContent()) ?? '').includes('mv Notes/drafts/2024-*.md Archive/drafts/') && (await permission.getByRole('button', { name: 'Allow' }).count()) === 1 && (await permission.getByRole('button', { name: 'Deny' }).count()) === 1 && (await permission.getByRole('textbox').count()) === 0);
+    check('under a permission card the box says what words there do: Say no, with a reason', (await box.getAttribute('placeholder')) === 'Say no, with a reason', (await box.getAttribute('placeholder')) ?? '');
     await shot(8, 'permission');
     await permission.getByRole('button', { name: 'Allow' }).click();
     check('Allow lets the turn go on', await until(async () => ((await talk.textContent()) ?? '').includes('Three drafts moved to the archive')));
@@ -495,6 +603,7 @@ async function tour() {
     for (const theme of ['light', 'dark']) {
       await row(BEDS).getByRole('button', { name: 'Larch' }).click();
       check(`a row’s answer is held with Undo before it is posted (${theme})`, await until(async () => ((await row(BEDS).getByTestId('auto-row-held').textContent().catch(() => '')) ?? '') === 'Larch' && (await saidText()) === 'Raised bed plan, LarchUndo') && posts(`/api/threads/${BEDS}/answer`).length === 0);
+      check(`after a click on a row’s answer the keyboard is on that row (${theme})`, await until(async () => (await focused()) === BEDS, 2_000), await focused());
       await shot(48, 'undo-row-answer', null, [theme]);
       await said.getByRole('button', { name: 'Undo' }).click();
       check(`Undo takes it back before it has gone (${theme})`, await until(async () => (await row(BEDS).getByTestId('auto-row-held').count()) === 0 && (await row(BEDS).getByRole('button', { name: 'Larch' }).count()) === 1 && (await said.count()) === 0));
@@ -519,22 +628,35 @@ async function tour() {
       await page.getByTestId('auto-snooze-menu').waitFor({ timeout: 5_000 });
     };
     await openSnooze();
+    // On a Sunday "Next week" is tomorrow morning, so the menu shows that time once, as Tomorrow.
     const offered = await page.getByTestId('auto-snooze-menu').getByRole('menuitem').allTextContents();
-    check('Snooze offers the phone’s choices in the order of their times: Tomorrow and Next week at 9:00 am, and a time of his own', offered.every((label) => /^(Later today|Tonight|Tomorrow|This weekend|Next week|Pick a time…)/.test(label)) && offered.some((label) => /^Tomorrow.*9:00 am$/.test(label)) && offered.some((label) => /^Next week.*9:00 am$/.test(label)) && offered.at(-1) === 'Pick a time…' && offered.filter((label) => label.startsWith('Tonight')).every((label) => /7:00 pm$/.test(label)), offered.join('|'));
+    check('Snooze offers the phone’s choices in the order of their times: Tomorrow and Next week at 9:00 am, a time of his own, and until a reply', offered.every((label) => /^(Later today|Tonight|Tomorrow|This weekend|Next week|Pick a time…|Until a reply…)/.test(label)) && offered.some((label) => /^Tomorrow.*9:00 am$/.test(label)) && (new Date().getDay() === 0 || offered.some((label) => /^Next week.*9:00 am$/.test(label))) && offered.at(-2) === 'Pick a time…' && offered.at(-1) === 'Until a reply…' && offered.filter((label) => label.startsWith('Tonight')).every((label) => /7:00 pm$/.test(label)), offered.join('|'));
     await shot(9, 'snooze-menu', async () => {
       if ((await page.getByTestId('auto-snooze-menu').count()) === 0) await openSnooze();
     });
     if ((await page.getByTestId('auto-snooze-menu').count()) === 0) await openSnooze();
+    const orderBefore = service.entries().map((thread) => thread.id);
+    const rowsBefore = await rowIds();
+    const seedsSatAbove = orderBefore[orderBefore.indexOf(SEEDS) + 1];
     await page.getByTestId('auto-snooze-menu').getByRole('menuitem', { name: /^Tomorrow/ }).click();
     check('a snoozed thread leaves the list', await until(async () => !(await rowIds()).includes(SEEDS) && service.thread(SEEDS)?.snoozed > Date.now() / 1000));
-    check('the foot of the list names the thread first, then the time, short, and offers Undo', await until(async () => /^Seed order for spring, until [A-Z][a-z]{2} 9:00 amUndo$/.test(await saidText())), await saidText());
-    check('the name is whole in the line', await said.evaluate((element) => {
-      const name = element.querySelector('.truncate');
-      return !!name && name.scrollWidth <= name.clientWidth + 1;
+    check('the foot of the list says what the snooze did in the phone’s words, and offers Undo', await until(async () => (await saidText()) === 'Snoozed until tomorrow 9:00 am.Undo'), await saidText());
+    check('the sentence is whole in the line', await said.evaluate((element) => {
+      const what = element.querySelector('[data-testid="auto-said-what"]');
+      return !!what && what.scrollWidth <= what.clientWidth + 1 && what.getBoundingClientRect().height < 24;
     }));
     await shot(25, 'undo-snooze');
     await said.getByRole('button', { name: 'Undo' }).click();
     check('Undo brings a snoozed thread back', await until(async () => (await rowIds()).includes(SEEDS) && service.thread(SEEDS)?.snoozed === null));
+    // The service brings a thread back on top of his order. The undo moves it to where it sat, and the row never jumps.
+    let seedsSteady = true;
+    for (let sample = 0; sample < 30; sample += 1) {
+      seedsSteady = seedsSteady && (await rowIds()).join() === rowsBefore.join();
+      await wait(50);
+    }
+    check('undone, the thread is back where it sat, and its row does not jump while the posts land', seedsSteady, `${rowsBefore.join()} -> ${(await rowIds()).join()}`);
+    check('the service has his order as it was: the undo posted a move before the thread it sat above', await until(() => service.entries().map((thread) => thread.id).join() === orderBefore.join()) && JSON.stringify(posts(`/api/threads/${SEEDS}/move`).at(-1)) === JSON.stringify({ before: seedsSatAbove }), JSON.stringify(posts(`/api/threads/${SEEDS}/move`).at(-1)));
+    await shot(60, 'undo-snooze-place');
     // A day and a time of his own: the dialog names the thread and starts tomorrow at 9:00 am. Today can be picked.
     await openSnooze();
     await page.getByTestId('auto-snooze-menu').getByRole('menuitem', { name: 'Pick a time…' }).click();
@@ -559,7 +681,7 @@ async function tour() {
       const at = typeof until === 'number' ? new Date(until * 1000) : null;
       return !!at && (lateToday ? at.getDate() === clock.getDate() && at.getHours() === 23 && at.getMinutes() === 59 : at.getHours() === 14 && at.getMinutes() === 30);
     }));
-    check('the line gives the time alone for today', !lateToday || (await saidText()) === 'Seed order for spring, until 11:59 pmUndo', await saidText());
+    check('the line gives the time alone for today', !lateToday || (await saidText()) === 'Snoozed until 11:59 pm.Undo', await saidText());
     await page.getByTestId('auto-snoozed-line').click();
     await page.getByTestId('auto-snoozed').waitFor({ timeout: 5_000 });
     check('the Snoozed line shows them, the first to return first', (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 3);
@@ -571,9 +693,16 @@ async function tour() {
     check('a thread back from snooze is lifted under the questions and says Back', await until(async () => (await groupIds('fresh')).includes(SEEDS) && /Back \d/.test((await row(SEEDS).textContent()) ?? '')));
     // Bring back, from the Snoozed line: the keyboard goes with the row. S on a snoozed row opens the menu that holds it.
     const napping = await page.getByTestId('auto-snoozed').locator('[data-thread-id]').evaluateAll((rows) => rows.map((element) => element.getAttribute('data-thread-id')));
+    const hadUntil = service.thread(napping[0])?.snoozed;
     await page.getByTestId('auto-snoozed').locator('[data-thread-id]').first().hover();
     await page.getByTestId('auto-snoozed').getByRole('button', { name: 'Bring back' }).first().click();
-    check('Bring back returns one at once, with the keyboard on its row', await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 1 && (await focused()) === napping[0] && (await said.count()) === 0), await focused());
+    check('Bring back returns one at once, with the keyboard on its row, and the line says so', await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 1 && (await focused()) === napping[0] && (await saidText()) === 'Back in the list.Undo'), `${await focused()} | ${await saidText()}`);
+    // Bringing back can be undone: the thread is put away again, to the time it had.
+    await key('Meta+z');
+    check('Cmd+Z puts it away again as it was', await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 2 && service.thread(napping[0])?.snoozed === hadUntil), `${hadUntil} -> ${service.thread(napping[0])?.snoozed}`);
+    await page.getByTestId('auto-snoozed').locator(`[data-thread-id="${napping[0]}"]`).hover();
+    await page.getByTestId(`auto-back-${napping[0]}`).click();
+    await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 1 && (await focused()) === napping[0]);
     await row(napping[1]).locator('[data-auto-row]').focus();
     await key('s');
     await page.getByTestId('auto-snooze-menu').waitFor({ timeout: 5_000 });
@@ -593,7 +722,7 @@ async function tour() {
     await row(BARREL).hover();
     await page.getByTestId(`auto-archive-${BARREL}`).click();
     check('Archive takes a thread out of the list', await until(async () => !(await rowIds()).includes(BARREL) && service.thread(BARREL)?.archived === true));
-    check('the foot of the list names what was archived, with Undo, and nothing shows in the corner', await until(async () => (await saidText()) === 'Rain barrel, archivedUndo') && (await page.locator('[data-sonner-toast]').count()) === 0);
+    check('the foot of the list names what was archived, with Undo, and nothing shows in the corner', await until(async () => /^Archived: Rain barrelUndo(\d more)?$/.test(await saidText())) && (await page.locator('[data-sonner-toast]').count()) === 0, await saidText());
     check('the line sits inside the list column', await page.evaluate(() => {
       const bar = document.querySelector('[data-testid="auto-said"]')?.getBoundingClientRect();
       const list = document.querySelector('[data-testid="auto-list"]')?.getBoundingClientRect();
@@ -610,6 +739,156 @@ async function tour() {
     await rowTitle.press('Enter');
     check('Rename from a row’s menu renames the thread, and its Enter leaves no line in the box', await until(async () => service.thread(BARREL)?.title === 'Rain barrel, by the shed' && ((await row(BARREL).textContent()) ?? '').includes('Rain barrel, by the shed')) && (await wait(150), (await box.inputValue()) === ''), JSON.stringify(await box.inputValue()));
 
+    // --- Undo of an archive sets the Mac mark again, and the keyboard goes to the row.
+    await fromMenu(BARREL, 'Mark for the Mac');
+    await until(async () => service.thread(BARREL)?.desk?.by === 'opal' && (await marked.locator(`[data-thread-id="${BARREL}"]`).count()) === 1);
+    await row(BARREL).locator('[data-auto-row]').focus();
+    await key('e');
+    check('archiving a marked thread ends its mark at the service', await until(() => service.thread(BARREL)?.archived === true && service.thread(BARREL)?.desk === null));
+    await key('Meta+z');
+    check('Undo puts it back under "For the Mac" at once, with the keyboard on its row', await until(async () => (await marked.locator(`[data-thread-id="${BARREL}"]`).count()) === 1 && (await focused()) === BARREL, 3_000), await focused());
+    check('and the service has the mark again: the undo set it', await until(() => service.thread(BARREL)?.archived === false && service.thread(BARREL)?.desk?.by === 'opal') && posts(`/api/threads/${BARREL}/desk`).at(-1)?.on === true);
+    let markSteady = true;
+    for (let sample = 0; sample < 20; sample += 1) {
+      markSteady = markSteady && (await marked.locator(`[data-thread-id="${BARREL}"]`).count()) === 1;
+      await wait(50);
+    }
+    check('the row never leaves its group while the posts land', markSteady);
+    await shot(61, 'undo-archive-marked');
+    await fromMenu(BARREL, 'Take off the Mac mark');
+    await until(async () => service.thread(BARREL)?.desk === null && (await marked.count()) === 0);
+
+    // --- The archive: behind one line with no count, read when it opens, newest first, a few and then all.
+    await showLine('archived');
+    check('opened, the line reads the newest ten, newest archived first', await until(async () => (await archivedIds()).length === 10 && (await archivedIds())[0] === FENCE && (await archivedIds())[1] === FEEDER) && archivedReads().join() === '/api/threads?archived=1&limit=10', archivedReads().join());
+    check('each row says its last line and when it was archived, as the phone does', ((await row(FENCE).textContent()) ?? '').includes('Two coats of the dark green cover the north side.') && (await lineOf(FENCE, 'auto-archived-when')) === 'Archived yesterday.' && /^Archived [A-Z][a-z]{2}\.$/.test(await lineOf(FEEDER, 'auto-archived-when')), `${await lineOf(FENCE, 'auto-archived-when')} | ${await lineOf(FEEDER, 'auto-archived-when')}`);
+    check('the line still carries no count, and Show all says how many there are', (await textOf('auto-archived-line')) === 'Archived' && (await textOf('auto-archived-all')) === 'Show all 12');
+    await row(FENCE).hover();
+    check('an archived row offers only the way back', (await row(FENCE).getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')).filter(Boolean))).join() === 'Bring back');
+    await listRowsPane.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await shot(62, 'archived-open');
+    await page.getByTestId('auto-archived-all').click();
+    check('Show all reads every one', await until(async () => (await archivedIds()).length === 12 && (await page.getByTestId('auto-archived-all').count()) === 0) && archivedReads().at(-1) === '/api/threads?archived=1', archivedReads().join());
+    check('no archived thread’s history was read to list them', !service.requests.some((request) => request.method === 'GET' && /^\/api\/threads\/5b/.test(request.path)));
+    // Read one. The service serves an archived thread like any other.
+    await row(FENCE).locator('[data-auto-row]').click();
+    check('an archived thread opens in the pane to read, with Bring back in its header in place of Archive', await until(async () => (await textOf('auto-title')) === 'Fence paint' && ((await talk.textContent()) ?? '').includes('Two coats of the dark green cover the north side.')) && (await page.getByTestId('auto-restore-open').getAttribute('aria-label')) === 'Bring back' && (await page.locator('[data-testid="auto-archive-open"], [data-testid="auto-snooze-open"], [data-testid="auto-thread-menu"]').count()) === 0);
+    check('above the box it says Archived, with the same way back', (await textOf('auto-away-lead')) === 'Archived' && (await textOf('auto-bring-back')) === 'Bring back' && (await row(FENCE).locator('[aria-current]').count()) === 1, await textOf('auto-away'));
+    await shot(63, 'archived-thread');
+    await page.getByTestId('auto-restore-open').click();
+    check('Bring back puts it in the list at once and tells the service, and the line says so with Undo', await until(async () => (await listedIds()).includes(FENCE) && !(await archivedIds()).includes(FENCE) && service.thread(FENCE)?.archived === false && (await saidText()) === 'Back in the list.Undo') && JSON.stringify(posts(`/api/threads/${FENCE}/archive`).at(-1)) === '{"archived":false}', await saidText());
+    check('it sits where the service’s order puts it', await until(async () => {
+      const rest = await groupIds('rest');
+      return rest.includes(FENCE) && rest.join() === service.entries().map((thread) => thread.id).filter((id) => rest.includes(id)).join();
+    }, 3_000), (await groupIds('rest')).join());
+    check('its header has Archive again, and nothing above the box', await until(async () => (await page.getByTestId('auto-archive-open').count()) === 1 && (await page.getByTestId('auto-away').count()) === 0) && (await textOf('auto-title')) === 'Fence paint');
+    await shot(64, 'undo-bring-back');
+    await said.getByRole('button', { name: 'Undo' }).click();
+    check('Undo archives it again: it is back on top of the archive, and still open to read', await until(async () => service.thread(FENCE)?.archived === true && !(await listedIds()).includes(FENCE) && (await archivedIds())[0] === FENCE && (await textOf('auto-away-lead')) === 'Archived'));
+    // One key each way.
+    await row(FEEDER).locator('[data-auto-row]').focus();
+    await key('e');
+    check('E on an archived row brings it back, with the keyboard on its row in the list', await until(async () => service.thread(FEEDER)?.archived === false && (await listedIds()).includes(FEEDER) && (await focused()) === FEEDER), await focused());
+    await key('e');
+    check('and E on that row archives it again', await until(async () => service.thread(FEEDER)?.archived === true && (await archivedIds())[0] === FEEDER && !(await listedIds()).includes(FEEDER)));
+    // The palette: an archived thread by its title, and the one verb for the open one.
+    await key('Meta+k');
+    await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
+    await page.keyboard.type('fence');
+    check('the palette finds an archived thread by its title, and says it is archived', await until(async () => (await textOf(`palette-command-auto.thread.${FENCE}`)) === 'Fence paintArchived Auto thread'), await textOf(`palette-command-auto.thread.${FENCE}`));
+    await shot(65, 'palette-archived', null, ['light', 'dark'], false);
+    await key('Escape');
+    await until(async () => (await page.getByTestId('command-palette').count()) === 0);
+    await key('Meta+k');
+    await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
+    await page.keyboard.type('>bring');
+    check('with an archived thread open the palette offers Bring back thread, and none of the other thread actions', await until(async () => (await textOf('palette-command-auto.bringBackThread')).startsWith('Bring back thread')) && (await page.locator('[data-testid="palette-command-auto.archiveThread"], [data-testid="palette-command-auto.restoreThread"]').count()) === 0);
+    await page.getByTestId('palette-command-auto.bringBackThread').click();
+    check('which brings it back', await until(async () => service.thread(FENCE)?.archived === false && (await listedIds()).includes(FENCE)));
+    // Put away again, so the list is as it was.
+    await page.getByTestId('auto-archive-open').click();
+    await until(async () => service.thread(FENCE)?.archived === true && !(await listedIds()).includes(FENCE));
+    await hideLine('archived');
+    await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
+
+    // --- Waiting on a reply: its own line, the open thread, what was heard, and the reply.
+    await showLine('waiting');
+    check('a waiting row says who it waits on and until when, then what for, where, and what was last heard', new RegExp(`^Waiting on Sam until ${WHEN}$`).test(await lineOf(GLASS, 'auto-wait-line')) && (await lineOf(GLASS, 'auto-wait-detail')) === 'The quote for the greenhouse glass. In Gmail. Last heard: I will measure the frames on Monday.', `${await lineOf(GLASS, 'auto-wait-line')} | ${await lineOf(GLASS, 'auto-wait-detail')}`);
+    await row(GLASS).hover();
+    check('it offers Bring back, another time, and Archive', (await row(GLASS).getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')).filter(Boolean))).join() === 'Bring back,Snooze,Archive');
+    await listRowsPane.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await shot(54, 'waiting-open');
+    await row(GLASS).locator('[data-auto-row]').click();
+    await page.getByTestId('auto-away').waitFor({ timeout: 10_000 });
+    check('opened, it says above the box who he waits on, what for, where and what was heard, with Bring back', new RegExp(`^Waiting on Sam until ${WHEN}$`).test(await textOf('auto-away-lead')) && (await textOf('auto-away-detail')) === 'The quote for the greenhouse glass. In Gmail. Last heard: I will measure the frames on Monday. Open the conversation' && (await textOf('auto-bring-back')) === 'Bring back', `${await textOf('auto-away-lead')} | ${await textOf('auto-away-detail')}`);
+    check('the conversation is one link, to the web address the service gave and nowhere else', (await page.getByTestId('auto-away').locator('a').count()) === 1 && (await page.getByTestId('auto-away-link').getAttribute('href')) === 'https://mail.example/mail/u/0/#all/18c2f0a1b2c3d4e5');
+    check('his words for the wait show as his message, as the service writes them', (await talk.getByTestId('auto-message').allTextContents()).includes('Wait for a reply: until Sam sends the quote for the glass'));
+    check('the strip, the thread and the box are one column', await oneColumn('auto-thread'));
+    await shot(55, 'waiting-thread');
+    service.heard(GLASS, 'Sam: The supplier is closed until Thursday.');
+    check('what the other side wrote, when it is not the answer, shows on the row and above the box without a click', await until(async () => (await lineOf(GLASS, 'auto-wait-detail')).endsWith('Last heard: The supplier is closed until Thursday.') && (await textOf('auto-away-detail')).includes('Last heard: The supplier is closed until Thursday.')), await lineOf(GLASS, 'auto-wait-detail'));
+    // The reply arrives while he reads another thread.
+    await row(BREAD).click();
+    await until(async () => (await textOf('auto-title')) === 'Sourdough timings');
+    service.reply(GLASS, 'Sam: 4 mm toughened, 86 for the lot.');
+    await atRest(GLASS);
+    check('the reply brings it back under the questions, and its row says who replied and what they said', await until(async () => (await groupIds('fresh')).includes(GLASS) && (await lineOf(GLASS, 'auto-wait-back')) === 'Sam replied: 4 mm toughened, 86 for the lot.' && (await waitingLine.count()) === 0), `${(await groupIds('fresh')).join()} | ${await lineOf(GLASS, 'auto-wait-back')}`);
+    check('it counts in the sidebar, as a thread back from snooze does', await until(async () => sidebarSays(needsHim())));
+    await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
+    await shot(56, 'wait-met');
+    await row(GLASS).locator('[data-auto-row]').click();
+    check('in the thread the service’s quiet note says who replied, then Auto says what, and nothing is above the box', await until(async () => {
+      const text = (await talk.textContent()) ?? '';
+      return text.includes('Sam replied') && text.includes('4 mm toughened, 86 for the lot.') && text.lastIndexOf('Sam replied in') > text.indexOf('Wait for a reply:');
+    }) && (await page.getByTestId('auto-away').count()) === 0);
+    check('once opened its row says its last line again', await until(async () => (await row(GLASS).getByTestId('auto-wait-back').count()) === 0));
+
+    // --- Snooze until a reply, from the menu: who he waits on and when the wait gives up.
+    await page.getByTestId('auto-new-thread').click();
+    await say('Ask Robin when the seed swap is');
+    await until(() => (service.entries()[0]?.title ?? '').startsWith('Ask Robin'));
+    const swap = service.entries()[0].id;
+    await atRest(swap);
+    await row(BREAD).click();
+    await until(async () => (await textOf('auto-title')) === 'Sourdough timings');
+    await row(swap).hover();
+    await page.getByTestId(`auto-snooze-${swap}`).click();
+    await page.getByTestId('auto-snooze-menu').getByRole('menuitem', { name: 'Until a reply…' }).click();
+    const replyDialog = page.getByTestId('auto-snooze-reply');
+    await replyDialog.waitFor({ timeout: 5_000 });
+    check('Until a reply opens a small dialog that names the thread, with the caret in its field', ((await replyDialog.getByTestId('auto-snooze-name').textContent()) ?? '').startsWith('Ask Robin') && await until(async () => (await focused()) === 'auto-wait-say', 3_000) && (await replyDialog.getByTestId('auto-wait-say').getAttribute('placeholder')) === 'Say who you are waiting on', await focused());
+    const gives = await replyDialog.getByTestId('auto-wait-gives').evaluate((select) => ({ options: [...select.options].map((option) => option.textContent), picked: select.options[select.selectedIndex].textContent }));
+    check('it offers the phone’s give-up times, each with the day it means, and starts at two working days', gives.options.length === 4 && /^Next working day, .*5:00 pm$/.test(gives.options[0]) && /^Two working days, .*5:00 pm$/.test(gives.options[1]) && /^A week, .*5:00 pm$/.test(gives.options[2]) && gives.options[3] === 'Pick a time…' && gives.picked === gives.options[1], JSON.stringify(gives));
+    check('there is nothing to wait for until he says who', (await replyDialog.getByRole('button', { name: 'Wait' }).isDisabled()) && ((await replyDialog.textContent()) ?? '').includes('It comes back when they reply.'));
+    await shot(57, 'until-a-reply', null, ['light', 'dark'], false);
+    await replyDialog.getByTestId('auto-wait-say').fill('Robin, about the seed swap');
+    await key('Enter');
+    check('Wait posts one snooze: his words, and two working days on at 5:00 pm', await until(() => {
+      const body = posts(`/api/threads/${swap}/snooze`).at(-1);
+      const at = body ? new Date(body.until * 1000) : null;
+      return !!at && Object.keys(body).sort().join() === 'until,wait' && JSON.stringify(body.wait) === '{"say":"Robin, about the seed swap"}' && at.getHours() === 17 && at.getMinutes() === 0 && ![0, 6].includes(at.getDay());
+    }) && posts(`/api/threads/${swap}/snooze`).length === 1, JSON.stringify(posts(`/api/threads/${swap}/snooze`)));
+    check('the thread leaves the list, and the line says so in the phone’s words', await until(async () => !(await listedIds()).includes(swap) && new RegExp(`^Waiting on (a reply|Robin) until ${WHEN}\\.Undo$`).test(await saidText())), await saidText());
+    check('once Auto has named the conversation the line says who he waits on, with the same Undo', await until(async () => new RegExp(`^Waiting on Robin until ${WHEN}\\.Undo$`).test(await saidText()), 15_000) && (await page.getByTestId('auto-said-more').count()) === 0, await saidText());
+    await atRest(swap);
+    await showLine('waiting');
+    check('its row says who Auto found, what for and where', new RegExp(`^Waiting on Robin until ${WHEN}$`).test(await lineOf(swap, 'auto-wait-line')) && (await lineOf(swap, 'auto-wait-detail')) === 'An answer about the seed swap. In Slack.', `${await lineOf(swap, 'auto-wait-line')} | ${await lineOf(swap, 'auto-wait-detail')}`);
+    check('his words are in the thread as his message, as the service writes them', (service.thread(swap)?.items ?? []).some((item) => item.role === 'user' && item.text === 'Wait for a reply: Robin, about the seed swap'));
+    await listRowsPane.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await shot(58, 'undo-wait');
+    // Nobody replies by the time he gave.
+    service.expire(swap);
+    await atRest(swap);
+    check('when nobody has replied by then it comes back saying so', await until(async () => (await groupIds('fresh')).includes(swap) && (await lineOf(swap, 'auto-wait-back')) === 'No reply from Robin.' && (await waitingLine.count()) === 0), await lineOf(swap, 'auto-wait-back'));
+    await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
+    await shot(59, 'wait-expired');
+    await row(swap).locator('[data-auto-row]').click();
+    check('the thread has the service’s note of when it gave up', await until(async () => /No reply by [A-Z][a-z]{2} 5:00 pm/.test((await talk.textContent()) ?? '')), ((await talk.textContent()) ?? '').slice(-160));
+    // Put away for good, so the list is as it was. The Waiting line, with nothing behind it, has gone.
+    await page.getByTestId('auto-archive-open').click();
+    await until(() => service.thread(swap)?.archived === true);
+    await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
+
     // --- A new thread.
     await page.getByTestId('auto-new-thread').click();
     check('New thread opens an empty thread with the box focused', await until(() => page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'auto-box')) && ((await talk.textContent()) ?? '') === '');
@@ -621,6 +900,18 @@ async function tour() {
     }));
     check('its reply streams in', await until(async () => ((await talk.textContent()) ?? '').includes('Beans and peas go in bed 2')));
 
+    // --- Done, undone: the entry it resolved is open again.
+    const entryState = (id) => service.digest()?.sections.flatMap((section) => section.entries).find((each) => each.id === id)?.state;
+    const resolvesBefore = posts('/api/digest/resolve').length;
+    check('before Done the entry the inspection thread came from is not resolved', entryState('item-2') === 'thread' && (await textOf('auto-digest-line')) === 'Fri Nov 13. 10 entries, 1 resolved.', `${entryState('item-2')} | ${await textOf('auto-digest-line')}`);
+    await row(INSPECTION).hover();
+    await page.getByTestId(`auto-done-${INSPECTION}`).click();
+    check('Done archives the thread and resolves its entry, and the line names it', await until(async () => service.thread(INSPECTION)?.archived === true && entryState('item-2') === 'resolved' && (await saidText()) === 'Done: Book the allotment inspectionUndo' && (await textOf('auto-digest-line')) === 'Fri Nov 13. 10 entries, 2 resolved.'), `${await saidText()} | ${await textOf('auto-digest-line')}`);
+    await shot(68, 'undo-done');
+    await said.getByRole('button', { name: 'Undo' }).click();
+    check('Undo brings the thread back', await until(async () => service.thread(INSPECTION)?.archived === false && (await listedIds()).includes(INSPECTION)));
+    check('and opens its entry again: the undo also took the resolve back', await until(async () => entryState('item-2') === 'thread' && (await textOf('auto-digest-line')) === 'Fri Nov 13. 10 entries, 1 resolved.') && JSON.stringify(posts('/api/digest/resolve').slice(resolvesBefore)) === JSON.stringify([{ date: '2026-11-13', id: 'item-2', resolved: false }]), JSON.stringify(posts('/api/digest/resolve').slice(resolvesBefore)));
+
     // --- A digest entry nobody has started: its card, and Hand to Auto.
     await row(INSPECTION).click();
     await page.getByTestId('auto-hand-over').waitFor({ timeout: 10_000 });
@@ -628,6 +919,7 @@ async function tour() {
     await shot(12, 'digest-item');
     await page.getByTestId('auto-hand-over').click();
     check('Hand to Auto starts it with its own words', await until(() => service.requests.some((request) => request.path === `/api/threads/${INSPECTION}/start`) && service.thread(INSPECTION)?.waits === false));
+    check('after Hand to Auto the keyboard is in the box', await until(async () => (await focused()) === 'auto-box', 2_000), await focused());
     await atRest(INSPECTION);
     check('its reply follows the card', await until(async () => (await page.getByTestId('auto-entry').count()) === 1 && (await page.getByTestId('auto-hand-over').count()) === 0 && ((await talk.textContent()) ?? '').includes('Beans and peas')));
 
@@ -850,7 +1142,7 @@ async function tour() {
     const herb = service.entries().find((thread) => thread.title.startsWith('Plan the herb bed'))?.id ?? '';
     await row(herb).hover();
     await page.getByTestId(`auto-archive-${herb}`).click();
-    check('an archived row leaves at once with Undo on offer, before the service answers', !(await rowIds()).includes(herb) && (await saidText()).endsWith(', archivedUndo') && service.thread(herb)?.archived !== true, await saidText());
+    check('an archived row leaves at once with Undo on offer, before the service answers', !(await rowIds()).includes(herb) && /^Archived: Plan the herb bed.*Undo$/.test(await saidText()) && service.thread(herb)?.archived !== true, await saidText());
     await until(() => service.thread(herb)?.archived === true);
     service.slow(0);
     // If the service refuses, the row comes back with its sentence, and there is nothing to undo.
@@ -858,6 +1150,15 @@ async function tour() {
     await row(SEEDS).hover();
     await page.getByTestId(`auto-archive-${SEEDS}`).click();
     check('a refused archive brings the row back with the service’s sentence', await until(async () => (await rowIds()).includes(SEEDS) && ((await said.textContent().catch(() => '')) ?? '').includes('The stand-in refuses writes for now.') && (await said.getByRole('button').count()) === 0));
+    check('a refusal says why first and whole, then a shortened name', await said.evaluate((element) => {
+      const reason = element.querySelector('[data-testid="auto-said-reason"]');
+      const about = element.querySelector('[data-testid="auto-said-about"]');
+      if (!reason || !about) return false;
+      const [why, name] = [reason.getBoundingClientRect(), about.getBoundingClientRect()];
+      const before = why.top < name.top - 2 || (Math.abs(why.top - name.top) <= 2 && why.left < name.left);
+      return reason.textContent === 'The stand-in refuses writes for now.' && reason.scrollWidth <= reason.clientWidth + 1 && before && name.width <= 12 * 16 + 1;
+    }), await saidText());
+    await shot(73, 'refusal', null, ['light', 'dark'], false);
     service.failWrites(false);
 
     // --- The box is one line when empty, also after the tab goes from narrow to two columns.
@@ -917,11 +1218,12 @@ async function tour() {
     const arrows = () => page.evaluate(() => {
       const box = (name) => document.querySelector(`[data-testid="auto-queue-pane"] button[aria-label="${name}"]`)?.getBoundingClientRect();
       const column = document.querySelector('[data-testid="auto-queue-pane"] header .auto-column')?.getBoundingClientRect();
-      const [earlier, later] = [box('Earlier day'), box('Later day')];
-      return earlier && later && column ? { earlier: Math.round(earlier.left), later: Math.round(later.left), gap: Math.round(column.right - later.right), back: Math.round(document.querySelector('[data-testid="auto-back"]')?.getBoundingClientRect().right ?? -1) } : null;
+      const [earlier, later, menu] = [box('Earlier day'), box('Later day'), box('Digest menu')];
+      // The day's menu ends the header; the arrows sit just before it.
+      return earlier && later && menu && column ? { earlier: Math.round(earlier.left), later: Math.round(later.left), menu: Math.round(menu.left - later.right), gap: Math.round(column.right - menu.right), back: Math.round(document.querySelector('[data-testid="auto-back"]')?.getBoundingClientRect().right ?? -1) } : null;
     });
     const arrowsLatest = await arrows();
-    check('the day arrows sit together at the right of the queue’s header', !!arrowsLatest && arrowsLatest.later > arrowsLatest.earlier && arrowsLatest.later - arrowsLatest.earlier < 40 && arrowsLatest.gap >= 0 && arrowsLatest.gap <= 26, JSON.stringify(arrowsLatest));
+    check('the day arrows and the day’s menu sit together at the right of the queue’s header', !!arrowsLatest && arrowsLatest.later > arrowsLatest.earlier && arrowsLatest.later - arrowsLatest.earlier < 40 && arrowsLatest.menu >= 0 && arrowsLatest.menu < 12 && arrowsLatest.gap >= 0 && arrowsLatest.gap <= 26, JSON.stringify(arrowsLatest));
     check('under a title the words are at most two quiet lines at the smaller size', await (async () => {
       const rows = await queue.getByTestId('auto-entry-words').evaluateAll((words) => words.map((element) => {
         const style = getComputedStyle(element);
@@ -984,14 +1286,30 @@ async function tour() {
     await queue.getByRole('region', { name: 'Yesterday' }).getByRole('button', { name: 'Resolve all' }).click();
     check('Resolve all resolves a section’s open entries in one post', await until(async () => left() === 6 && (await queue.getByRole('region', { name: 'Yesterday' }).count()) === 0) && JSON.stringify(posts('/api/digest/resolve').at(-1)) === JSON.stringify({ date: DAY, ids: ['text-yesterday-5c1d2e3f', 'text-yesterday-a7b8c9d0'], resolved: true }));
 
-    // Thread: a thread that waits on top of the list. He stays in the queue. The foot of the list says so, with Open and Undo.
+    // Thread: a thread starts with his words. The button opens the entry with the caret in its box, and makes nothing yet.
+    const committee = entry('meeting-allotment-committee');
+    const threadsAsked = posts('/api/digest/thread').length;
     await act('meeting-allotment-committee', 'Thread');
-    check('Thread says what it made, with Open and Undo, and that there is more to undo', await until(async () => /^Allotment committee, made a threadOpenUndo\d more$/.test(await saidText())), await saidText());
+    check('Thread opens the entry with the caret in its box, and makes no thread', await until(async () => (await committee.getAttribute('data-open')) === 'true' && (await focused()) === 'auto-entry-box', 3_000) && posts('/api/digest/thread').length === threadsAsked && (await committee.getByTestId('auto-entry-box').getAttribute('placeholder')) === 'Say what you want done', await focused());
+    check('while the box is empty a quiet button offers a thread without words', ((await committee.getByTestId('auto-entry-wordless').textContent()) ?? '') === 'Make it without words');
+    await shot(71, 'thread-words-first', null, ['light', 'dark'], false);
+    await key('Enter');
+    await key('Escape');
+    check('Enter on no words makes nothing, and neither does stepping out', await until(async () => (await focused()) === 'meeting-allotment-committee') && posts('/api/digest/thread').length === threadsAsked && !service.entries().some((thread) => thread.title === 'Allotment committee') && (await entryIds()).includes('meeting-allotment-committee'));
+    await key('t');
+    check('T on the row goes to the same box', await until(async () => (await focused()) === 'auto-entry-box', 3_000), await focused());
+    await page.keyboard.type('x');
+    check('the way without words leaves once he has words', await until(async () => (await committee.getByTestId('auto-entry-wordless').count()) === 0));
+    await key('Backspace');
+    // Without words: the one-step thread, which waits on top of the list. He stays in the queue.
+    await committee.getByTestId('auto-entry-wordless').click();
+    check('Make it without words says what it made, with Open and Undo, and that there is more to undo', await until(async () => /^Allotment committee, made a threadOpenUndo\d more$/.test(await saidText())), await saidText());
     await shot(29, 'undo-thread');
     await said.getByRole('button', { name: 'Undo' }).click();
     check('Undo archives the waiting thread, and its entry is open again', await until(async () => (await entryIds()).includes('meeting-allotment-committee') && !service.entries().some((thread) => thread.title === 'Allotment committee') && left() === 6));
     await act('meeting-allotment-committee', 'Thread');
-    check('Thread makes a thread that waits on top of the list, and he stays in the queue', await until(async () => {
+    await committee.getByTestId('auto-entry-wordless').click();
+    check('a thread without words waits on top of the list, not started, and he stays in the queue', await until(async () => {
       const [top] = service.entries();
       return top.title === 'Allotment committee' && top.waits === true && (await groupIds('rest'))[0] === top.id && ((await row(top.id).getByTestId('auto-not-started').textContent().catch(() => '')) ?? '') === 'Not started' && !(await entryIds()).includes('meeting-allotment-committee') && (await page.getByTestId('auto-queue-pane').count()) === 1;
     }) && JSON.stringify(posts('/api/digest/thread').at(-1)) === JSON.stringify({ date: DAY, id: 'meeting-allotment-committee', start: false }));
@@ -1011,7 +1329,7 @@ async function tour() {
     await entry('item-1').locator('[data-auto-entry]').click();
     const note = entry('item-1').getByRole('textbox', { name: 'Your note' });
     await note.waitFor({ timeout: 5_000 });
-    check('a click opens an entry in place: its note, its drafted reply and a box', ((await entry('item-1').getByTestId('auto-entry-draft').textContent()) ?? '').startsWith('Reply drafted for Garden centre') && (await entry('item-1').getByRole('textbox', { name: 'What to do with it' }).getAttribute('placeholder')) === 'Say what to do with it' && (await note.getAttribute('placeholder')) === 'Add a note');
+    check('a click opens an entry in place: its note, its drafted reply and a box', ((await entry('item-1').getByTestId('auto-entry-draft').textContent()) ?? '').startsWith('Reply drafted for Garden centre') && (await entry('item-1').getByTestId('auto-entry-box').getAttribute('placeholder')) === 'Say what you want done' && (await note.getAttribute('placeholder')) === 'Add a note');
     await note.fill('Ask about peat-free compost too');
     await entry('item-1').getByRole('button', { name: 'Save the note' }).click();
     check('Save the note keeps his note on the entry', await until(() => service.digest()?.sections[1].entries[0].note === 'Ask about peat-free compost too') && JSON.stringify(posts('/api/digest/note').at(-1)) === JSON.stringify({ date: DAY, id: 'item-1', text: 'Ask about peat-free compost too' }));
@@ -1031,7 +1349,7 @@ async function tour() {
     })());
 
     // Words in the box start a thread with the entry and open it.
-    const words = entry('item-1').getByRole('textbox', { name: 'What to do with it' });
+    const words = entry('item-1').getByTestId('auto-entry-box');
     await words.fill('Ask for collection on Saturday');
     service.slow(1_500);
     await words.press('Enter');
@@ -1079,11 +1397,53 @@ async function tour() {
     await key('Enter');
     check('Later day steps forward to the latest, on Left, and the keyboard moves to Earlier day', await until(async () => ((await page.getByTestId('auto-queue-day').textContent()) ?? '') === 'Friday, November 13' && (await page.getByTestId('auto-queue-left').getAttribute('aria-pressed')) === 'true' && (await page.getByRole('button', { name: 'Later day' }).isDisabled()) && (await focused()) === 'Earlier day'), await focused());
 
+    // --- Archive the digest: off the list until the next one, readable from the archive and by stepping days.
+    const leftBeforeArchive = left();
+    await page.getByTestId('auto-digest-menu').click();
+    check('the queue’s menu holds one thing: Archive the digest', await until(async () => (await page.getByRole('menuitem').allTextContents()).join() === 'Archive the digest'), (await page.getByRole('menuitem').allTextContents()).join());
+    await page.getByRole('menuitem', { name: 'Archive the digest' }).click();
+    check('archived, the Digest row leaves the list at once and the service has it', await until(async () => (await digestRow.count()) === 0 && service.digest()?.archived === true) && JSON.stringify(posts('/api/digest/archive').at(-1)) === JSON.stringify({ date: DAY, archived: true }), JSON.stringify(posts('/api/digest/archive').at(-1)));
+    check('the line says so, with Undo', (await saidText()) === 'Digest archived. It is off the list.Undo', await saidText());
+    check('the queue stays open to read, and says Archived at its foot with the way back', (await page.getByTestId('auto-queue-pane').count()) === 1 && (await textOf('auto-queue-archived')) === 'ArchivedIt is off the list until the next digest.Bring back' && (await textOf('auto-queue-day')) === 'Friday, November 13' && (await entryIds()).length > 0, await textOf('auto-queue-archived'));
+    check('nothing in it changed', left() === leftBeforeArchive && (await oneColumn('auto-queue-pane')));
+    // The keyboard is back on the menu's button; the picture is of the pane without its tooltip.
+    await page.evaluate(() => document.activeElement?.blur());
+    await shot(66, 'undo-digest-archive');
+    await page.getByTestId('auto-digest-menu').click();
+    check('archived, its menu offers the one verb: Bring back', await until(async () => (await page.getByRole('menuitem').allTextContents()).join() === 'Bring back'));
+    await key('Escape');
+    await until(async () => (await page.getByRole('menu').count()) === 0);
+    // In the archive, first.
+    await showLine('archived');
+    const archivedDigest = page.getByTestId(`auto-archived-digest-${DAY}`);
+    check('an archived digest is listed first under Archived, by its day', await until(async () => (await page.getByTestId('auto-archived').locator('[data-auto-row]').first().getAttribute('data-row-id')) === `:digest:${DAY}` && ((await archivedDigest.textContent()) ?? '') === 'DigestFri Nov 13'), (await archivedDigest.textContent().catch(() => '')) ?? '');
+    await archivedLine.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+    await shot(74, 'archived-digest');
+    // Still readable by stepping days, and from its row in the archive.
+    await page.getByRole('button', { name: 'Earlier day' }).click();
+    await until(async () => (await textOf('auto-queue-day')) === 'Thursday, November 12');
+    check('an earlier day that is not archived has no such line at its foot', (await page.getByTestId('auto-queue-archived').count()) === 0);
+    await archivedDigest.locator('[data-auto-row]').click();
+    check('its row in the archive opens that day in the queue', await until(async () => (await textOf('auto-queue-day')) === 'Friday, November 13' && (await page.getByTestId('auto-queue-archived').count()) === 1));
+    await page.getByTestId('auto-digest-back').click();
+    check('Bring back puts the Digest row back, tells the service, and the line says so', await until(async () => (await digestRow.count()) === 1 && service.digest()?.archived === false && (await saidText()) === 'Back in the list.Undo' && (await archivedDigest.count()) === 0 && (await page.getByTestId('auto-queue-archived').count()) === 0) && JSON.stringify(posts('/api/digest/archive').at(-1)) === JSON.stringify({ date: DAY, archived: false }), await saidText());
+    // From another device, and back from its row in the archive.
+    await fromPhone('/api/digest/archive', { date: DAY, archived: true });
+    check('an archive made on another device takes the row away without a click', await until(async () => (await digestRow.count()) === 0 && (await archivedDigest.count()) === 1 && (await page.getByTestId('auto-queue-archived').count()) === 1));
+    await archivedDigest.hover();
+    await page.getByTestId(`auto-restore-digest-${DAY}`).click();
+    check('Bring back on its row in the archive returns it', await until(async () => (await digestRow.count()) === 1 && service.digest()?.archived === false && (await archivedDigest.count()) === 0));
+    await hideLine('archived');
+    await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
+    await digestRow.click();
+    await page.getByTestId('auto-queue-left').click();
+    await until(async () => (await page.getByTestId('auto-queue-left').getAttribute('aria-pressed')) === 'true');
+
     // The queue is a pane like a thread: narrow, it hides the list.
     await resize(1180, HEIGHT);
     await until(async () => (await auto.getAttribute('data-narrow')) === 'true' && (await page.getByTestId('auto-queue-pane').count()) === 1);
     const arrowsNarrow = await arrows();
-    check('narrow, the back chevron is at the left and the day arrows at the right, never side by side', !!arrowsNarrow && arrowsNarrow.back > 0 && arrowsNarrow.earlier - arrowsNarrow.back > 200 && arrowsNarrow.gap >= 0 && arrowsNarrow.gap <= 26, JSON.stringify(arrowsNarrow));
+    check('narrow, the back chevron is at the left and the day arrows at the right, never side by side', !!arrowsNarrow && arrowsNarrow.back > 0 && arrowsNarrow.earlier - arrowsNarrow.back > 200 && arrowsNarrow.menu >= 0 && arrowsNarrow.menu < 12 && arrowsNarrow.gap >= 0 && arrowsNarrow.gap <= 26, JSON.stringify(arrowsNarrow));
     // The keyboard is on Earlier day from the step before; the picture is of the header without its tooltip.
     await page.evaluate(() => document.activeElement?.blur());
     await shot(53, 'narrow-queue');
@@ -1119,6 +1479,15 @@ async function tour() {
     const queued = await until(async () => (await entryIds()).length >= 4) ? await entryIds() : [];
     check('the palette opens the tab, with the keyboard on the queue’s first entry', await until(async () => queued.length >= 4 && (await focused()) === queued[0]), `${queued.join()} ${await focused()}`);
     const stateOf = (id) => service.digest()?.sections.flatMap((section) => section.entries).find((each) => each.id === id)?.state;
+    // The queue's own keys: [ and ] step a day, A switches between Left and All.
+    await key('[');
+    check('[ steps to the earlier day, with the keyboard on its first entry', await until(async () => (await textOf('auto-queue-day')) === 'Thursday, November 12' && (await focused()) === 'item-1'), `${await textOf('auto-queue-day')} ${await focused()}`);
+    await key(']');
+    check('] steps to the later day, with the keyboard on its first entry', await until(async () => (await textOf('auto-queue-day')) === 'Friday, November 13' && (await focused()) === queued[0]), `${await textOf('auto-queue-day')} ${await focused()}`);
+    await key('a');
+    check('A switches to All', await until(async () => (await page.getByTestId('auto-queue-all').getAttribute('aria-pressed')) === 'true' && (await entryIds()).length === 10));
+    await key('a');
+    check('and A again to Left, with the keyboard still on the entry', await until(async () => (await page.getByTestId('auto-queue-left').getAttribute('aria-pressed')) === 'true' && (await focused()) === queued[0]), await focused());
     await key('e');
     check('E resolves the entry and the keyboard moves to the next', await until(async () => stateOf(queued[0]) === 'resolved' && (await focused()) === queued[1]), await focused());
     // The second one on a slow service: it is taken back before its post has landed, and stays back while both land.
@@ -1150,7 +1519,11 @@ async function tour() {
     await key('Escape');
     check('Escape on the row closes the entry', await until(async () => (await entry(queued[2]).getAttribute('data-open')) === null && (await focused()) === queued[2]));
     await key('t');
-    check('T makes a thread of the entry, which waits on top of the list', await until(async () => stateOf(queued[2]) === 'thread' && (await focused()) === queued[3]), await focused());
+    check('T opens the entry with the caret in its box, for what he wants done, and makes nothing yet', await until(async () => (await focused()) === 'auto-entry-box') && stateOf(queued[2]) === 'open', await focused());
+    await key('Tab');
+    check('Tab from the empty box reaches Make it without words', await until(async () => (await focused()) === 'auto-entry-wordless'), await focused());
+    await key('Enter');
+    check('which makes a thread of the entry that waits on top of the list, and the keyboard moves on', await until(async () => stateOf(queued[2]) === 'thread' && (await focused()) === queued[3]), await focused());
     check('the line says what was made, with Open', /, made a threadOpenUndo/.test(await saidText()), await saidText());
     await key('Escape');
     check('Escape from the queue puts the keyboard on the Digest row', await until(async () => (await focused()) === ':digest'));
@@ -1179,7 +1552,7 @@ async function tour() {
     await key('e');
     await until(async () => (await focused()) === four, 2_000);
     const inFlight = [one, two, three].filter((id) => service.thread(id)?.archived !== true).length;
-    check('three rows leave at once, and the line offers the newest and says how many more', !(await rowIds()).some((id) => [one, two, three].includes(id)) && /, archivedUndo\d more$/.test(await saidText()) && Number((await page.getByTestId('auto-said-more').textContent())?.replace(/\D/g, '')) >= 2, await saidText());
+    check('three rows leave at once, and the line offers the newest and says how many more', !(await rowIds()).some((id) => [one, two, three].includes(id)) && /^Archived: .+Undo\d more$/.test(await saidText()) && Number((await page.getByTestId('auto-said-more').textContent())?.replace(/\D/g, '')) >= 2, await saidText());
     const landed = service.thread(three)?.archived === true;
     await key('Meta+z');
     check('Cmd+Z brings the newest back at once, while its post is still on the way', await until(async () => (await rowIds()).includes(three) && (await focused()) === three, 2_000) && !landed && inFlight > 0, `${inFlight} of 3 still on the way`);
@@ -1198,7 +1571,7 @@ async function tour() {
     }
     check('while the posts land no row leaves a second time, and the open thread stays open', steady && openBefore !== '', `${openBefore} | ${(await rowIds()).slice(0, 4).join()}`);
     check('the service has all three again: each archived, then brought back, in that order', await until(() => [one, two, three].every((id) => service.thread(id)?.archived === false && JSON.stringify(posts(`/api/threads/${id}/archive`).slice(-2).map((body) => body.archived)) === '[true,false]'), 15_000), [one, two, three].map((id) => JSON.stringify(posts(`/api/threads/${id}/archive`).slice(-2).map((body) => body.archived))).join());
-    check('none of the three is on offer any more', !/archived/.test(await saidText()), await saidText());
+    check('none of the three is on offer any more', !/Archived/.test(await saidText()), await saidText());
     service.slow(0);
     // The same three again, for the picture of the line with more behind it.
     for (const next of [two, three, four]) {
@@ -1271,10 +1644,48 @@ async function tour() {
     await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
     await page.keyboard.type('>thread');
     check('the palette has the open thread’s actions and a new thread', await until(async () => (await page.getByTestId('palette-command-auto.archiveThread').count()) === 1 && (await page.getByTestId('palette-command-auto.snoozeThread').count()) === 1 && (await page.getByTestId('palette-command-auto.markThread').count()) === 1 && ((await page.getByTestId('palette-command-auto.newThread').textContent()) ?? '') === 'New Auto thread'));
+    check('Rename thread is there too, and Stop is not while nothing runs', (await page.getByTestId('palette-command-auto.renameThread').count()) === 1 && (await page.getByTestId('palette-command-auto.stopThread').count()) === 0);
     await page.getByTestId('palette-command-auto.markThread').click();
     check('Mark thread for the Mac, from the palette', await until(() => service.thread(BREAD)?.desk?.by === 'opal'));
     await fromMenu(BREAD, 'Take off the Mac mark');
     await until(() => service.thread(BREAD)?.desk === null);
+    await row(BREAD).click();
+    await key('Meta+k');
+    await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
+    await page.keyboard.type('>rename thread');
+    await page.getByTestId('palette-command-auto.renameThread').click();
+    check('Rename thread, from the palette, opens the title as a field with the keyboard in it', await until(async () => (await focused()) === 'Thread title', 3_000), await focused());
+    await key('Escape');
+    check('Escape leaves the title as it was', await until(async () => (await textOf('auto-title')) === 'Sourdough timings' && service.thread(BREAD)?.title === 'Sourdough timings'));
+    service.hold('stream');
+    await say('Sort the seed list slowly, a third time');
+    await page.getByTestId('auto-stop').waitFor({ timeout: 10_000 });
+    await key('Meta+k');
+    await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
+    await page.keyboard.type('>stop');
+    check('while a turn runs the palette has Stop', await until(async () => (await textOf('palette-command-auto.stopThread')).startsWith('Stop')), await textOf('palette-command-auto.stopThread'));
+    await page.getByTestId('palette-command-auto.stopThread').click();
+    check('which stops the turn', await until(async () => (await page.getByTestId('auto-stop').count()) === 0 && service.thread(BREAD)?.status !== 'working'), String(service.thread(BREAD)?.status));
+    service.release('stream');
+    await box.fill('');
+    // Tab into the list lands on the open thread's row, not on the row the keyboard last walked to.
+    const tabStops = () => page.locator('[data-testid="auto-list"] [data-auto-row][tabindex="0"]').evaluateAll((rows) => rows.map((element) => element.getAttribute('data-row-id')).join());
+    await box.click();
+    await key('Escape');
+    await until(async () => (await focused()) === BREAD);
+    await key('ArrowDown');
+    const walkedTo = await focused();
+    check('while the keyboard walks the list its Tab stop goes with it', walkedTo !== BREAD && (await tabStops()) === walkedTo, `${walkedTo} | ${await tabStops()}`);
+    await box.click();
+    check('once the keyboard has left the list, its one Tab stop is the open thread’s row', await until(async () => (await tabStops()) === BREAD, 3_000), await tabStops());
+    // From the thread's title, the first thing in the pane, Shift+Tab goes back into the list.
+    await page.getByTestId('auto-title').focus();
+    let backIn = '';
+    for (let presses = 0; presses < 4 && !(await page.evaluate(() => document.activeElement?.hasAttribute('data-auto-row') ?? false)); presses += 1) {
+      await key('Shift+Tab');
+      backIn = await focused();
+    }
+    check('Shift+Tab back into the list lands on that row', backIn === BREAD, backIn);
 
     // --- One reading column at every width: 1512 and 1700 wide, with the right sidebar shown and hidden.
     const rightSidebar = async (shown) => {
@@ -1344,7 +1755,9 @@ async function tour() {
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);
     check('Opal never ticked a box by number and never asked for the inbox', !paths.some((requestPath) => requestPath.includes('/digest/tick') || requestPath.includes('/digest/inbox')));
-    check('Opal asked only for routes it has', paths.every((requestPath) => /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread))$/.test(requestPath)), paths.find((requestPath) => !/^\/api\//.test(requestPath)) ?? '');
+    const KNOWN = /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\?archived=1(&limit=\d+)?|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread|archive))$/;
+    check('Opal asked only for routes it has', paths.every((requestPath) => KNOWN.test(requestPath)), paths.find((requestPath) => !KNOWN.test(requestPath)) ?? '');
+    check('every snooze carried a time or null, and a wait carried only his words', posts('/api/threads/').length === 0 && service.requests.filter((request) => request.method === 'POST' && /\/snooze$/.test(request.path) && request.headers['x-auto-client'] !== 'phone').every((request) => Object.keys(request.body).every((field) => field === 'until' || field === 'wait') && (request.body.wait === undefined || JSON.stringify(Object.keys(request.body.wait)) === '["say"]')));
     check('no request marked a message as a send', !service.requests.some((request) => JSON.stringify(request.body ?? {}).includes('sends')));
     check('nothing in the run tried to allow a send: every answer to one was a no', service.unsigned.length === 0);
     check('every write named the client and carried no Origin', service.requests.filter((request) => request.method === 'POST' && request.headers['x-auto-client'] !== 'phone').every((request) => request.headers['x-auto-client'] === 'opal' && request.headers.origin === undefined && request.headers['content-type'] === 'application/json'));
@@ -1361,13 +1774,22 @@ async function tour() {
     await page.getByTestId('auto-snoozed-line').click();
     check('the Snoozed line still shows them', await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 2));
     await shot(18, 'empty-list-snoozed-open');
+    await hideLine('snoozed');
+    check('with nothing waiting on a reply there is no line for it', (await page.getByTestId('auto-waiting-line').count()) === 0);
+    await showLine('archived');
+    check('an archive with nothing in it says so', await until(async () => (await textOf('auto-archived-empty')) === 'Nothing is archived.'), await textOf('auto-archived-empty'));
+    await hideLine('archived');
 
     // --- The empty queue: every entry of the digest resolved.
     check('the Digest row says Done when nothing is left', await until(async () => (await digestSays()) === 'DigestDone'));
     await digestRow.click();
     await page.getByTestId('auto-queue-empty').waitFor({ timeout: 10_000 });
-    check('with nothing left the queue says so and offers the whole day', ((await page.getByTestId('auto-queue-empty').textContent()) ?? '') === 'Nothing left in this digest.Show all 10');
+    check('with nothing left the queue says so, offers the whole day, and offers to archive the digest', ((await page.getByTestId('auto-queue-empty').textContent()) ?? '') === 'Nothing left in this digest.Show all 10Archive the digest');
     await shot(24, 'empty-queue');
+    await page.getByTestId('auto-digest-archive-done').click();
+    check('Archive the digest, once nothing is left, takes the Digest row off the list', await until(async () => (await digestRow.count()) === 0 && emptyService.digest()?.archived === true && (await page.getByTestId('auto-digest-archive-done').count()) === 0 && (await page.getByTestId('auto-queue-archived').count()) === 1));
+    await said.getByRole('button', { name: 'Undo' }).click();
+    check('and Undo puts it back', await until(async () => (await digestRow.count()) === 1 && emptyService.digest()?.archived === false));
     await page.getByRole('button', { name: 'Show all 10' }).click();
     check('Show all shows the day whole', await until(async () => (await entryIds()).length === 10 && (await page.getByTestId('auto-queue-all').getAttribute('aria-pressed')) === 'true'));
 

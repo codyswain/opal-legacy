@@ -4,7 +4,8 @@ import { cn } from '@/renderer/shared/utils';
 import { archivedWord, awayDetail, heardLine, waitLine } from '../model/awayModel';
 import { rowLine } from '../model/listModel';
 
-const lineStyle = 'text-control text-foreground-tertiary';
+// A word longer than the row, such as a web address, breaks instead of running out of the row.
+const lineStyle = 'break-words text-control text-foreground-tertiary';
 
 interface ThreadLineProps {
   thread: AutoThread;
@@ -35,7 +36,7 @@ export function ThreadLine({ thread, className, bare = false, away, now = Date.n
     const detail = [awayDetail(thread, now), thread.wait ? heardLine(thread.wait) : ''].filter(Boolean).join(' ');
     return (
       <span className={cn('flex w-full min-w-0 flex-col', className)}>
-        <span data-testid="auto-wait-line" className="line-clamp-3 text-control text-foreground">{waitLine(thread, now)}</span>
+        <span data-testid="auto-wait-line" className="line-clamp-3 break-words text-control text-foreground">{waitLine(thread, now)}</span>
         {detail ? <span data-testid="auto-wait-detail" className={cn(lineStyle, 'line-clamp-3')}>{detail}</span> : null}
       </span>
     );
@@ -63,7 +64,7 @@ export function ThreadLine({ thread, className, bare = false, away, now = Date.n
     );
   }
   // Back from a wait: said in the text's own colour, since it is what he was waiting for.
-  if (line.kind === 'back') return <span data-testid="auto-wait-back" className={cn('line-clamp-3 text-control text-foreground', className)}>{line.text}</span>;
+  if (line.kind === 'back') return <span data-testid="auto-wait-back" className={cn('line-clamp-3 break-words text-control text-foreground', className)}>{line.text}</span>;
   if (line.kind === 'ask') return <span className={cn(lineStyle, 'line-clamp-3 text-foreground-secondary', className)}>{line.text}</span>;
   if (line.kind === 'live') {
     return (

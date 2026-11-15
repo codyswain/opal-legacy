@@ -91,10 +91,11 @@ function ThreadRow({ thread, now, current, tabStop, away, drop = null, dragging 
   const icons = archived ? 1 : 2 + (digestEntry ? 1 : 0) + (snoozed ? 1 : 0);
   // A waiting row says its give-up time in its line, and an archived row says when it was archived there.
   const time = away === 'snoozed' && thread.snoozed ? snoozedUntil(thread.snoozed, now) : away ? '' : rowTime(thread, now);
-  // The dot before the title, as on the phone: a reply he has not read, or a thread back from snooze. Not on the one he is reading.
-  const dot = !archived && isMarked(thread) && !current;
+  // The dot before the title, as on the phone: a reply he has not read, or a thread back from snooze. Not on the one he is
+  // reading, and not on a row that is put away: the line it sits behind is quiet, and so are its rows.
+  const dot = !away && isMarked(thread) && !current;
   // The rows that are his carry a heavier title.
-  const heavy = !archived && (dot || thread.status === 'waiting' || thread.waits || isYours(thread));
+  const heavy = !away && (dot || thread.status === 'waiting' || thread.waits || isYours(thread));
   const title = thread.title || 'Untitled';
   const marked = thread.desk !== null;
 

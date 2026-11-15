@@ -259,7 +259,22 @@ stay above the scrolling rows, which keep the scrollbar's 10 px
 has scrolled. Cards (a question, a permission request, a send to allow)
 are `rounded-card` with a `border-border-strong` ring and no fill. No
 option of a question is filled: every one is an outline button, with its
-number, 1 to 3, in `text-foreground-tertiary` beside it.
+number, 1 to 3, in `text-foreground-tertiary` beside it, shown only while
+the card or the row has the keyboard, which is when the number picks.
+
+What is put away sits at the foot of the list behind three lines, each a
+`h-row-compact` row in `text-foreground-tertiary` with a chevron:
+"Waiting on a reply" and "Snoozed" end with their count in `text-metadata`,
+"Archived" with none. A row behind them is a list row. A waiting row's
+first line ("Waiting on Sam until Tue 5:00 pm") is `text-control` in
+`text-foreground`, and what it waits for, where and what was last heard is
+`text-control` in `text-foreground-tertiary` under it; an archived row adds
+"Archived Nov 12." in the same quiet line. A thread back from a wait says
+"Sam replied: …" or "No reply from Sam." in `text-foreground`. Above the
+box of a thread that is put away, and at the foot of an archived digest, a
+strip under a `border-border-subtle` hairline says so (`text-ui`, then
+`text-control` in `text-foreground-tertiary`) with one outline button,
+"Bring back".
 
 The digest queue takes the thread's place, in the same column. A section's
 name is `text-label` in `text-foreground-tertiary`. An entry is a
@@ -274,7 +289,10 @@ shown while the pointer or the keyboard is on the row. His note has a 2 px
 What the last action did is one line at the foot of the list, in
 `bg-primary` with `text-primary-foreground` and a `rounded-card` corner:
 the name first, cut if it is long, then what happened, then Undo, and
-"2 more" when Undo reaches further back. A table or a code block that scrolls sideways fades at the edge
+"2 more" when Undo reaches further back. A put-away is one sentence in the
+phone's words, whole ("Snoozed until tomorrow 9:00 am.", "Archived:" and
+then the name); a refusal is the service's sentence, whole, and then a
+shortened name. A table or a code block that scrolls sideways fades at the edge
 it is cut at (`[data-fade]`).
 
 ## Page headings

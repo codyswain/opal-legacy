@@ -403,10 +403,14 @@ describe('a thread waiting on a reply', () => {
   });
 
   it('says Finding the conversation, and when it gives up, while Auto is still naming it', async () => {
-    await open({ threads: [BREAD, { ...GLASS, wait: wait({ state: 'finding', on: '', what: '', where: '', link: '', check: '', heard: '' }) }] });
+    // Auto's own line about the wait is a reply nobody has read: a row that is put away still carries no dot.
+    await open({ threads: [{ ...BREAD, unread: true }, { ...GLASS, unread: true, wait: wait({ state: 'finding', on: '', what: '', where: '', link: '', check: '', heard: '' }) }] });
     fireEvent.click(screen.getByTestId('auto-waiting-line'));
     expect(within(row('glass')).getByTestId('auto-wait-line').textContent).toBe('Finding the conversation');
     expect(within(row('glass')).getByTestId('auto-wait-detail').textContent).toBe('Gives up Tue 5:00 pm.');
+    expect(within(row('bread')).getByRole('img', { name: 'Unread' })).toBeInTheDocument();
+    expect(within(row('glass')).queryByRole('img')).toBeNull();
+    expect(within(row('glass')).getByText('Greenhouse glass').className).toContain('font-medium');
   });
 
   it('is put away from the snooze menu: who he waits on, when it gives up, and one post with his words', async () => {
@@ -416,6 +420,10 @@ describe('a thread waiting on a reply', () => {
     expect(dialog.getByText('It comes back when they reply.')).toBeInTheDocument();
     const say = dialog.getByTestId('auto-wait-say') as HTMLInputElement;
     expect(say.placeholder).toBe('Say who you are waiting on');
+    // The caret is in the field, and stays there when the menu it came from gives the keyboard back.
+    await waitFor(() => expect(document.activeElement).toBe(say));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(document.activeElement).toBe(say);
     // The phone's times, each with the day it means, and two working days on unless he says otherwise.
     const gives = dialog.getByTestId('auto-wait-gives') as HTMLSelectElement;
     expect([...gives.options].map((option) => option.textContent)).toEqual(['Next working day, Mon 5:00 pm', 'Two working days, Tue 5:00 pm', 'A week, Nov 21 5:00 pm', 'Pick a time…']);
@@ -621,6 +629,35 @@ describe('what Undo leaves behind', () => {
     key('z', { metaKey: true });
     // The snoozed thread under it is still in his order at the service.
     await waitFor(() => expect(last('move')).toEqual({ kind: 'move', id: 'inspect', before: 'labels' }));
+  });
+
+  it('keeps a thread he has just brought back where it is when the service’s order does not name it yet', async () => {
+    await open();
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    rowButton('bread').focus();
+    key('e');
+    await waitFor(() => expect(focusedRow()).toBe('seeds'));
+    key('e');
+    await waitFor(() => expect(focusedRow()).toBe('trellis'));
+    key('z', { metaKey: true });
+    key('z', { metaKey: true });
+    expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    // The service has brought one of the two back and says its order, in which the other is still archived.
+    act(() => auto.list({ kind: 'order', ids: ['beds', 'bread', 'trellis', 'inspect', 'labels', 'glass'] }));
+    expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    // The other way round: the one above is the one still to come.
+    act(() => auto.list({ kind: 'order', ids: ['beds', 'seeds', 'trellis', 'inspect', 'labels', 'glass'] }));
+    expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    // Neither named: both stay, in their order.
+    act(() => auto.list({ kind: 'order', ids: ['beds', 'trellis', 'inspect', 'labels', 'glass'] }));
+    expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    release();
+    await waitFor(() => expect(auto.asked('archive').filter((route) => route.archived === false)).toHaveLength(2));
+    // A thread the order has never heard of, which is not one he brought back, still goes on top.
+    act(() => auto.list({ kind: 'thread', thread: autoThread('fresh', { title: 'Made on the phone' }) }));
+    act(() => auto.list({ kind: 'order', ids: ['beds', 'bread', 'seeds', 'trellis', 'inspect', 'labels', 'glass'] }));
+    expect(listed()).toEqual(['beds', 'fresh', 'bread', 'seeds', 'trellis', 'inspect']);
   });
 
   it('sets the Mac mark again when the archive of a marked thread is undone, with the keyboard on its row', async () => {
