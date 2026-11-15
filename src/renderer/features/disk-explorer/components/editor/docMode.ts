@@ -41,7 +41,7 @@ import { blockPosition, docMode, drawnBlockAt, hiddenRanges, setCellCaret, setOp
 import { objectAt } from './extensionPoints';
 import { currentKeyEvent, deleteObject, focusObjectBar, objectFrameExtension, setFrame } from './objectFrame';
 import { headingKeys } from './headingKeys';
-import { withListEdges } from './listEdges';
+import { ownRow, withListEdges } from './listEdges';
 import { docListKeys } from './listKeys';
 import { quoteKeys } from './quoteKeys';
 import { insertTableItem } from './tableInsert';
@@ -571,6 +571,7 @@ export function docModeExtensions({ followLinks = false }: { followLinks?: boole
     clearFormattingKey,
     // After every other filter and just before the numbering (editorSetup.ts), which then counts the lists as they will be read.
     Prec.highest(EditorState.transactionFilter.of(withListEdges)),
+    ownRow,
     // Undo and redo skip the filters, so a caret they leave inside what the page hides is moved out here.
     EditorView.updateListener.of((update) => {
       if (!update.transactions.some((tr) => tr.isUserEvent('undo') || tr.isUserEvent('redo'))) return;

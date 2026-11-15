@@ -5,7 +5,7 @@ import { EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/vie
 import type { SyntaxNode } from '@lezer/common';
 import { latestTree, nodeDecorators, protectedIn } from './extensionPoints';
 import { inlineSpans, typingStyle } from './formatCommands';
-import { itemKind, siblingKind, withListEdges } from './listEdges';
+import { itemKind, keepsRows, siblingKind, withListEdges } from './listEdges';
 import { withListNumbers } from './listNumbers';
 import { docMode, hiddenRanges } from './livePreview';
 import { OBJECT as OBJECT_CHARACTER, visibleLine, visibleOffset, visibleSlice } from './visibleText';
@@ -162,7 +162,8 @@ function format(view: EditorView, doc: Text, removals: readonly { from: number; 
   const spec: TransactionSpec = {
     changes,
     selection: { anchor: changes.mapPos(view.state.selection.main.head, 1) },
-    annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.autoformat')],
+    // Formatting changes no row of the page: an empty row left over a typed marker stays when the marker makes a list (listEdges.ts).
+    annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.autoformat'), keepsRows.of(true)],
     filter: false,
   };
   // The formatting is what makes a typed "1. " an item, so the list it starts or joins gets its blank lines and its
