@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoRoute } from '@/types/auto';
 import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { forgetPlaces } from '@/renderer/features/auto/model/places';
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
-import { useThreadStore } from '@/renderer/features/auto/store/threadStore';
+import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
+import { forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { browseAuto } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
 import { ShellProvider } from '@/renderer/features/shell';
@@ -17,9 +19,6 @@ import { autoDigest, autoSnapshot, autoThread, digestEntry, installAutoApi, type
 import { installCollectionsApi } from '@/tests/helpers/collectionsApi';
 import { entry as diskEntry, installDiskApi } from '@/tests/helpers/diskApi';
 import { openTabs, tabPaths } from '@/tests/helpers/tabs';
-
-const { toastPlain, toastError } = vi.hoisted(() => ({ toastPlain: vi.fn(), toastError: vi.fn() }));
-vi.mock('sonner', () => ({ toast: Object.assign(toastPlain, { error: toastError }) }));
 
 const ROOT = '/Vault';
 const DAY = '2026-11-13';
@@ -86,6 +85,12 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
 }
 
 const digestRow = () => screen.getByTestId('auto-digest-row');
+/** The Digest row's first line: its name and how much is left. */
+const digestWord = () => (digestRow().textContent ?? '').replace(screen.queryByTestId('auto-digest-line')?.textContent ?? '\u0000', '');
+/** The line at the foot of the list, as one string, and its buttons. */
+const said = () => screen.queryByTestId('auto-said');
+const saidText = () => (said()?.textContent ?? '').replace(/\s+/g, ' ');
+const pressSaid = (name: string) => fireEvent.click(within(said() as HTMLElement).getByRole('button', { name }));
 const row = (id: string) => screen.getByTestId(`auto-row-${id}`);
 const entry = (id: string) => screen.getByTestId(`auto-entry-${id}`);
 const entryIds = () => [...screen.getByTestId('auto-queue').querySelectorAll('li[data-state]')].map((element) => element.getAttribute('data-testid')?.replace('auto-entry-', ''));
@@ -105,8 +110,9 @@ const openEntry = (id: string) => fireEvent.click(entry(id).querySelector('[data
 
 beforeEach(() => {
   window.localStorage.clear();
-  toastPlain.mockClear();
-  toastError.mockClear();
+  useSaidStore.getState().clear();
+  forgetPlaces();
+  forgetViews();
   useAutoStore.setState(useAutoStore.getInitialState(), true);
   useThreadStore.setState({ ...useThreadStore.getInitialState(), box: { outbox: [], drafts: {} } }, true);
   useDigestStore.setState(useDigestStore.getInitialState(), true);
@@ -182,25 +188,30 @@ describe('the mark for the Mac', () => {
 });
 
 describe('the Digest row', () => {
-  it('sits under New thread with how much is left, and is not a thread row', async () => {
+  it('sits under New thread with how much is left and a line about the day, and is not a thread row', async () => {
     await open();
-    await waitFor(() => expect(digestRow().textContent).toBe('Digest5 left'));
+    await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
+    expect(screen.getByTestId('auto-digest-line').textContent).toBe('Fri Nov 13. 8 entries, 1 resolved.');
     const rows = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')];
     expect(rows[0].getAttribute('data-testid')).toBe('auto-new-thread');
     expect(rows[1]).toBe(digestRow());
     expect(digestRow().closest('[data-thread-id]')).toBeNull();
     expect(digestRow().closest('[draggable="true"]')).toBeNull();
+    // New thread and Digest stay put above the rows that scroll.
+    expect(screen.getByTestId('auto-list-rows').contains(digestRow())).toBe(false);
+    expect(screen.getByTestId('auto-list-rows').contains(row('bread'))).toBe(true);
     expect(auto.asked('digest')).toEqual([{ kind: 'digest', date: null }]);
     expect(auto.asked('digests')).toHaveLength(1);
   });
 
   it('says Done with nothing left, and nothing with no digest', async () => {
     const view = await open({ digests: { [DAY]: autoDigest(DAY, [['Yesterday', [digestEntry('a', { state: 'resolved' })]]]) } });
-    await waitFor(() => expect(digestRow().textContent).toBe('DigestDone'));
+    await waitFor(() => expect(digestWord()).toBe('DigestDone'));
     view.unmount();
     await open({ digests: {} });
     await waitFor(() => expect(useDigestStore.getState().status).toBe('none'));
-    expect(digestRow().textContent).toBe('Digest');
+    expect(digestWord()).toBe('Digest');
+    expect(screen.queryByTestId('auto-digest-line')).toBeNull();
   });
 
   it('opens the queue where a thread would be, and a thread row takes its place again', async () => {
@@ -226,34 +237,46 @@ describe('the queue', () => {
     expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']);
   });
 
-  it('shows an entry’s title, its words clipped to three lines, a table whole and his note', async () => {
+  it('shows a closed entry as a title line and its words as plain text, and his note', async () => {
     await openQueue();
-    expect(within(entry('item-1')).getByText('Order the trays')).toBeInTheDocument();
-    expect(entry('item-1').querySelector('.auto-clip')).not.toBeNull();
-    // A meeting's words open with its name in bold: it is not said twice.
-    expect(entry('meeting-committee').textContent).toBe('10:00 Committee (in the hall)The water buttsResolveThread');
-    // A table is named by its section, so it has no title of its own.
+    // A to-do: its title, then its detail in the quiet colour at the smaller size, cut to two lines by the page.
+    expect(entry('item-1').querySelector('p')?.textContent).toBe('Order the trays');
+    const words = within(entry('item-1')).getByTestId('auto-entry-words');
+    expect(words.textContent).toBe('Two trays of 40 cells. See Beds.');
+    expect(words.className).toContain('line-clamp-2');
+    expect(words.className).toContain('text-foreground-tertiary');
+    // A meeting's words open with its name in bold: it is said once, and its time is at the row's right.
+    expect(entry('meeting-committee').querySelector('p')?.textContent).toBe('Committee10:00');
+    expect(within(entry('meeting-committee')).getByTestId('auto-entry-words').textContent).toBe('(in the hall)\nThe water butts');
+    // A table is named by its section, so it has no title of its own: its rows are its words, and no table is drawn until it is open.
     expect(within(entry('text-plots')).queryByText('Plots')).toBeNull();
-    expect(within(entry('text-plots')).getByRole('table')).toBeInTheDocument();
+    expect(within(entry('text-plots')).queryByRole('table')).toBeNull();
+    expect(within(entry('text-plots')).getByTestId('auto-entry-words').textContent).toBe('Plot, Bed\n4, 2');
+    expect(within(entry('text-plots')).getByTestId('auto-entry-words').className).toContain('text-foreground');
     expect(within(entry('text-c')).getByTestId('auto-entry-note').textContent).toBe('Buy a new washer');
     fireEvent.click(screen.getByTestId('auto-queue-all'));
     expect(entry('item-2').querySelector('p')?.textContent).toBe('High Book the inspection');
+    // Opened, it reads whole: the table is drawn.
+    openEntry('text-plots');
+    expect(within(entry('text-plots')).getByRole('table')).toBeInTheDocument();
   });
 
-  it('resolves one entry, offers Undo, and Undo reopens the same entry', async () => {
+  it('resolves one entry at once, says so by name at the foot of the list, and Undo reopens it', async () => {
     await openQueue();
     press('text-b', 'Resolve');
+    // The row leaves before the service has answered.
+    expect(entryIds()).not.toContain('text-b');
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b'], resolved: true }));
-    await waitFor(() => expect(entryIds()).not.toContain('text-b'));
-    expect(digestRow().textContent).toBe('Digest4 left');
+    await waitFor(() => expect(saidText()).toBe('Resolved Sowed the beans.Undo'));
+    expect(digestWord()).toBe('Digest4 left');
     expect(screen.getByTestId('auto-queue-left').textContent).toBe('Left4');
-    expect(toastPlain).toHaveBeenCalledTimes(1);
-    const [message, options] = toastPlain.mock.calls[0] as [string, { action: { label: string; onClick: () => void } }];
-    expect([message, options.action.label]).toEqual(['Resolved', 'Undo']);
-    act(() => options.action.onClick());
+    // The line is in the list's column, not in the app's corner.
+    expect(screen.getByTestId('auto-list').contains(said())).toBe(true);
+    pressSaid('Undo');
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b'], resolved: false }));
     await waitFor(() => expect(entryIds()).toContain('text-b'));
-    expect(digestRow().textContent).toBe('Digest5 left');
+    expect(digestWord()).toBe('Digest5 left');
+    expect(said()).toBeNull();
   });
 
   it('resolves a section’s open entries in one post, and Undo reopens them all', async () => {
@@ -262,9 +285,8 @@ describe('the queue', () => {
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b', 'text-c'], resolved: true }));
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Yesterday' })).toBeNull());
     expect(auto.asked('digest-resolve')).toHaveLength(1);
-    const [message, options] = toastPlain.mock.calls[0] as [string, { action: { onClick: () => void } }];
-    expect(message).toBe('2 resolved');
-    act(() => options.action.onClick());
+    await waitFor(() => expect(saidText()).toBe('Resolved 2 in YesterdayUndo'));
+    pressSaid('Undo');
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b', 'text-c'], resolved: false }));
     await waitFor(() => expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']));
   });
@@ -282,25 +304,46 @@ describe('the queue', () => {
     expect(offered()).toEqual(['People']);
   });
 
-  it('says why when the service refuses, and changes nothing', async () => {
+  it('brings the row back with the service’s sentence when it refuses', async () => {
     await openQueue();
     auto.state.failWrites = { kind: 'refused', message: 'That entry is no longer in the digest.', code: 'gone', status: 409 };
     press('text-b', 'Resolve');
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('That entry is no longer in the digest.'));
+    expect(entryIds()).not.toContain('text-b');
+    await waitFor(() => expect(saidText()).toBe('Sowed the beans.: That entry is no longer in the digest.'));
+    expect(said()?.getAttribute('data-problem')).toBe('true');
+    expect(within(said() as HTMLElement).queryByRole('button')).toBeNull();
     expect(entryIds()).toContain('text-b');
-    expect(toastPlain).not.toHaveBeenCalled();
+    expect(digestWord()).toBe('Digest5 left');
   });
 
-  it('makes a thread that waits on top of the list, and he stays in the queue', async () => {
+  it('makes a thread that waits on top of the list, says so with Open and Undo, and he stays in the queue', async () => {
     await openQueue();
     press('meeting-committee', 'Thread');
+    // The entry leaves Left at once.
+    expect(entryIds()).not.toContain('meeting-committee');
     await waitFor(() => expect(last('digest-thread')).toEqual({ kind: 'digest-thread', date: DAY, id: 'meeting-committee', words: null, cid: null }));
     // On top of the list, under the thread that waits on him.
     await waitFor(() => expect(rowIds()).toEqual(['beds', 'from-meeting-committee', 'bread', 'seeds', 'inspect']));
     expect(screen.getByTestId('auto-queue-pane')).toBeInTheDocument();
     expect(auto.followed.thread).toBeNull();
-    await waitFor(() => expect(entryIds()).not.toContain('meeting-committee'));
-    expect(digestRow().textContent).toBe('Digest4 left');
+    expect(digestWord()).toBe('Digest4 left');
+    await waitFor(() => expect(saidText()).toBe('Made a thread CommitteeOpenUndo'));
+    // Undo archives the thread nobody has started, and the entry is open again.
+    auto.state.digests[DAY] = day();
+    pressSaid('Undo');
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'from-meeting-committee', archived: true }));
+    await waitFor(() => expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'inspect']));
+    await waitFor(() => expect(entryIds()).toContain('meeting-committee'));
+  });
+
+  it('opens the thread it made from the line at the foot of the list', async () => {
+    await openQueue();
+    press('meeting-committee', 'Thread');
+    await waitFor(() => expect(saidText()).toBe('Made a thread CommitteeOpenUndo'));
+    pressSaid('Open');
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('from-meeting-committee'));
+    expect(screen.queryByTestId('auto-queue-pane')).toBeNull();
+    expect(said()).toBeNull();
   });
 });
 
@@ -383,12 +426,12 @@ describe('an entry opened in place', () => {
     auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
     fireEvent.change(box(), { target: { value: 'Ask for collection on Saturday' } });
     await userEvent.setup().type(box(), '{Enter}');
-    await waitFor(() => expect(within(entry('item-1')).getByTestId('auto-entry-not-sent').textContent).toBe('Not sent'));
+    await waitFor(() => expect(within(entry('item-1')).getByTestId('auto-entry-not-sent').textContent).toBe('Not sentRetry'));
     expect(box().value).toBe('Ask for collection on Saturday');
     expect(screen.getByTestId('auto-queue-pane')).toBeInTheDocument();
     const first = last('digest-thread')?.cid;
     auto.state.failWrites = null;
-    await userEvent.setup().type(box(), '{Enter}');
+    fireEvent.click(within(within(entry('item-1')).getByTestId('auto-entry-not-sent')).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(auto.followed.thread?.id).toBe('from-item-1'));
     expect(auto.asked('digest-thread')).toHaveLength(2);
     expect(last('digest-thread')?.cid).toBe(first);
@@ -406,11 +449,14 @@ describe('an entry opened in place', () => {
 
   it('opens a vault file linked in an entry as a page, and the digest’s own file from the header', async () => {
     await openQueue();
+    // A closed entry is plain words; opened, its links can be followed.
+    expect(within(entry('item-1')).queryByRole('link')).toBeNull();
+    openEntry('item-1');
     fireEvent.click(within(entry('item-1')).getByRole('link', { name: 'Beds' }));
     await waitFor(() => expect(tabPaths()).toEqual([null, '/Vault/Projects/Beds.md']));
     expect(auto.api.resolvePage).toHaveBeenCalledWith('Projects/Beds.md');
-    // Following the link did not open the entry.
-    expect(entry('item-1').getAttribute('data-open')).toBeNull();
+    // Following the link did not close the entry.
+    expect(entry('item-1').getAttribute('data-open')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Open the digest' }));
     await waitFor(() => expect(auto.api.resolvePage).toHaveBeenCalledWith(`Library/digests/${DAY} digest.md`));
     await waitFor(() => expect(tabPaths()).toContain(`/Vault/Library/digests/${DAY} digest.md`));
@@ -425,14 +471,18 @@ describe('All', () => {
     expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'item-2', 'item-3', 'text-plots', 'text-a', 'text-b', 'text-c']);
     expect(entry('text-a').getAttribute('data-state')).toBe('resolved');
     expect(within(entry('text-a')).getByText('Resolved')).toBeInTheDocument();
-    expect(within(entry('text-a')).getAllByRole('button').filter((button) => button.getAttribute('role') !== 'button').map((button) => button.textContent)).toEqual(['Reopen']);
-    expect(within(entry('item-2')).getByText('A thread')).toBeInTheDocument();
-    expect(within(entry('item-2')).getByRole('button', { name: 'Open the thread' })).toBeInTheDocument();
-    // Its thread is not in the list (archived or snoozed away): nothing to open.
+    expect(within(entry('text-a')).getAllByRole('button').filter((button) => button.tagName === 'BUTTON').map((button) => button.textContent)).toEqual(['Reopen']);
+    // One that became a thread shows that thread's own line, as its row in the list does.
+    expect(entry('item-2').textContent).toContain('The committee walks the plots.');
+    expect(within(entry('item-2')).queryByText('A thread')).toBeNull();
+    expect(within(entry('item-2')).queryByRole('button', { name: 'Open the thread' })).toBeNull();
+    // Its thread is not in the list (archived or snoozed away): it only says what it became.
     expect(within(entry('item-3')).getByText('A thread')).toBeInTheDocument();
-    expect(within(entry('item-3')).queryByRole('button', { name: 'Open the thread' })).toBeNull();
     // An open entry has neither word.
     expect(entry('text-b').textContent).not.toMatch(/Resolved|A thread/);
+    // The line follows the thread: while it works, its live line.
+    act(() => auto.list({ kind: 'thread', thread: { ...INSPECTION, waits: false, status: 'working', activity: 'Reading the rota' } }));
+    expect(entry('item-2').textContent).toContain('Reading the rota');
   });
 
   it('reopens a resolved entry, with no Undo to offer', async () => {
@@ -441,14 +491,14 @@ describe('All', () => {
     press('text-a', 'Reopen');
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-a'], resolved: false }));
     await waitFor(() => expect(entry('text-a').getAttribute('data-state')).toBe('open'));
-    expect(toastPlain).not.toHaveBeenCalled();
-    expect(digestRow().textContent).toBe('Digest6 left');
+    expect(said()).toBeNull();
+    expect(digestWord()).toBe('Digest6 left');
   });
 
-  it('opens the thread an entry became', async () => {
+  it('opens the thread an entry became from its row', async () => {
     await openQueue();
     fireEvent.click(screen.getByTestId('auto-queue-all'));
-    press('item-2', 'Open the thread');
+    openEntry('item-2');
     await waitFor(() => expect(auto.followed.thread?.id).toBe('inspect'));
     expect(screen.queryByTestId('auto-queue-pane')).toBeNull();
     expect(screen.getByTestId('auto-thread')).toBeInTheDocument();
@@ -460,8 +510,10 @@ describe('All', () => {
     openEntry('text-a');
     expect(within(entry('text-a')).getByRole('textbox', { name: 'Your note' })).toBeInTheDocument();
     expect(within(entry('text-a')).queryByTestId('auto-entry-box')).toBeNull();
-    openEntry('item-2');
-    expect(within(entry('item-2')).queryByTestId('auto-entry-box')).toBeNull();
+    // A thread that is not in the list opens in place, with no box either.
+    openEntry('item-3');
+    expect(entry('item-3').getAttribute('data-open')).toBe('true');
+    expect(within(entry('item-3')).queryByTestId('auto-entry-box')).toBeNull();
   });
 });
 
@@ -475,7 +527,7 @@ describe('the days', () => {
     expect(screen.getByTestId('auto-queue-all').getAttribute('aria-pressed')).toBe('true');
     expect(entryIds()).toEqual(['item-1', 'item-2']);
     expect(screen.getByTestId('auto-queue-left').textContent).toBe('Left1');
-    expect(digestRow().textContent).toBe('Digest5 left');
+    expect(digestWord()).toBe('Digest5 left');
   });
 
   it('writes to the day that is shown', async () => {
@@ -487,7 +539,7 @@ describe('the days', () => {
     await waitFor(() => expect(entry('item-2').getAttribute('data-state')).toBe('resolved'));
     expect(screen.getByTestId('auto-queue-left').textContent).toBe('Left0');
     // The latest day's count is its own.
-    expect(digestRow().textContent).toBe('Digest5 left');
+    expect(digestWord()).toBe('Digest5 left');
     expect(service('text-b')?.state).toBe('open');
   });
 
@@ -521,20 +573,20 @@ describe('the empty queue', () => {
     await openQueue({ digests: { [DAY]: autoDigest(DAY, [['Yesterday', [digestEntry('a')]]]) } });
     press('a', 'Resolve');
     await waitFor(() => expect(screen.getByTestId('auto-queue-empty').textContent).toBe('Nothing left in this digest.Show all 1'));
-    expect(digestRow().textContent).toBe('DigestDone');
+    expect(digestWord()).toBe('DigestDone');
   });
 
   it('says it can’t read the digest when the service fails on it alone, and Retry reads it again', async () => {
     await openQueue({ failDigest: { kind: 'refused', message: 'The service failed.', code: 'server_error', status: 500 } });
     await waitFor(() => expect(useDigestStore.getState().status).toBe('failed'));
     expect(screen.getByTestId('auto-queue-failed').textContent).toBe("Can't read the digest.Retry");
-    expect(digestRow().textContent).toBe('Digest');
+    expect(digestWord()).toBe('Digest');
     // The list is not held up by it.
     expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'inspect']);
     auto.state.failDigest = null;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13'));
-    expect(digestRow().textContent).toBe('Digest5 left');
+    expect(digestWord()).toBe('Digest5 left');
   });
 
   it('says No digest yet when the service has none', async () => {
@@ -553,7 +605,7 @@ describe('changes made somewhere else', () => {
     auto.state.digests[DAY] = autoDigest(DAY, [['Yesterday', [digestEntry('text-b', { md: 'Sowed the beans.' }), digestEntry('text-z', { md: 'Fed the tomatoes.' })]]]);
     act(() => auto.list({ kind: 'digest', date: DAY }));
     await waitFor(() => expect(entryIds()).toEqual(['text-b', 'text-z']));
-    expect(digestRow().textContent).toBe('Digest2 left');
+    expect(digestWord()).toBe('Digest2 left');
     expect(auto.asked('digest').length).toBeGreaterThan(reads);
   });
 
@@ -565,15 +617,15 @@ describe('changes made somewhere else', () => {
     act(() => auto.list({ kind: 'digest', date: EARLIER }));
     await waitFor(() => expect(entryIds()).toEqual(['item-2']));
     expect(screen.getByTestId('auto-queue-day').textContent).toBe('Thursday, November 12');
-    expect(digestRow().textContent).toBe('Digest5 left');
+    expect(digestWord()).toBe('Digest5 left');
   });
 
   it('moves the row’s count to a newer day when one arrives', async () => {
     await open();
-    await waitFor(() => expect(digestRow().textContent).toBe('Digest5 left'));
+    await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
     auto.state.digests['2026-11-14'] = autoDigest('2026-11-14', [['Top 3', [digestEntry('item-1'), digestEntry('item-2')]]]);
     act(() => auto.list({ kind: 'digest', date: '2026-11-14' }));
-    await waitFor(() => expect(digestRow().textContent).toBe('Digest2 left'));
+    await waitFor(() => expect(digestWord()).toBe('Digest2 left'));
     expect(useDigestStore.getState().days[0]).toBe('2026-11-14');
   });
 
@@ -582,7 +634,7 @@ describe('changes made somewhere else', () => {
     auto.state.digests[DAY] = autoDigest(DAY, [['Yesterday', [digestEntry('text-z', { md: 'Fed the tomatoes.' })]]]);
     act(() => auto.list({ kind: 'reset' }));
     await waitFor(() => expect(entryIds()).toEqual(['text-z']));
-    expect(digestRow().textContent).toBe('Digest1 left');
+    expect(digestWord()).toBe('Digest1 left');
   });
 
   it('forgets the digest with the address it came from', async () => {

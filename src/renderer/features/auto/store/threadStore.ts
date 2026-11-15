@@ -15,15 +15,23 @@ import {
   type OutboxEntry,
 } from '../model/outbox';
 import { DIGEST_QUEUE, paneThread } from '../model/pane';
-import type { Picks } from '../model/questionModel';
+import { forgetPlaces } from '../model/places';
+import { answerTyped, type Picks } from '../model/questionModel';
 import { applyEvent, fromSnapshot, unconfirmed, type PendingMessage, type ThreadView } from '../model/threadModel';
 import { autoApi, useAutoStore } from './autoStore';
 
 /*
  * The open thread and the box. A snapshot sets the thread, its stream keeps
  * it current while the tab is in view, and a message typed in the box stays
- * in the outbox until the service has it.
+ * in the outbox until the service has it. The last view of each thread is
+ * kept in memory, so a thread seen before shows at once while the fresh
+ * snapshot loads.
  */
+
+/** How many threads' last views are kept. */
+const KEPT_LIMIT = 40;
+/** "Loading…" shows only when nothing is kept and the wait passes this, in ms. */
+export const SLOW_MS = 300;
 
 export interface ThreadStore {
   /**
@@ -33,8 +41,16 @@ export interface ThreadStore {
   openId: string | null;
   view: ThreadView | null;
   loading: boolean;
+  /** The wait for a thread with nothing kept has passed 300 ms: say so. */
+  slow: boolean;
   /** Why the thread could not be read. */
   problem: string | null;
+  /** The last read failed, so what shows may be old: it is read again once Auto answers. */
+  stale: boolean;
+  /** The thread had a reply he had not read when it was opened: it opens at that reply's start. */
+  openedUnread: boolean;
+  /** Counts up each time the box should take the keyboard focus. */
+  boxFocus: number;
   token: number | null;
   /** The tab is in view, so the open thread's stream is followed. */
   watching: boolean;
@@ -50,16 +66,26 @@ export interface ThreadStore {
   /** The model a new thread starts with. */
   newModel: string;
 
-  open: (id: string | null) => void;
+  /**
+   * Opens a pane. The box takes the focus unless `focus` is false, as when
+   * the next thread opens after a row's key archived the one before.
+   */
+  open: (id: string | null, options?: { focus?: boolean }) => void;
   load: () => Promise<void>;
+  /** Reads the open thread again if its last read failed or never happened. */
+  recover: () => void;
+  focusBox: () => void;
   setWatching: (watching: boolean) => void;
   handle: (message: AutoStreamMessage) => void;
   setDraft: (text: string) => void;
   /**
    * Sends words as his message; `typed` says they came from the box, which is
-   * then emptied. Opal never marks a message as a send request.
+   * then emptied. While a question waits, words typed in the box are his
+   * answer to it. Opal never marks a message as a send request.
    */
   send: (text: string, typed?: boolean) => Promise<boolean>;
+  /** Puts a follow-up into the box, to change before it is sent. */
+  editNext: (line: string) => void;
   stop: () => Promise<void>;
   answer: (answer: AutoAnswer) => Promise<boolean>;
   setPicks: (picks: Picks) => void;
@@ -69,6 +95,23 @@ export interface ThreadStore {
   setModel: (model: string) => Promise<void>;
   /** Sends again what a closed app left on its way, and gives the rest back to its box. */
   flush: () => void;
+}
+
+/** The last view of each thread seen this session, the oldest dropped first. */
+const kept = new Map<string, ThreadView>();
+
+function remember(view: ThreadView): void {
+  kept.delete(view.thread.id);
+  kept.set(view.thread.id, view);
+  for (const oldest of kept.keys()) {
+    if (kept.size <= KEPT_LIMIT) break;
+    kept.delete(oldest);
+  }
+}
+
+/** Drops every kept view: they belong to the service they were read from. */
+export function forgetViews(): void {
+  kept.clear();
 }
 
 /** The key a thread's draft is kept under. */
@@ -93,6 +136,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     void autoApi()?.unfollow('thread').catch(() => undefined);
   };
 
+  let slowTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** The messages being posted now, so none is posted twice at once. */
   const onTheirWay = new Set<string>();
 
@@ -107,6 +152,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     onTheirWay.delete(entry.cid);
     if (result?.success) {
       keep(drop(get().box, entry.cid));
+      // The service answers: a thread that could not be read is read now.
+      get().recover();
       if ('thread' in result.data) {
         useAutoStore.getState().upsert(result.data.thread);
         return result.data.thread.id;
@@ -128,7 +175,11 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     openId: null,
     view: null,
     loading: false,
+    slow: false,
     problem: null,
+    stale: false,
+    openedUnread: false,
+    boxFocus: 0,
     token: null,
     watching: false,
     pending: [],
@@ -139,11 +190,39 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     cardProblem: null,
     newModel: '',
 
-    open: (id) => {
-      if (id === get().openId) return;
+    open: (id, options = {}) => {
+      const focus = options.focus !== false;
+      if (id === get().openId) {
+        // A click on the row of a thread that could not be read tries again.
+        get().recover();
+        if (focus) get().focusBox();
+        return;
+      }
       unfollow();
-      set({ openId: id, view: null, loading: false, problem: null, pending: [], picks: {}, cardProblem: null });
-      if (paneThread(id)) void get().load();
+      const thread = paneThread(id);
+      const entry = thread ? useAutoStore.getState().threads.find((candidate) => candidate.id === thread) : undefined;
+      set({
+        openId: id,
+        // What was last seen of it shows at once; the fresh snapshot takes its place.
+        view: (thread && kept.get(thread)) || null,
+        loading: false,
+        slow: false,
+        problem: null,
+        stale: false,
+        openedUnread: entry?.unread === true,
+        pending: [],
+        picks: {},
+        cardProblem: null,
+        ...(focus ? { boxFocus: get().boxFocus + 1 } : {}),
+      });
+      if (thread) void get().load();
+    },
+
+    focusBox: () => set({ boxFocus: get().boxFocus + 1 }),
+
+    recover: () => {
+      const { view, problem, stale, loading } = get();
+      if (paneThread(get().openId) && !loading && (view === null || problem !== null || stale)) void get().load();
     },
 
     load: async () => {
@@ -151,16 +230,29 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const api = autoApi();
       if (!api || !id) return;
       unfollow();
-      set({ loading: get().view === null });
+      set({ loading: true, slow: false });
+      if (slowTimer) clearTimeout(slowTimer);
+      slowTimer = setTimeout(() => {
+        if (get().openId === id && get().loading && get().view === null) set({ slow: true });
+      }, SLOW_MS);
       const result = await api.request({ kind: 'thread', id }).catch((): null => null);
       if (get().openId !== id) return;
       if (!result?.success) {
         // A thread that is gone says so; a service out of reach is the list's to report.
-        set({ loading: false, problem: result?.error.kind === 'refused' ? result.error.message : get().view ? null : "Can't reach Auto." });
+        const refused = result?.error.kind === 'refused';
+        if (refused) kept.delete(id);
+        set({
+          loading: false,
+          slow: false,
+          stale: !refused,
+          view: refused ? null : get().view,
+          problem: refused ? result.error.message : get().view ? null : "Can't reach Auto.",
+        });
         return;
       }
       const view = fromSnapshot(result.data);
-      set({ view, loading: false, problem: null, pending: unconfirmed(get().pending, view) });
+      remember(view);
+      set({ view, loading: false, slow: false, problem: null, stale: false, pending: unconfirmed(get().pending, view) });
       // A message the service could not hand to the agent goes back into an empty box.
       if (view.unsent && !(get().box.drafts[id] ?? '').trim()) {
         keep(setDraft(get().box, id, view.unsent));
@@ -192,6 +284,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         return;
       }
       const next = { ...applyEvent(view, event), cursor: message.cursor ?? view.cursor };
+      remember(next);
       set({
         view: next,
         pending: unconfirmed(get().pending, next),
@@ -207,12 +300,24 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (get().notSent?.thread === key) set({ notSent: null });
     },
 
+    editNext: (line) => {
+      get().setDraft(line);
+      get().focusBox();
+    },
+
     send: async (text, typed = true) => {
       const words = text.trim();
       const openId = get().openId;
       const key = draftKey(openId);
       // The queue has boxes of its own.
       if (!words || openId === DIGEST_QUEUE) return false;
+      // While a question waits, the box is its answer field: his words answer it and are not queued behind it.
+      const question = get().view?.question;
+      if (question && typed) {
+        const took = await get().answer(answerTyped(question, words, get().picks));
+        if (took && get().openId === openId) keep(setDraft(get().box, key, ''));
+        return took;
+      }
       // While the service is out of reach the box is left as it is.
       if (!useAutoStore.getState().reachable) {
         set({ notSent: { thread: key, text: 'Not sent' } });
@@ -232,7 +337,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (went && !thread && get().openId === openId) {
         // The new thread opens with the message it was started by.
         unfollow();
-        set({ openId: went, view: null, problem: null, picks: {}, cardProblem: null });
+        set({ openId: went, view: null, problem: null, stale: false, openedUnread: false, picks: {}, cardProblem: null });
         void get().load();
       }
       return went !== null;
@@ -242,6 +347,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const id = paneThread(get().openId);
       if (!id) return;
       const result = await autoApi()?.request({ kind: 'stop', id }).catch((): null => null);
+      // The keyboard goes back to the box, whatever held it when he stopped the turn.
+      if (get().openId === id) get().focusBox();
       if (!result?.success) {
         if (result?.error.kind === 'refused') set({ cardProblem: result.error.message });
         return;
@@ -259,6 +366,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const result = await autoApi()?.request({ kind: 'answer', id, answer }).catch((): null => null);
       if (result?.success) {
         set({ picks: {}, cardProblem: null });
+        // The card is answered: the keyboard goes back to the box.
+        if (get().openId === id) get().focusBox();
         return true;
       }
       set({ cardProblem: result?.error.message ?? "Can't reach Auto." });
@@ -308,8 +417,15 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
 });
 
 // The list hears of a thread's changes too; the open thread keeps the newer entry.
-// A thread that leaves the list, as an archived one does, is no longer open.
+// A thread that leaves the list, as one archived on another device does, is no longer open.
+// Once Auto answers again, a thread that could not be read is read by itself.
 useAutoStore.subscribe((state, before) => {
+  // Another address is another service: nothing kept from the old one stays.
+  if (state.address !== before.address) {
+    forgetViews();
+    forgetPlaces();
+  }
+  if ((state.reachable && !before.reachable) || (state.reachable && state.refreshedAt !== before.refreshedAt)) useThreadStore.getState().recover();
   if (state.threads === before.threads) return;
   const { view, openId, open } = useThreadStore.getState();
   if (!view || view.thread.id !== openId) return;

@@ -76,6 +76,19 @@ From Library/digests/2026-11-13 digest.md`;
 
 const now = () => Date.now() / 1000;
 const hex = (bytes) => randomBytes(bytes).toString('hex');
+const WIDE_REPLY = `The whole year, month by month.
+
+| Crop | January | February | March | April | May | June | July | August | September | October | November | December |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Broad beans | Rest | Sow under cover | Sow outside | Stake the rows | Pinch the tips | Pick | Pick and clear | Green manure | Green manure | Dig it in | Sow for spring | Rest |
+| Squash | Rest | Rest | Order the seed | Sow under cover | Plant out after frost | Feed weekly | Feed weekly | Pick the first | Cure in the sun | Store | Rest | Rest |
+
+\`\`\`sh
+rsync --archive --delete --exclude ".cache" --exclude "*.tmp" ~/Garden/plans/ /Volumes/Backup/garden/plans/ && echo "plans copied on $(date +%F)" >> ~/Garden/backup.log
+\`\`\`
+
+That is everything.`;
+
 const firstLine = (text) => (text.split('\n').find((line) => line.trim()) ?? '').replace(/^#+\s*/, '').slice(0, 200);
 /** A line's words without their Markdown marks, links by their text. */
 const plainWords = (text) => text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim();
@@ -201,6 +214,7 @@ export async function startStandIn(options = {}) {
     failWrites: false, // false | 'refuse' | 'drop'
     down: false,
     slowMs: 0,
+    slow: 0, // ms every answer but a stream's waits
     holds: new Map(),
   };
   const requests = [];
@@ -504,6 +518,29 @@ export async function startStandIn(options = {}) {
       await ctx.say(`Tomatoes go in **${Array.isArray(picked) ? picked.join(' and ') : picked}**. I moved the basil beside them.`);
       return ['Show the whole planting plan'];
     }
+    if (said.includes('two things')) {
+      ctx.activity('Reading Beds.md');
+      await ctx.wait(pace * 2);
+      // A question in two parts, one of them with several choices: clicks pick, and the picks go together.
+      const answer = await ctx.ask({
+        kind: 'ask',
+        questions: [
+          { question: 'Which bed gets the squash?', header: 'Bed', multiSelect: false, options: [{ label: 'Bed 1', description: '' }, { label: 'Bed 2', description: '' }] },
+          { question: 'Which of these go in beside it?', header: 'Beside', multiSelect: true, options: [{ label: 'Nasturtiums', description: '' }, { label: 'Borage', description: '' }, { label: 'Dill', description: '' }] },
+        ],
+      });
+      ctx.activity('Writing');
+      const picks = Object.values(answer.answers).map((picked) => (Array.isArray(picked) ? picked.join(' and ') : picked));
+      await ctx.say(`Squash: **${picks[0]}**. Beside it: **${picks[1]}**.`);
+      return [];
+    }
+    if (said.includes('wide')) {
+      ctx.activity('Writing');
+      await ctx.wait(pace * 2);
+      // A table and a line of code wider than the column: each scrolls sideways in its own box.
+      await ctx.say(WIDE_REPLY, { piece: 80 });
+      return [];
+    }
     if (said.includes('drafts')) {
       ctx.activity('Listing the old drafts');
       await ctx.wait(pace * 2);
@@ -682,6 +719,8 @@ export async function startStandIn(options = {}) {
     const path = url.pathname.slice(mount.length);
     const isWrite = request.method === 'POST';
     const data = isWrite ? await body(request) : undefined;
+    // A slow network: every answer but a stream's waits this long.
+    if (state.slow > 0 && !path.endsWith('/events')) await new Promise((resolve) => setTimeout(resolve, state.slow));
     requests.push({ method: request.method, path: `${path}${url.search}`, headers: request.headers, body: data });
 
     if (isWrite) {
@@ -940,6 +979,10 @@ export async function startStandIn(options = {}) {
     /** 'refuse' answers every write with an error, 'drop' cuts the connection, false stops both. */
     failWrites(how) {
       state.failWrites = how;
+    },
+    /** Every answer but a stream's waits this many ms, as on a slow network; 0 stops it. */
+    slow(ms) {
+      state.slow = ms;
     },
     /** Out of reach: every connection is cut, open streams too. */
     down(isDown = true) {

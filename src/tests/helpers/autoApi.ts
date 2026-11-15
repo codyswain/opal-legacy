@@ -69,6 +69,10 @@ export interface FakeAuto {
     failWrites: AutoFailure | null;
     /** Reads of a digest and of the days alone fail this way while set. */
     failDigest: AutoFailure | null;
+    /** Reads of a thread alone fail this way while set. */
+    failThread: AutoFailure | null;
+    /** While set, every write waits for it before it answers: a slow service. */
+    gate: Promise<void> | null;
   };
   /** Every route asked for, in order. */
   routes: () => AutoRoute[];
@@ -97,6 +101,8 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     fail: null,
     failWrites: null,
     failDigest: null,
+    failThread: null,
+    gate: null,
     ...options,
   };
   const followed: FakeAuto['followed'] = { list: null, thread: null };
@@ -119,6 +125,11 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     if (state.fail) return { success: false, error: state.fail };
     if (state.failWrites && !READS.has(route.kind)) return { success: false, error: state.failWrites };
     if (state.failDigest && (route.kind === 'digest' || route.kind === 'digests')) return { success: false, error: state.failDigest };
+    if (state.failThread && route.kind === 'thread') return { success: false, error: state.failThread };
+    if (state.gate && !READS.has(route.kind)) {
+      await state.gate;
+      if (state.failWrites) return { success: false, error: state.failWrites };
+    }
     switch (route.kind) {
       case 'status':
       case 'check-status':

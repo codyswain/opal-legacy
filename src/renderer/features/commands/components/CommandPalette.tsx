@@ -118,7 +118,7 @@ export const CommandPalette: React.FC = () => {
   }, [open, commandMode, term, searchRevision]);
 
   const sections = useMemo((): { title: string; items: PaletteItem[] }[] => {
-    const matched = rankCommands(commands.filter((command) => !command.hidden), term, commandMode ? Infinity : term ? COMMAND_LIMIT_WITH_FILES : Infinity)
+    const matched = rankCommands(commands.filter((command) => !command.hidden && (term !== '' || !command.searchOnly)), term, commandMode ? Infinity : term ? COMMAND_LIMIT_WITH_FILES : Infinity)
       .map((command): PaletteItem => ({ kind: 'command', command }));
     if (commandMode) return [{ title: 'Commands', items: matched }];
     // Go to File and New Tab are for a file, so they list no commands unless asked with `>`.
@@ -224,9 +224,11 @@ export const CommandPalette: React.FC = () => {
                         </>
                       ) : (
                         <span className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-foreground">{sentenceCase(item.command.name)}</span>
+                          <span className="min-w-0 flex-1 truncate text-foreground">{item.command.label ?? sentenceCase(item.command.name)}</span>
                           {item.command.shortcut?.[0] ? (
                             <span className="shrink-0 text-metadata tabular-nums text-foreground-tertiary">{formatShortcut(item.command.shortcut[0])}</span>
+                          ) : item.command.hint ? (
+                            <span className="shrink-0 text-metadata text-foreground-tertiary">{item.command.hint}</span>
                           ) : null}
                         </span>
                       )}

@@ -83,6 +83,40 @@ function inlineViews(nodes: readonly Inline[], context: LinkContext): React.Reac
   return nodes.map((node, at) => <InlineView key={at} node={node} context={context} />);
 }
 
+/**
+ * For a box that scrolls sideways: marks which of its edges is cut, so the
+ * page fades that edge and the cut does not read as the end.
+ */
+function useEdgeFade<T extends HTMLElement>(): React.RefObject<T> {
+  const box = React.useRef<T>(null);
+  React.useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const mark = () => {
+      const start = element.scrollLeft > 1;
+      const end = element.scrollWidth - element.clientWidth - element.scrollLeft > 1;
+      const fade = start && end ? 'both' : end ? 'end' : start ? 'start' : null;
+      if (fade) element.setAttribute('data-fade', fade);
+      else element.removeAttribute('data-fade');
+    };
+    mark();
+    element.addEventListener('scroll', mark, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(mark);
+    observer?.observe(element);
+    return () => {
+      element.removeEventListener('scroll', mark);
+      observer?.disconnect();
+    };
+  });
+  return box;
+}
+
+/** A table in a box of its own, which scrolls sideways when it is wider than the column. */
+function TableBox({ children }: { children: React.ReactNode }) {
+  const box = useEdgeFade<HTMLDivElement>();
+  return <div ref={box} className="auto-md-table">{children}</div>;
+}
+
 /** A fenced block with Copy at its corner. With no language, or `text`, it holds words to paste and is set as text. */
 function CodeBlock({ language, text }: { language: string; text: string }) {
   const [copied, setCopied] = React.useState(false);
@@ -97,9 +131,10 @@ function CodeBlock({ language, text }: { language: string; text: string }) {
     timer.current = setTimeout(() => setCopied(false), 1500);
   };
   const paste = language === '' || language === 'text';
+  const lines = useEdgeFade<HTMLPreElement>();
   return (
     <div className="auto-md-block" data-paste={paste || undefined} data-language={language || undefined}>
-      <pre>{text}</pre>
+      <pre ref={lines}>{text}</pre>
       <IconButton label={copied ? 'Copied' : 'Copy'} onClick={copy} className="auto-md-copy bg-surface">
         {copied ? <Check aria-hidden className="h-3.5 w-3.5" /> : <Copy aria-hidden className="h-3.5 w-3.5" />}
       </IconButton>
@@ -132,7 +167,7 @@ function BlockView({ block, context }: { block: Block; context: LinkContext }) {
       return <CodeBlock language={block.language} text={block.text} />;
     case 'table':
       return (
-        <div className="auto-md-table">
+        <TableBox>
           <table>
             <thead>
               <tr>
@@ -151,7 +186,7 @@ function BlockView({ block, context }: { block: Block; context: LinkContext }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       );
     case 'rule':
       return <hr />;

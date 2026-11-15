@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoItem, AutoQuestion, AutoRoute } from '@/types/auto';
 import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
-import { useThreadStore } from '@/renderer/features/auto/store/threadStore';
-import { browseAuto, isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { forgetPlaces } from '@/renderer/features/auto/model/places';
+import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
+import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
+import { forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
+import { browseAuto, focusFile, isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
 import { tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { ShellProvider, WorkspaceSidebar } from '@/renderer/features/shell';
@@ -109,6 +112,10 @@ beforeEach(() => {
   window.localStorage.clear();
   useAutoStore.setState(useAutoStore.getInitialState(), true);
   useThreadStore.setState({ ...useThreadStore.getInitialState(), box: { outbox: [], drafts: {} } }, true);
+  useDigestStore.setState(useDigestStore.getInitialState(), true);
+  useSaidStore.getState().clear();
+  forgetPlaces();
+  forgetViews();
   installDiskApi();
   installActivityApi();
   installCollectionsApi();
@@ -252,7 +259,7 @@ describe('the list', () => {
     await open();
     await userEvent.setup().click(screen.getByTestId('auto-snooze-bread'));
     const menu = within(await screen.findByTestId('auto-snooze-menu'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent?.replace(/\d.*$/, '').replace(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ?$/, '')).filter((label) => label !== 'Later today')).toEqual(['Tomorrow', 'Next week', 'Pick a date…']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent?.replace(/\d.*$/, '').replace(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ?$/, '')).filter((label) => label !== 'Later today')).toEqual(['Tomorrow', 'Next week', 'Pick a time…']);
     const before = Date.now() / 1000;
     fireEvent.click(menu.getByRole('menuitem', { name: /^Tomorrow/ }));
     await waitFor(() => expect(last('snooze')?.id).toBe('bread'));
@@ -265,14 +272,16 @@ describe('the list', () => {
     const pointer = userEvent.setup();
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('bread')).getAllByRole('button')[0] });
     let menu = within(await screen.findByTestId('auto-row-menu-bread'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Pick a date…', 'Mark for the Mac', 'Archive']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Pick a time…', 'Mark for the MacM', 'ArchiveE']);
+    // The keys beside the items are for the eye; an item is still called by its name.
+    expect(menu.getByRole('menuitem', { name: 'Mark for the Mac' })).toBeInTheDocument();
     fireEvent.click(menu.getByRole('menuitem', { name: 'Archive' }));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: true }));
     await waitFor(() => expect(screen.queryByTestId('auto-row-bread')).toBeNull());
 
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('inspect')).getAllByRole('button')[0] });
     menu = within(await screen.findByTestId('auto-row-menu-inspect'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the Mac', 'Done', 'Archive']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the MacM', 'DoneD', 'ArchiveE']);
     fireEvent.click(menu.getByRole('menuitem', { name: 'Done' }));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
   });
@@ -345,7 +354,7 @@ describe('a thread', () => {
     expect(within(screen.getByTestId('auto-talk')).getByText('Send the times to the club')).toBeInTheDocument();
   });
 
-  it('streams a turn: the message, the steps folded to three, the reply as it arrives, then the follow-ups', async () => {
+  it('streams a turn: the message, the steps as one line, the reply as it arrives, then the follow-ups', async () => {
     await open();
     await openThread('bread');
     const talk = within(screen.getByTestId('auto-talk'));
@@ -358,9 +367,14 @@ describe('a thread', () => {
     act(() => auto.thread({ kind: 'add', item: { role: 'steps', steps: steps.slice(0, 1) } }));
     act(() => auto.thread({ kind: 'set', index: 1, item: { role: 'steps', steps } }));
     const live = talk.getAllByTestId('auto-steps').at(-1) as HTMLElement;
-    expect(live.textContent).toBe('2 earlier stepsfrost datesA calendarChecked');
-    fireEvent.click(within(live).getByRole('button', { name: '2 earlier steps' }));
-    expect(live.textContent).toBe('Show the last 3Read Seeds.mdsowing monthsfrost datesA calendarChecked');
+    // One line while the turn runs, which opens to every step and closes again.
+    expect(live.textContent).toBe('Read 1 file, 4 more steps');
+    fireEvent.click(within(live).getByRole('button', { name: 'Read 1 file, 4 more steps' }));
+    expect(live.textContent).toBe('Read 1 file, 4 more stepsRead Seeds.mdsowing monthsfrost datesA calendarChecked');
+    fireEvent.click(within(live).getByRole('button', { name: 'Read 1 file, 4 more steps' }));
+    expect(live.textContent).toBe('Read 1 file, 4 more steps');
+    // Stop sits beside the send button, not in the header.
+    expect(screen.getByTestId('auto-stop').closest('form')).not.toBeNull();
 
     act(() => auto.thread({ kind: 'add', item: reply('', true) }));
     act(() => auto.thread({ kind: 'append', text: 'March: **broad' }));
@@ -386,7 +400,7 @@ describe('a thread', () => {
     expect(within(screen.getByTestId('auto-talk')).getByText('Stopped')).toBeInTheDocument();
   });
 
-  it('answers a question from its card: an option, or his own words', async () => {
+  it('answers a question from its card with an option, and with his own words from the box', async () => {
     await open();
     await openThread('bread');
     act(() => auto.thread({ kind: 'turn', items: [user('Which bed?', 'a1')], state: 'working', activity: '' }));
@@ -396,14 +410,64 @@ describe('a thread', () => {
     expect(card.getByText('Bed 1 should rest.').closest('.auto-md')).not.toBeNull();
     expect(card.getByText('Nearer the tap')).toBeInTheDocument();
     expect(screen.queryByTestId('auto-activity')).toBeNull();
+    // The card has no field of its own: the box is the answer field while the question waits.
+    expect(card.queryByRole('textbox')).toBeNull();
+    expect(box().placeholder).toBe('Your answer');
     fireEvent.click(card.getByRole('button', { name: /Bed 4/ }));
     await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'bread', answer: { id: 'q1', answers: { [ASK.kind === 'ask' ? ASK.questions[0].question : '']: 'Bed 4' } } }));
+    await waitFor(() => expect(document.activeElement).toBe(box()));
 
-    fireEvent.change(card.getByRole('textbox', { name: 'Your own answer' }), { target: { value: 'Neither, use the pots' } });
-    fireEvent.click(card.getByRole('button', { name: 'Answer' }));
+    await type('Neither, use the pots');
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'q1', answers: { 'Which bed gets the tomatoes? Bed 1 should rest.': 'Neither, use the pots' } }));
+    // His words went as the answer: nothing was sent as a message, and nothing waits behind the turn.
+    expect(auto.asked('message')).toEqual([]);
+    expect(screen.queryByTestId('auto-queue')).toBeNull();
+    await waitFor(() => expect(box().value).toBe(''));
     act(() => auto.thread({ kind: 'question', question: null }));
     expect(screen.queryByTestId('auto-question')).toBeNull();
+    expect(box().placeholder).toBe('Message Auto');
+  });
+
+  it('keeps his words in the box when the answer is refused', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Which bed?', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: ASK }));
+    auto.state.failWrites = { kind: 'refused', message: 'That question is no longer open.', code: 'conflict', status: 409 };
+    await type('The pots');
+    expect((await within(screen.getByTestId('auto-question')).findByRole('alert')).textContent).toBe('That question is no longer open.');
+    expect(box().value).toBe('The pots');
+    expect(auto.asked('message')).toEqual([]);
+  });
+
+  it('picks in a question with several parts, and Send posts the picks once each part has one', async () => {
+    await open();
+    await openThread('bread');
+    const parts: AutoQuestion = {
+      id: 'q2', kind: 'ask',
+      questions: [
+        { question: 'Which bed gets the squash?', header: 'Bed', multiSelect: false, options: [{ label: 'Bed 1', description: '' }, { label: 'Bed 2', description: '' }] },
+        { question: 'Which go beside it?', header: 'Beside', multiSelect: true, options: [{ label: 'Borage', description: '' }, { label: 'Dill', description: '' }] },
+      ],
+    };
+    act(() => auto.thread({ kind: 'turn', items: [user('Two things', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: parts }));
+    const card = within(screen.getByTestId('auto-question'));
+    const sendPicks = card.getByRole('button', { name: 'Send' });
+    expect(sendPicks).toBeDisabled();
+    fireEvent.click(card.getByRole('button', { name: 'Bed 2' }));
+    expect(auto.asked('answer')).toEqual([]);
+    expect(sendPicks).toBeDisabled();
+    fireEvent.click(card.getByRole('button', { name: 'Borage' }));
+    fireEvent.click(card.getByRole('button', { name: 'Dill' }));
+    expect(card.getByRole('button', { name: 'Dill' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(sendPicks);
+    await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'q2', answers: { 'Which bed gets the squash?': 'Bed 2', 'Which go beside it?': ['Borage', 'Dill'] } }));
+    // His own words answer the parts he has not picked for.
+    act(() => auto.thread({ kind: 'question', question: { ...parts, id: 'q3' } }));
+    fireEvent.click(within(screen.getByTestId('auto-question')).getByRole('button', { name: 'Bed 1' }));
+    await type('Whatever fits');
+    await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'q3', answers: { 'Which bed gets the squash?': 'Bed 1', 'Which go beside it?': 'Whatever fits' } }));
   });
 
   it('says so when the question has closed', async () => {
@@ -416,7 +480,7 @@ describe('a thread', () => {
     expect((await within(screen.getByTestId('auto-question')).findByRole('alert')).textContent).toBe('That question is no longer open.');
   });
 
-  it('allows a permission request, or denies it with a message', async () => {
+  it('allows a permission request, denies it, or denies it with words from the box', async () => {
     await open();
     await openThread('bread');
     act(() => auto.thread({ kind: 'turn', items: [user('Tidy', 'a1')], state: 'working', activity: '' }));
@@ -424,13 +488,16 @@ describe('a thread', () => {
     const card = within(screen.getByTestId('auto-permission'));
     expect(card.getByText('Run a command: move three drafts')).toBeInTheDocument();
     expect(card.getByText('mv Notes/drafts/*.md Archive/')).toBeInTheDocument();
+    expect(card.getAllByRole('button').map((button) => button.textContent)).toEqual(['Allow', 'Deny']);
+    expect(card.queryByRole('textbox')).toBeNull();
     fireEvent.click(card.getByRole('button', { name: 'Allow' }));
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'p1', allow: true }));
     fireEvent.click(card.getByRole('button', { name: 'Deny' }));
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'p1', allow: false }));
-    fireEvent.change(card.getByRole('textbox', { name: 'Message with the denial' }), { target: { value: 'Use the trash' } });
-    fireEvent.click(card.getByRole('button', { name: 'Deny' }));
+    expect(box().placeholder).toBe('Your answer');
+    await type('Use the trash');
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'p1', allow: false, message: 'Use the trash' }));
+    expect(auto.asked('message')).toEqual([]);
   });
 
   it('shows a waiting entry as a card with Hand to Auto, which starts it', async () => {
@@ -479,19 +546,21 @@ describe('a thread', () => {
     await waitFor(() => expect(last('model')).toEqual({ kind: 'model', id: 'bread', model: 'small' }));
   });
 
-  it('closes a thread that is archived while it is open', async () => {
+  it('opens the next thread when the open one is archived, and none when it is archived somewhere else', async () => {
     await open();
     await openThread('bread');
     fireEvent.click(within(row('bread')).getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(screen.queryByTestId('auto-row-bread')).toBeNull());
-    expect(auto.followed.thread).toBeNull();
-    expect(screen.queryByTestId('auto-title')).toBeNull();
-    expect(within(screen.getByTestId('auto-thread')).getByText('New thread')).toBeInTheDocument();
-    // Archived somewhere else, the same.
+    // The row below takes its place in the pane.
+    expect(useThreadStore.getState().openId).toBe('seeds');
+    expect(row('seeds').querySelector('[aria-current]')).not.toBeNull();
+    expect(last('thread')).toEqual({ kind: 'thread', id: 'seeds' });
+    // Archived somewhere else, the pane is left with nothing.
     await openThread('inspect');
     act(() => auto.list({ kind: 'thread', thread: { ...INSPECTION, archived: true } }));
     expect(auto.followed.thread).toBeNull();
     expect(screen.queryByTestId('auto-entry')).toBeNull();
+    expect(within(screen.getByTestId('auto-thread')).getByText('New thread')).toBeInTheDocument();
   });
 
   it('says a thread is gone', async () => {
@@ -561,11 +630,12 @@ describe('the box', () => {
     auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
     await type('Move it to the 22nd');
     await waitFor(() => expect(box().value).toBe('Move it to the 22nd'));
-    expect(screen.getByTestId('auto-not-sent').textContent).toBe('Not sent');
+    expect(screen.getByTestId('auto-not-sent').textContent).toBe('Not sentRetry');
     expect(within(screen.getByTestId('auto-talk')).queryByText('Move it to the 22nd')).toBeNull();
     const first = last('message')?.cid;
     auto.state.failWrites = null;
-    await userEvent.setup().type(box(), '{Enter}');
+    // Retry sends the words that are in the box again.
+    fireEvent.click(within(screen.getByTestId('auto-not-sent')).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(auto.asked('message')).toHaveLength(2));
     expect(last('message')?.cid).toBe(first);
     expect(box().value).toBe('');
@@ -577,7 +647,7 @@ describe('the box', () => {
     await openThread('bread');
     auto.state.failWrites = { kind: 'refused', message: 'That message is too long.', code: 'bad_request', status: 400 };
     await type('A very long message');
-    expect((await screen.findByTestId('auto-not-sent')).textContent).toBe('Not sent: That message is too long.');
+    expect((await screen.findByTestId('auto-not-sent')).textContent).toBe('Not sent: That message is too long.Retry');
     expect(box().value).toBe('A very long message');
   });
 
@@ -587,7 +657,7 @@ describe('the box', () => {
     act(() => auto.stream('list', 'down'));
     await type('Is anyone there?');
     expect(box().value).toBe('Is anyone there?');
-    expect(screen.getByTestId('auto-not-sent').textContent).toBe('Not sent');
+    expect(screen.getByTestId('auto-not-sent').textContent).toBe('Not sentRetry');
     expect(auto.asked('message')).toEqual([]);
   });
 
@@ -681,13 +751,22 @@ describe('the sidebar row', () => {
   }
   const autoTabs = () => useTabsStore.getState().tabs.filter((tab) => isAutoLocation(tabLocation(tab)));
 
-  it('counts the threads that wait on him, read once at launch with no tab open', async () => {
+  it('counts what needs him with no tab open: the threads that wait and the unread ones, snoozed left out', async () => {
     resetTabs();
-    install();
+    install({ threads: [BEDS, BREAD, SEEDS, TRELLIS, INSPECTION, LABELS, autoThread('herbs', { status: 'waiting', unread: true, snoozed: 4_000_000_000 })] });
     renderSidebar();
     const button = await screen.findByRole('button', { name: /^Auto/ });
-    await waitFor(() => expect(button.textContent).toBe('Auto1'));
-    expect(auto.followed.list).toBeNull();
+    // Beds waits and Seeds has an unread reply.
+    await waitFor(() => expect(button.textContent).toBe('Auto2'));
+    expect(kinds()).toEqual(['status', 'threads']);
+    // The list's stream is followed with no tab open, so the count stays true. No thread's stream is.
+    await waitFor(() => expect(auto.followed.list).not.toBeNull());
+    expect(auto.followed.thread).toBeNull();
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, status: 'waiting' } }));
+    expect(button.textContent).toBe('Auto3');
+    act(() => auto.list({ kind: 'thread', thread: { ...SEEDS, unread: false } }));
+    expect(button.textContent).toBe('Auto2');
+    // The digest is not read until a tab opens.
     expect(kinds()).toEqual(['status', 'threads']);
   });
 
@@ -714,8 +793,31 @@ describe('the sidebar row', () => {
     fireEvent.click(button);
     expect(autoTabs()).toHaveLength(1);
     expect(useTabsStore.getState().activeId).toBe(autoTabs()[0].id);
-    // Closing the tab ends the list stream.
+    // Closing the tab keeps the list's stream, for the sidebar's count.
     act(() => useTabsStore.getState().close(autoTabs()[0].id));
-    await waitFor(() => expect(auto.followed.list).toBeNull());
+    expect(autoTabs()).toHaveLength(0);
+    expect(auto.followed.list).not.toBeNull();
+    expect(useAutoStore.getState().tabOpen).toBe(false);
+  });
+
+  it('keeps the Auto tab when a page is opened from the sidebar while it is in front', async () => {
+    openTabs(['/Vault/Recipes/Bread.md', browseAuto().location]);
+    install();
+    renderSidebar();
+    await screen.findByRole('button', { name: /^Auto/ });
+    const { open } = useTabsStore.getState();
+    // A page that a tab already shows: that tab comes forward.
+    act(() => open(focusFile('/Vault/Recipes/Bread.md').location));
+    expect(tabPaths()).toEqual(['/Vault/Recipes/Bread.md', null]);
+    expect(useTabsStore.getState().activeId).toBe(useTabsStore.getState().tabs[0].id);
+    // A page no tab shows: a new tab beside the Auto tab, which stays what it is.
+    act(() => useTabsStore.getState().activateIndex(1));
+    act(() => open(focusFile('/Vault/Notes/Ideas.md').location));
+    expect(tabPaths()).toEqual(['/Vault/Recipes/Bread.md', null, '/Vault/Notes/Ideas.md']);
+    expect(autoTabs()).toHaveLength(1);
+    expect(useTabsStore.getState().activeId).toBe(useTabsStore.getState().tabs[2].id);
+    // From any other tab a page still opens in that tab.
+    act(() => open(focusFile('/Vault/Notes/Other.md').location));
+    expect(tabPaths()).toEqual(['/Vault/Recipes/Bread.md', null, '/Vault/Notes/Other.md']);
   });
 });

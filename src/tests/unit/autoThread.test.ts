@@ -3,13 +3,14 @@ import type { AutoItem, AutoQuestion, AutoSnapshot, AutoThread, AutoThreadEvent 
 import {
   applyEvent,
   failure,
-  foldSteps,
   fromSnapshot,
   parseEntry,
   sentLine,
   showsNext,
   stepLines,
+  stepsSummary,
   turnRuns,
+  turnStart,
   unconfirmed,
   waitingToGo,
   type ThreadView,
@@ -268,11 +269,39 @@ describe('steps', () => {
     expect(stepLines([{ g: 'quiet', text: 'x', path: null }])).toEqual([]);
   });
 
-  it('fold to the last three, with the count of earlier ones', () => {
-    const lines = stepLines(steps);
-    expect(foldSteps(lines, false)).toEqual({ earlier: 8, shown: lines.slice(-3) });
-    expect(foldSteps(lines, true)).toEqual({ earlier: 0, shown: lines });
-    expect(foldSteps(lines.slice(0, 3), false)).toEqual({ earlier: 0, shown: lines.slice(0, 3) });
+  it('are one line that says what was done, in the order it was first done', () => {
+    const step = (g: string, text = 'x', path: string | null = null) => ({ g, text, path });
+    expect(stepsSummary([step('read'), step('read'), step('read'), step('search')])).toBe('Read 3 files, searched');
+    expect(stepsSummary([step('search'), step('websearch'), step('read'), step('change'), step('change')])).toBe('Searched, searched the web, read 1 file, changed 2 files');
+    expect(stepsSummary([step('agent'), step('skill:garden'), step('run'), step('fetch')])).toBe('A helper, a skill, 2 more steps');
+    expect(stepsSummary([step('run'), step('run'), step('mcp:weather')])).toBe('3 steps');
+    expect(stepsSummary([step('search'), step('search'), step('websearch'), step('websearch'), step('agent'), step('agent'), step('run')])).toBe('Searched 2 times, searched the web 2 times, 2 helpers, 1 more step');
+  });
+
+  it('are their own line when there is one, and nothing when all are plumbing', () => {
+    expect(stepsSummary([{ g: 'read', text: 'Notes/plan.md', path: 'Notes/plan.md' }, { g: 'quiet', text: 'x', path: null }])).toBe('Read Notes/plan.md');
+    expect(stepsSummary([{ g: 'run', text: 'Run the tests', path: null }])).toBe('Run the tests');
+    expect(stepsSummary([{ g: 'quiet', text: 'x', path: null }])).toBe('');
+    expect(stepsSummary([])).toBe('');
+  });
+});
+
+describe('where an unread thread opens', () => {
+  const stepsItem: AutoItem = { role: 'steps', steps: [{ g: 'read', text: 'a', path: null }] };
+  const at = (history: AutoItem[], fields: Partial<ThreadView> = {}) => turnStart({ ...fromSnapshot(snapshot()), history, ...fields });
+
+  it('is his last message that has a reply under it', () => {
+    expect(at([user('one'), reply('first'), user('two'), stepsItem, reply('second')])).toBe(2);
+    expect(at([user('one'), reply('first')])).toBe(0);
+  });
+
+  it('is nowhere while a turn runs or a question waits, or with no reply under his last message', () => {
+    expect(at([user('one'), reply('first'), user('two')])).toBeNull();
+    expect(at([user('one'), stepsItem])).toBeNull();
+    expect(at([reply('first')])).toBeNull();
+    expect(at([])).toBeNull();
+    expect(at([user('one'), reply('first')], { live: { items: [], activity: '', state: 'working' } })).toBeNull();
+    expect(at([user('one'), reply('first')], { question: { id: 'q1', kind: 'permission', tool: '', title: 'Run it?', detail: '', reason: '' } })).toBeNull();
   });
 });
 
@@ -283,7 +312,8 @@ describe('a digest entry', () => {
     expect(parseEntry(ENTRY)).toEqual({
       source: 'Friday November 13, item 2',
       title: 'Book the allotment inspection',
-      body: 'Priority: High\n\nThe committee walks the plots on the 21st.',
+      priority: 'High',
+      body: 'The committee walks the plots on the 21st.',
       from: 'Library/digests/2026-11-13 digest.md',
       says: '',
     });
@@ -301,6 +331,7 @@ describe('a digest entry', () => {
     expect(entry).toEqual({
       source: 'Friday November 13, garden notes',
       title: 'The beds are dug',
+      priority: '',
       body: 'The beds are dug and the paths are laid.',
       from: 'Library/digests/2026-11-13 digest.md',
       says: 'Order the mulch first.\n\nThen the netting.',
@@ -310,7 +341,12 @@ describe('a digest entry', () => {
   it('is not made of any other message', () => {
     expect(parseEntry('Plan the beds')).toBeNull();
     expect(parseEntry('Digest for today')).toBeNull();
-    expect(parseEntry('Digest, Friday, item 2: Title only')).toEqual({ source: 'Friday, item 2', title: 'Title only', body: '', from: null, says: '' });
+    expect(parseEntry('Digest, Friday, item 2: Title only')).toEqual({ source: 'Friday, item 2', title: 'Title only', priority: '', body: '', from: null, says: '' });
+  });
+
+  it('takes a priority only from the first line under the title', () => {
+    expect(parseEntry('Digest, Friday, item 2: Title\n\nThe detail.\n\nPriority: High')?.priority).toBe('');
+    expect(parseEntry('Digest, Friday, item 2: Title\n\nPriority: Low\n\nThe detail.')).toMatchObject({ priority: 'Low', body: 'The detail.' });
   });
 });
 

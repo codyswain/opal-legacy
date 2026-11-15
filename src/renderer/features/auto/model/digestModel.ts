@@ -80,15 +80,16 @@ export function emptyQueue(digest: AutoDigest, filter: QueueFilter): EmptyQueue 
   return null;
 }
 
-/** A line of Markdown as its words alone: links by their text, and no marks. */
-const plainWords = (text: string): string =>
+/** A piece of Markdown as its words alone: links by their text, and no marks. */
+const plain = (text: string): string =>
   text
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1')
     .replace(/[*_`~]/g, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+    .trim();
+
+const plainWords = (text: string): string => plain(text).toLowerCase();
 
 /** How far into an entry's first line its title may start: a meeting's line opens with its time. */
 const TITLE_WITHIN = 12;
@@ -115,3 +116,90 @@ export function draftLabel(entry: AutoDigestEntry): string {
 
 /** The key his unsent words for an entry are kept under. */
 export const wordsKey = (date: string, id: string): string => `${date}/${id}`;
+
+/** A line of an entry as its words: no list mark, box, heading or quote mark; a table's row as its cells; a rule or a fence as nothing. */
+function lineWords(line: string): string {
+  const trimmed = line.trim();
+  if (/^(`{3,}|~{3,})/.test(trimmed) || /^\|?[\s:|-]*-[\s:|-]*\|?$/.test(trimmed)) return '';
+  const cells = /^\|(.*)\|$/.exec(trimmed);
+  if (cells) return cells[1].split('|').map(plain).filter(Boolean).join(', ');
+  return plain(trimmed.replace(/^(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+(?:\[[ xX]\]\s+)?)?/, ''));
+}
+
+/** A closed entry's row: a title line, then its words in the quiet colour, cut to two lines by the page. */
+export interface ClosedRow {
+  /** The entry's own title, or null: its words then read as the entry itself. */
+  title: string | null;
+  /** A meeting's time, set at the row's right. */
+  time: string;
+  /** Its words without their marks, and without the title they open with; each line of the entry on a line. */
+  words: string;
+}
+
+export function closedRow(entry: AutoDigestEntry): ClosedRow {
+  const lines = entry.md.split('\n').map(lineWords);
+  const titled = entry.title !== '' && entry.title !== entry.section;
+  let time = '';
+  const first = lines.findIndex((line) => line !== '');
+  if (titled && first !== -1) {
+    // A meeting, a person and a line of text open with their title: it is said once, on the title line.
+    const title = plain(entry.title);
+    const at = lines[first].toLowerCase().indexOf(title.toLowerCase());
+    if (title && at !== -1 && at <= TITLE_WITHIN) {
+      const before = lines[first].slice(0, at).trim();
+      const after = lines[first].slice(at + title.length).replace(/^[\s:.,;]+/, '');
+      if (entry.kind === 'meeting' && /^\d{1,2}[:.]\d{2}(?:\s?[ap]m)?$/i.test(before)) {
+        time = before;
+        lines[first] = after;
+      } else {
+        lines[first] = [before, after].filter(Boolean).join(' ');
+      }
+    }
+  }
+  return { title: titled ? entry.title : null, time, words: lines.filter(Boolean).join('\n') };
+}
+
+/** The second line of the list's Digest row: the day, how many entries it has and how many are resolved. */
+export function homeLine(digest: AutoDigest): string {
+  const all = allEntries(digest);
+  const resolved = all.filter((entry) => entry.state === 'resolved').length;
+  const [year, month, day] = digest.date.split('-').map(Number);
+  const written = new Date(year, month - 1, day);
+  const short = Number.isNaN(written.getTime())
+    ? digest.date
+    : written.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
+  return `${short}. ${all.length === 1 ? '1 entry' : `${all.length} entries`}, ${resolved} resolved.`;
+}
+
+/** The entries' ids in the order the queue shows them. */
+export const queueOrder = (sections: readonly QueueSection[]): string[] => sections.flatMap((section) => section.entries.map((entry) => entry.id));
+
+/**
+ * The entry that takes the keyboard focus when some leave the queue: the
+ * first one left after the last of them, else the last one before the first
+ * of them, else none.
+ */
+export function afterLeaving(order: readonly string[], leaving: readonly string[]): string | null {
+  const gone = new Set(leaving);
+  const places = order.map((id, at) => (gone.has(id) ? at : -1)).filter((at) => at !== -1);
+  if (places.length === 0) return null;
+  const after = order.slice(places[places.length - 1] + 1).find((id) => !gone.has(id));
+  if (after) return after;
+  return order.slice(0, places[0]).reverse().find((id) => !gone.has(id)) ?? null;
+}
+
+/** A day with some entries' state changed and what is left counted again, as it shows before the service answers. */
+export function withState(digest: AutoDigest, ids: readonly string[], state: (entry: AutoDigestEntry) => AutoDigestEntry['state']): AutoDigest {
+  const sections = digest.sections.map((section) => ({
+    ...section,
+    entries: section.entries.map((entry) => (ids.includes(entry.id) ? { ...entry, state: state(entry) } : entry)),
+  }));
+  return { ...digest, sections, left: sections.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open').length, 0) };
+}
+
+/** What an entry is called in a line about it: its title, else its first words. */
+export function entryName(entry: AutoDigestEntry): string {
+  const row = closedRow(entry);
+  const name = row.title ?? row.words.split('\n')[0] ?? '';
+  return name.length > 60 ? `${name.slice(0, 59).trimEnd()}…` : name;
+}

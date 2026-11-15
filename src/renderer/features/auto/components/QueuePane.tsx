@@ -1,45 +1,59 @@
 import * as React from 'react';
 import { ArrowUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { AutoDigest, AutoDigestEntry } from '@/types/auto';
-import { Button, IconButton } from '@/renderer/shared/ui';
+import { Button, IconButton, Tooltip, TooltipContent, TooltipTrigger } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
 import {
+  closedRow,
+  dayTitle,
   draftLabel,
   emptyQueue,
   queueCounts,
   queueSections,
   rowTitle,
   stepDay,
-  dayTitle,
   wordsKey,
   type QueueFilter,
   type QueueSection,
 } from '../model/digestModel';
+import { DIGEST_QUEUE } from '../model/pane';
+import { keepPlace, placeIn, placeOf, queuePlace } from '../model/places';
 import { useAutoStore } from '../store/autoStore';
-import { selectDay, useDigestStore } from '../store/digestStore';
+import { QUEUE_FIRST, QUEUE_TOP, selectDay, useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
+import { rovingTarget } from './focus';
+import { SaidBar } from './SaidBar';
+import { ThreadLine } from './ThreadLine';
+import { useGrow } from './ThreadPane';
 
 const quiet = 'text-control text-foreground-tertiary';
 const field =
   'min-w-0 flex-1 resize-none bg-transparent text-reply text-foreground outline-none placeholder:text-icon';
 
-/** Grows a text area with its words, to a part of the window's height. */
-function useGrow(element: React.RefObject<HTMLTextAreaElement>, text: string): void {
-  React.useLayoutEffect(() => {
-    const area = element.current;
-    if (!area) return;
-    area.style.height = 'auto';
-    area.style.height = `${Math.min(area.scrollHeight, Math.round(window.innerHeight * 0.3))}px`;
-  }, [element, text]);
-}
+/** Under this width of pane the actions go on a line under an entry's words, instead of in a column at its right. */
+const ROOMY_WIDTH = 520;
 
-/** His note on an entry: a field, and one button once what is typed differs from what is saved. */
+/** The entry's own row in the page. */
+const entryElement = (id: string): HTMLElement | null =>
+  document.querySelector<HTMLElement>(`[data-testid="auto-queue"] [data-entry-id="${id.replace(/["\\]/g, '')}"]`);
+
+/** Escape in a field of an open entry: the keyboard goes back to the entry's row. */
+const backToRow = (event: React.KeyboardEvent, id: string) => {
+  if (event.key !== 'Escape' || event.nativeEvent.isComposing) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  entryElement(id)?.focus();
+  return true;
+};
+
+/** His note on an entry: a field, and one button once what is typed differs from what is saved. Cmd+Enter saves it too. */
 function NoteField({ entry }: { entry: AutoDigestEntry }) {
   const [typed, setTyped] = React.useState(entry.note);
   const [saving, setSaving] = React.useState(false);
+  const wanted = useDigestStore((state) => state.noteWanted === entry.id);
   const area = React.useRef<HTMLTextAreaElement>(null);
-  useGrow(area, typed);
+  useGrow(area, typed, 0.3);
   // The saved note changed somewhere else while this one was not being edited.
   const saved = React.useRef(entry.note);
   React.useEffect(() => {
@@ -48,7 +62,21 @@ function NoteField({ entry }: { entry: AutoDigestEntry }) {
       saved.current = entry.note;
     }
   }, [entry.note]);
+  // `n` on the entry's row puts the caret here.
+  React.useEffect(() => {
+    if (!wanted) return;
+    area.current?.focus();
+    useDigestStore.setState({ noteWanted: null });
+  }, [wanted]);
   const changed = typed.trim() !== entry.note;
+  const save = () => {
+    if (!changed || saving) return;
+    setSaving(true);
+    void useDigestStore.getState().setNote(entry.id, typed).then((took) => {
+      setSaving(false);
+      if (took) setTyped(typed.trim());
+    });
+  };
   return (
     <div className="flex flex-col items-start gap-2">
       <div className={cn('flex w-full border-l-2 pl-3', typed.trim() ? 'border-foreground' : 'border-border-strong')}>
@@ -56,27 +84,25 @@ function NoteField({ entry }: { entry: AutoDigestEntry }) {
           ref={area}
           rows={1}
           aria-label="Your note"
+          aria-keyshortcuts="Meta+Enter"
           placeholder="Add a note"
           maxLength={4000}
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
+          onKeyDown={(event) => {
+            if (backToRow(event, entry.id)) return;
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              save();
+            }
+          }}
           className={field}
         />
       </div>
       {changed ? (
-        <Button
-          size="compact"
-          variant="outline"
-          disabled={saving}
-          onClick={() => {
-            setSaving(true);
-            void useDigestStore.getState().setNote(entry.id, typed).then((took) => {
-              setSaving(false);
-              if (took) setTyped(typed.trim());
-            });
-          }}
-        >
+        <Button size="compact" variant="outline" disabled={saving} onClick={save}>
           {typed.trim() ? 'Save the note' : 'Remove the note'}
+          <span aria-hidden className="ml-1 font-mono text-metadata text-foreground-tertiary">⌘↩</span>
         </Button>
       ) : null}
     </div>
@@ -121,7 +147,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   const notSent = useDigestStore((state) => state.notSent === key);
   const [sending, setSending] = React.useState(false);
   const area = React.useRef<HTMLTextAreaElement>(null);
-  useGrow(area, words);
+  useGrow(area, words, 0.3);
   const submit = () => {
     if (!words.trim() || sending) return;
     setSending(true);
@@ -129,7 +155,14 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   };
   return (
     <div>
-      {notSent ? <p role="status" data-testid="auto-entry-not-sent" className="mb-1 text-control font-medium text-foreground">Not sent</p> : null}
+      {notSent ? (
+        <p role="status" data-testid="auto-entry-not-sent" className="mb-1 flex items-center gap-1 text-control font-medium text-foreground">
+          Not sent
+          <Button size="compact" variant="ghost" className="text-control" disabled={!words.trim() || sending} onClick={submit}>
+            Retry
+          </Button>
+        </p>
+      ) : null}
       <form
         className="flex items-end gap-2 rounded-card border border-border-strong bg-surface py-1.5 pl-3 pr-1.5 focus-within:border-foreground-tertiary"
         onSubmit={(event) => {
@@ -146,6 +179,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           value={words}
           onChange={(event) => useDigestStore.getState().setWords(entry.id, event.target.value)}
           onKeyDown={(event) => {
+            if (backToRow(event, entry.id)) return;
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               submit();
@@ -153,7 +187,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           }}
           className={cn(field, 'my-1')}
         />
-        <IconButton type="submit" label="Start a thread with it" variant="subtle" disabled={!words.trim() || sending}>
+        <IconButton type="submit" label="Start a thread with it" shortcut="↩" variant="subtle" disabled={!words.trim() || sending}>
           <ArrowUp aria-hidden className="h-4 w-4" />
         </IconButton>
       </form>
@@ -161,67 +195,144 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   );
 }
 
-// A small bar at the row's corner. Hidden by opacity, so it keeps its place; it stays while the row is open.
-const rowActions =
-  'absolute right-1 top-1 flex items-center gap-0.5 rounded-control border border-border-subtle bg-surface-raised p-0.5 shadow-control';
-const hiddenActions =
-  'pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100';
+/** A word on an entry's row, with its key in the tooltip. It is out of the Tab order: the row's keys do the same. */
+function Act({ label, hint, onClick }: { label: string; hint: string; onClick: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button size="compact" variant="ghost" tabIndex={-1} onClick={onClick}>
+          {label}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <span>{label}</span>
+        <span aria-hidden className="ml-2 font-mono text-metadata text-foreground-tertiary">{hint}</span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
-/** One entry: a row cut to three lines, which a click opens in place. */
-function EntryRow({ entry, date, open }: { entry: AutoDigestEntry; date: string; open: boolean }) {
-  const inList = useAutoStore((state) => entry.thread !== null && state.threads.some((thread) => thread.id === entry.thread));
+interface EntryProps {
+  entry: AutoDigestEntry;
+  date: string;
+  open: boolean;
+  /** This entry is the queue's one Tab stop. */
+  tabStop: boolean;
+  /** The pane has room for a column of actions at the row's right. */
+  roomy: boolean;
+}
+
+/**
+ * One entry. Closed, it is a title line and at most two quiet lines. A click
+ * opens it in place to its whole text, his note, a drafted reply and a box.
+ * One that became a thread shows that thread's line, and opens the thread.
+ */
+function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
+  const thread = useAutoStore((state) => (entry.thread === null ? undefined : state.threads.find((candidate) => candidate.id === entry.thread)));
   const { resolve, makeThread } = useDigestStore.getState();
-  const title = rowTitle(entry);
   const resolved = entry.state === 'resolved';
-  const toggle = () => useDigestStore.getState().open(open ? null : entry.id);
-  // Whether the closed row cuts its words: a table or a code block then fades out at the cut.
-  const clip = React.useRef<HTMLDivElement>(null);
-  const [cut, setCut] = React.useState(false);
-  React.useLayoutEffect(() => {
-    const words = clip.current;
-    setCut(!open && words !== null && words.scrollHeight > words.clientHeight + 1);
-  }, [open, entry.md]);
+  const became = entry.state === 'thread';
+  const row = closedRow(entry);
+  const title = open ? rowTitle(entry) : row.title;
+
+  /** Opens the entry in place, or the thread it became. */
+  const activate = () => {
+    if (became && thread) useThreadStore.getState().open(thread.id);
+    else useDigestStore.getState().open(open ? null : entry.id);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.target !== event.currentTarget || event.metaKey || event.ctrlKey || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'enter' || key === ' ') activate();
+    else if (key === 'e') void resolve([entry.id], !resolved);
+    else if (key === 't' && entry.state === 'open') void makeThread(entry.id);
+    else if (key === 'n') useDigestStore.getState().openNote(entry.id);
+    else if (key === 'escape' && open) useDigestStore.getState().open(null);
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const actions = resolved ? (
+    <Act label="Reopen" hint="E" onClick={() => void resolve([entry.id], false)} />
+  ) : (
+    <>
+      <Act label="Resolve" hint="E" onClick={() => void resolve([entry.id], true)} />
+      {became ? null : <Act label="Thread" hint="T" onClick={() => void makeThread(entry.id)} />}
+    </>
+  );
+  // Shown while the pointer or the keyboard is on the row, or the entry is open; not left up by a click once the pointer has gone.
+  const shows = open ? '' : 'group-hover:opacity-100 group-has-[[data-auto-entry]:focus-visible]:opacity-100';
 
   return (
     <li
       data-testid={`auto-entry-${entry.id}`}
       data-state={entry.state}
       data-open={open || undefined}
-      className={cn('group relative rounded-row transition-hover', open ? 'bg-surface-sunken' : 'hover:bg-surface-hover')}
+      className={cn(
+        // The keyboard's ring goes round the whole row, its actions included.
+        'group relative -mx-3 rounded-row transition-hover has-[[data-auto-entry]:focus-visible]:ring-2 has-[[data-auto-entry]:focus-visible]:ring-inset has-[[data-auto-entry]:focus-visible]:ring-focus',
+        open ? 'bg-surface-sunken' : 'hover:bg-surface-hover'
+      )}
     >
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        data-auto-entry
-        onClick={(event) => {
-          // A link in the entry's words is followed, and selected words stay selected.
-          if ((event.target as HTMLElement).closest('a, [role="link"], button') || window.getSelection()?.toString()) return;
-          toggle();
-        }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
-          event.preventDefault();
-          toggle();
-        }}
-        className={cn('cursor-default rounded-row px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus', resolved && !open && 'opacity-60')}
-      >
-        {title || entry.priority ? (
-          <p className="text-reply font-medium text-foreground">
-            {entry.priority ? <span className="font-normal text-foreground-tertiary">{entry.priority} </span> : null}
-            {title}
-          </p>
-        ) : null}
-        {entry.md ? (
-          <div ref={clip} data-cut={cut || undefined} className={cn(title && 'mt-0.5', !open && 'auto-clip')}>
-            <Markdown text={entry.md} className={title ? 'text-foreground-secondary' : 'text-foreground'} />
-          </div>
-        ) : null}
-        {!open && entry.note ? (
-          <p data-testid="auto-entry-note" className="mt-1.5 line-clamp-2 border-l-2 border-foreground pl-3 text-reply text-foreground">{entry.note}</p>
-        ) : null}
-        {resolved ? <p className={cn(quiet, 'mt-1')}>Resolved</p> : entry.state === 'thread' ? <p className={cn(quiet, 'mt-1')}>A thread</p> : null}
+      <div className="flex items-start">
+        <div
+          role="button"
+          tabIndex={tabStop ? 0 : -1}
+          aria-expanded={became && thread ? undefined : open}
+          aria-keyshortcuts={`E N${entry.state === 'open' ? ' T' : ''}`}
+          data-auto-entry
+          data-entry-id={entry.id}
+          onClick={(event) => {
+            // A link in the entry's words is followed, and selected words stay selected.
+            if ((event.target as HTMLElement).closest('a, [role="link"], button') || window.getSelection()?.toString()) return;
+            activate();
+          }}
+          onKeyDown={onKeyDown}
+          className={cn('min-w-0 flex-1 cursor-default rounded-row px-3 py-2 outline-none', resolved && !open && 'opacity-60')}
+        >
+          {title || entry.priority || row.time ? (
+            <p className="flex items-baseline gap-2 text-reply font-medium text-foreground">
+              <span className="min-w-0 flex-1">
+                {entry.priority ? <span className="font-normal text-foreground-tertiary">{entry.priority} </span> : null}
+                {title}
+              </span>
+              {row.time && !open ? <span className="shrink-0 text-metadata font-normal tabular-nums text-foreground-tertiary">{row.time}</span> : null}
+            </p>
+          ) : null}
+          {open ? (
+            entry.md ? (
+              <div className={cn(title && 'mt-0.5')}>
+                <Markdown text={entry.md} className={title ? 'text-foreground-secondary' : 'text-foreground'} />
+              </div>
+            ) : null
+          ) : row.words ? (
+            // With a title, at most two quiet lines at the smaller size. With none, its words are the entry itself.
+            <p
+              data-testid="auto-entry-words"
+              className={cn('whitespace-pre-line break-words', row.title ? 'mt-0.5 line-clamp-2 text-ui text-foreground-tertiary' : 'line-clamp-3 text-reply text-foreground')}
+            >
+              {row.words}
+            </p>
+          ) : null}
+          {!open && entry.note ? (
+            <p data-testid="auto-entry-note" className="mt-1.5 line-clamp-2 border-l-2 border-foreground pl-3 text-ui text-foreground">{entry.note}</p>
+          ) : null}
+          {resolved ? (
+            <p className={cn(quiet, 'mt-1')}>Resolved</p>
+          ) : became ? (
+            thread ? <ThreadLine thread={thread} className="mt-1" /> : <p className={cn(quiet, 'mt-1')}>A thread</p>
+          ) : null}
+        </div>
+        {/* A column of its own at the row's right, so the actions never sit on the words. */}
+        {roomy ? <div className={cn('flex w-36 shrink-0 items-center justify-end gap-0.5 py-1.5 pr-1.5 opacity-0', shows, open && 'opacity-100')}>{actions}</div> : null}
       </div>
+
+      {/* Too narrow for the column: a line under the words of the entry the pointer or the keyboard is on, or that is open. */}
+      {roomy ? null : (
+        <div className={cn('items-center gap-0.5 px-1.5 pb-1.5', open ? 'flex' : 'hidden group-hover:flex group-has-[[data-auto-entry]:focus-visible]:flex')}>{actions}</div>
+      )}
 
       {open ? (
         <div className="flex flex-col gap-4 px-3 pb-3 pt-1">
@@ -230,43 +341,25 @@ function EntryRow({ entry, date, open }: { entry: AutoDigestEntry; date: string;
           {entry.state === 'open' ? <EntryBox entry={entry} date={date} /> : null}
         </div>
       ) : null}
-
-      <div className={cn(rowActions, !open && hiddenActions)}>
-        {resolved ? (
-          <Button size="compact" variant="ghost" onClick={() => void resolve([entry.id], false)}>Reopen</Button>
-        ) : entry.state === 'thread' ? (
-          <>
-            {inList && entry.thread ? (
-              <Button size="compact" variant="ghost" onClick={() => useThreadStore.getState().open(entry.thread)}>Open the thread</Button>
-            ) : null}
-            <Button size="compact" variant="ghost" onClick={() => void resolve([entry.id], true)}>Resolve</Button>
-          </>
-        ) : (
-          <>
-            <Button size="compact" variant="ghost" onClick={() => void resolve([entry.id], true)}>Resolve</Button>
-            <Button size="compact" variant="ghost" onClick={() => void makeThread(entry.id)}>Thread</Button>
-          </>
-        )}
-      </div>
     </li>
   );
 }
 
-function SectionRows({ section, date, opened }: { section: QueueSection; date: string; opened: string | null }) {
+function SectionRows({ section, date, opened, tabStop, roomy }: { section: QueueSection; date: string; opened: string | null; tabStop: string | null; roomy: boolean }) {
   const { resolve } = useDigestStore.getState();
   return (
     <section aria-label={section.title || 'Digest'} data-testid="auto-queue-section">
-      <div className="flex min-h-control items-center gap-2 px-3 pt-3">
+      <div className="flex min-h-control items-center gap-2 pt-3">
         <h2 className="min-w-0 flex-1 truncate text-label text-foreground-tertiary">{section.title || 'Digest'}</h2>
         {section.resolveAll.length > 0 ? (
-          <Button size="compact" variant="ghost" className="text-control text-foreground-tertiary" onClick={() => void resolve(section.resolveAll, true)}>
+          <Button size="compact" variant="ghost" className="-mr-1.5 text-control text-foreground-tertiary" onClick={() => void resolve(section.resolveAll, true, section.title)}>
             Resolve all
           </Button>
         ) : null}
       </div>
       <ul className="flex flex-col gap-0.5">
         {section.entries.map((entry) => (
-          <EntryRow key={entry.id} entry={entry} date={date} open={opened === entry.id} />
+          <EntryRow key={entry.id} entry={entry} date={date} open={opened === entry.id} tabStop={tabStop === entry.id} roomy={roomy} />
         ))}
       </ul>
     </section>
@@ -291,14 +384,15 @@ function FilterWord({ label, count, filter, on }: { label: string; count: number
   );
 }
 
-function Queue({ day }: { day: AutoDigest }) {
+function Queue({ day, roomy }: { day: AutoDigest; roomy: boolean }) {
   const filter = useDigestStore((state) => state.filter);
   const opened = useDigestStore((state) => state.opened);
+  const [active, setActive] = React.useState<string | null>(null);
   const sections = queueSections(day, filter);
   const empty = emptyQueue(day, filter);
   if (empty) {
     return (
-      <div data-testid="auto-queue-empty" className="flex flex-col items-start gap-3 px-3 py-6">
+      <div data-testid="auto-queue-empty" className="flex flex-col items-start gap-3 py-6">
         <p className="text-ui text-foreground-secondary">{empty.text}</p>
         {empty.showAll !== null ? (
           <Button size="compact" variant="outline" onClick={() => useDigestStore.getState().setFilter('all')}>
@@ -308,83 +402,169 @@ function Queue({ day }: { day: AutoDigest }) {
       </div>
     );
   }
+  // One entry is the queue's Tab stop: the one the keyboard was last on, else the open one, else the first.
+  const ids = sections.flatMap((section) => section.entries.map((entry) => entry.id));
+  const tabStop = active && ids.includes(active) ? active : opened && ids.includes(opened) ? opened : ids[0] ?? null;
   return (
-    <>
+    <div
+      onFocus={(event) => {
+        const id = (event.target as HTMLElement).getAttribute?.('data-entry-id');
+        if (id) setActive(id);
+      }}
+    >
       {sections.map((section, at) => (
-        <SectionRows key={`${at}:${section.title}`} section={section} date={day.date} opened={opened} />
+        <SectionRows key={`${at}:${section.title}`} section={section} date={day.date} opened={opened} tabStop={tabStop} roomy={roomy} />
       ))}
-    </>
+    </div>
   );
 }
 
 /**
  * The digest as a queue, beside the list where a thread would be. Every
  * entry can be resolved, made a thread, noted, or answered with words that
- * start a thread. Nothing here sends anything to anyone.
+ * start a thread. Nothing here sends anything to anyone. Its header, its
+ * section labels and its entries share the reading column's edges.
  */
 export function QueuePane({ narrow }: { narrow: boolean }) {
   const day = useDigestStore(selectDay);
   const status = useDigestStore((state) => state.status);
   const days = useDigestStore((state) => state.days);
   const filter = useDigestStore((state) => state.filter);
+  const focusEntry = useDigestStore((state) => state.focusEntry);
   const { openVault } = React.useContext(MarkdownLinksContext);
   const [scrolled, setScrolled] = React.useState(false);
+  const [roomy, setRoomy] = React.useState(true);
+  const pane = React.useRef<HTMLElement>(null);
+  const scroller = React.useRef<HTMLDivElement>(null);
   const { step } = useDigestStore.getState();
   const older = day ? stepDay(day.date, days, true) : null;
   const newer = day ? stepDay(day.date, days, false) : null;
   const counts = day ? queueCounts(day) : null;
+  const date = day?.date ?? null;
+
+  React.useLayoutEffect(() => {
+    const target = pane.current;
+    if (!target || typeof ResizeObserver === 'undefined') return;
+    const measure = (width: number) => setRoomy(width === 0 || width >= ROOMY_WIDTH);
+    measure(target.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => measure(entries[entries.length - 1].contentRect.width));
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  // The queue opens with the keyboard on its first entry, as a thread opens with the caret in its box.
+  React.useEffect(() => {
+    useDigestStore.getState().requestFocus(QUEUE_FIRST);
+  }, []);
+
+  // An entry an action asked to focus takes the keyboard once it is drawn; with none left, the queue's first word does.
+  React.useLayoutEffect(() => {
+    if (!focusEntry) return;
+    // Not read yet: the request waits for the day.
+    if (focusEntry === QUEUE_FIRST && !day && status === 'unknown') return;
+    const element =
+      focusEntry === QUEUE_FIRST ? pane.current?.querySelector<HTMLElement>('[data-auto-entry][tabindex="0"]')
+      : focusEntry === QUEUE_TOP ? null
+      : entryElement(focusEntry);
+    (element ?? pane.current?.querySelector<HTMLElement>('[data-testid="auto-queue-left"]'))?.focus();
+    useDigestStore.getState().requestFocus(null);
+  });
+
+  // Each day is where he left it.
+  const restored = React.useRef<string | null>(null);
+  React.useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element || !date || restored.current === date) return;
+    restored.current = date;
+    element.scrollTop = placeOf(queuePlace(date))?.top ?? 0;
+  }, [date]);
+
+  /** Back to the list, with the keyboard on the Digest row. */
+  const back = () => {
+    useAutoStore.getState().requestFocus(DIGEST_QUEUE);
+    if (narrow) useThreadStore.getState().open(null);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (!target.hasAttribute('data-auto-entry') || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === 'Escape') {
+      // An open entry closes on its own row's Escape; from a closed one the keyboard goes back to the list.
+      event.preventDefault();
+      back();
+      return;
+    }
+    const all = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-auto-entry]')];
+    const to = rovingTarget(event.key, all.indexOf(target), all.length);
+    if (to === null) return;
+    event.preventDefault();
+    all[to].focus();
+  };
 
   return (
-    <section data-testid="auto-queue-pane" aria-label="Digest" className="flex min-w-0 flex-1 flex-col">
-      <header className={cn('auto-beside-talk shrink-0 border-b pl-6', scrolled ? 'border-border-subtle' : 'border-transparent')}>
-        <div className="flex h-header items-center gap-1">
-          {narrow ? (
-            <IconButton label="All threads" data-testid="auto-back" className="-ml-2" onClick={() => useThreadStore.getState().open(null)}>
-              <ChevronLeft aria-hidden className="h-4 w-4" />
-            </IconButton>
-          ) : null}
-          <h1 data-testid="auto-queue-day" className="mr-1 min-w-0 truncate text-ui font-medium text-foreground">{day ? dayTitle(day.date) : 'Digest'}</h1>
-          {day ? (
-            <>
-              <IconButton label="Earlier day" disabled={!older} onClick={() => void step(true)}>
+    <section ref={pane} data-testid="auto-queue-pane" aria-label="Digest" className="flex min-w-0 flex-1 flex-col">
+      <header className={cn('auto-beside-talk shrink-0 border-b', scrolled ? 'border-border-subtle' : 'border-transparent')}>
+        <div className="auto-column">
+          <div className="flex h-header items-center gap-1">
+            {narrow ? (
+              <IconButton label="All threads" data-testid="auto-back" className="-ml-2" onClick={back}>
                 <ChevronLeft aria-hidden className="h-4 w-4" />
               </IconButton>
-              <IconButton label="Later day" disabled={!newer} onClick={() => void step(false)}>
-                <ChevronRight aria-hidden className="h-4 w-4" />
-              </IconButton>
-              <Button size="compact" variant="ghost" className="ml-auto font-normal text-foreground-tertiary" onClick={() => openVault(day.path, false)}>
-                Open the digest
-              </Button>
-            </>
+            ) : null}
+            <h1 data-testid="auto-queue-day" className="mr-1 min-w-0 truncate text-ui font-medium text-foreground">{day ? dayTitle(day.date) : 'Digest'}</h1>
+            {day ? (
+              <>
+                <IconButton label="Earlier day" disabled={!older} onClick={() => void step(true)}>
+                  <ChevronLeft aria-hidden className="h-4 w-4" />
+                </IconButton>
+                <IconButton label="Later day" disabled={!newer} onClick={() => void step(false)}>
+                  <ChevronRight aria-hidden className="h-4 w-4" />
+                </IconButton>
+                <Button size="compact" variant="ghost" className="-mr-2 ml-auto font-normal text-foreground-tertiary" onClick={() => openVault(day.path, false)}>
+                  Open the digest
+                </Button>
+              </>
+            ) : null}
+          </div>
+          {counts ? (
+            <div className="-ml-2 flex items-center gap-1 pb-1">
+              <FilterWord label="Left" count={counts.left} filter="left" on={filter === 'left'} />
+              <FilterWord label="All" count={counts.all} filter="all" on={filter === 'all'} />
+            </div>
           ) : null}
         </div>
-        {counts ? (
-          <div className="-ml-2 flex items-center gap-1 pb-1">
-            <FilterWord label="Left" count={counts.left} filter="left" on={filter === 'left'} />
-            <FilterWord label="All" count={counts.all} filter="all" on={filter === 'all'} />
-          </div>
-        ) : null}
       </header>
       <div
+        ref={scroller}
         data-testid="auto-queue"
         className="auto-talk min-h-0 flex-1 overflow-y-auto"
-        onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
+        onKeyDown={onKeyDown}
+        onScroll={(event) => {
+          setScrolled(event.currentTarget.scrollTop > 0);
+          if (date) keepPlace(queuePlace(date), placeIn(event.currentTarget));
+        }}
       >
-        <div className="mx-auto flex max-w-reading flex-col px-3 pb-6">
+        <div className="auto-column flex flex-col pb-6">
           {day ? (
-            <Queue day={day} />
+            <Queue day={day} roomy={roomy} />
           ) : status === 'none' ? (
-            <p data-testid="auto-queue-empty" className="px-3 py-6 text-ui text-foreground-secondary">No digest yet.</p>
+            <p data-testid="auto-queue-empty" className="py-6 text-ui text-foreground-secondary">No digest yet.</p>
           ) : status === 'unknown' ? (
-            <p role="status" className="px-3 py-6 text-ui text-foreground-tertiary">Loading…</p>
+            <p role="status" className="py-6 text-ui text-foreground-tertiary">Loading…</p>
           ) : (
-            <div data-testid="auto-queue-failed" className="flex flex-col items-start gap-3 px-3 py-6">
+            <div data-testid="auto-queue-failed" className="flex flex-col items-start gap-3 py-6">
               <p className="text-ui text-foreground-secondary">{"Can't read the digest."}</p>
               <Button size="compact" variant="outline" onClick={() => void useDigestStore.getState().refresh()}>Retry</Button>
             </div>
           )}
         </div>
       </div>
+      {/* With the list hidden, what the last action did shows at the foot of the pane. */}
+      {narrow ? (
+        <div className="auto-beside-talk shrink-0 pb-3">
+          <div className="auto-column"><SaidBar /></div>
+        </div>
+      ) : null}
     </section>
   );
 }
