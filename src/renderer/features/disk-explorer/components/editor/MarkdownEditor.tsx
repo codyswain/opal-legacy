@@ -16,7 +16,7 @@ import { EditorStatus } from './EditorStatus';
 import { pageWordCount, pageWords, selectedWordCount } from './wordMotion';
 import type { PageObject } from './extensionPoints';
 import { setFileProperties } from './firstLine';
-import { markdownEditorExtensions, replaceText, textChanges } from './editorSetup';
+import { editingSetup, markdownEditorExtensions, replaceText, textChanges } from './editorSetup';
 import { formatState, sameFormat, type FormatState } from './formatState';
 import { LinkPopover } from './LinkPopover';
 import { MathPopover } from './MathPopover';
@@ -127,7 +127,9 @@ const MarkdownEditorSurface: React.FC<MarkdownEditorSurfaceProps> = ({
   path, layout, document, initialBody, autoFocusEmpty = false, openNote = openNoteInTab, propertiesShown, onToggleProperties, onView, extensions, restoreState,
 }) => {
   const section = layout === 'section';
-  const doc = isDocFile(path);
+  // Every editable page is edited as a document; only a document (.mdo) has the toolbar.
+  const doc = editingSetup(path) !== 'plain';
+  const hasToolbar = isDocFile(path);
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   // A document's toolbar and link popover follow the editor's state. A section has no toolbar
@@ -287,7 +289,7 @@ const MarkdownEditorSurface: React.FC<MarkdownEditorSurfaceProps> = ({
       data-properties-shown={propertiesOpen ? '' : undefined}
       onKeyDown={closePropertiesOnEscape}
     >
-      {docView && format && !section ? <DocToolbar view={docView} format={format} /> : null}
+      {docView && format && !section && hasToolbar ? <DocToolbar view={docView} format={format} /> : null}
       <div ref={host} className={section ? 'relative' : 'relative min-h-0 flex-1'} />
       {docView && link ? <LinkPopover view={docView} editor={link} /> : null}
       {docView && framed ? <ObjectBar view={docView} frame={framed} /> : null}

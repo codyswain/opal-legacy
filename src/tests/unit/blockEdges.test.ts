@@ -18,6 +18,7 @@ import { formatState } from '@/renderer/features/disk-explorer/components/editor
 import { mathNodes, mathSpan } from '@/renderer/features/disk-explorer/components/editor/math';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 /*
  * Edge cases around blocks in documents found after PR 1: what list and
@@ -46,7 +47,7 @@ afterEach(() => {
 function mount(marked: string, page = DOC) {
   const at = marked.indexOf('‸');
   const doc = at === -1 ? marked : marked.slice(0, at) + marked.slice(at + 1);
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: Math.max(at, 0) }, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: Math.max(at, 0) }, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   ensureSyntaxTree(view.state, doc.length, 1_000);
   views.push(view);
   return view;
@@ -71,7 +72,7 @@ function press(view: EditorView, key: string, init: KeyboardEventInit = {}) {
 
 /** Runs `command` on a state with `from` to `to` selected, and returns the page after it, or null when it refused. */
 function after(doc: string, from: number, to: number, command: StateCommand, page = DOC): string | null {
-  const state = EditorState.create({ doc, selection: EditorSelection.single(from, to), extensions: markdownEditorExtensions(page) });
+  const state = EditorState.create({ doc, selection: EditorSelection.single(from, to), extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) });
   ensureSyntaxTree(state, doc.length, 1_000);
   let result: Transaction | null = null;
   command({ state: state.update({}).state, dispatch: (tr) => { result = tr; } });
@@ -79,7 +80,7 @@ function after(doc: string, from: number, to: number, command: StateCommand, pag
 }
 
 const tex = (doc: string) => {
-  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(DOC) });
+  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
   const tree = ensureSyntaxTree(state, doc.length, 1_000);
   return tree ? mathNodes(tree, 0, doc.length).map((node) => mathSpan(state.doc, node).tex) : [];
 };
@@ -118,7 +119,7 @@ describe('headings and lists on headings and tasks', () => {
 
   it('takes no heading on a task, and the style menu says so', () => {
     expect(after('- [ ] Brown rice\n', 8, 8, setHeading(2))).toBe('- [ ] Brown rice\n');
-    const state = EditorState.create({ doc: '- [ ] Brown rice\n', selection: { anchor: 8 }, extensions: markdownEditorExtensions(DOC) });
+    const state = EditorState.create({ doc: '- [ ] Brown rice\n', selection: { anchor: 8 }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
     ensureSyntaxTree(state, 20, 1_000);
     expect(formatState(state.update({}).state).headingDisabled).toBe(true);
   });
@@ -133,7 +134,8 @@ describe('headings and lists on headings and tasks', () => {
     const doc = 'It is **a long\nbold sentence** that ends.\n';
     const at = doc.indexOf('bold');
     expect(after(doc, at, at, setHeading(2))).toBe('It is **a long**\n## **bold sentence** that ends.\n');
-    expect(after(doc, at, at, toggleList('bullet'))).toBe('It is **a long**\n- **bold sentence** that ends.\n');
+    // A list under text gets the blank line Markdown needs, which the page gives no room.
+    expect(after(doc, at, at, toggleList('bullet'))).toBe('It is **a long**\n\n- **bold sentence** that ends.\n');
     const three = 'One *two\nthree four\nfive* six\n';
     const middle = three.indexOf('three');
     expect(after(three, middle, middle, setHeading(2))).toBe('One *two*\n## *three four*\n*five* six\n');
@@ -143,7 +145,7 @@ describe('headings and lists on headings and tasks', () => {
     const doc = 'Log:\n      raw_log: x\n';
     const at = doc.indexOf('raw');
     expect(after(doc, at, at, setHeading(2))).toBe('Log:\n## raw_log: x\n');
-    expect(after(doc, at, at, toggleList('bullet'))).toBe('Log:\n- raw_log: x\n');
+    expect(after(doc, at, at, toggleList('bullet'))).toBe('Log:\n\n- raw_log: x\n');
     const item = '- Item\n        more text\n';
     expect(after(item, item.indexOf('more'), item.indexOf('more'), toggleList('number'))).toBe('- Item\n1. more text\n');
     // A heading stays in the item, so the item's later blocks stay in it too.
@@ -151,7 +153,7 @@ describe('headings and lists on headings and tasks', () => {
     const evidence = numbered.indexOf('Evidence');
     expect(after(numbered, evidence, evidence, setHeading(1))).toBe('12. Split it.\n    # Evidence here.\n\n    | a | b |\n    |---|---|\n    | 1 | 2 |\n');
     const star = 'Notes\n\t* understand this\n';
-    expect(after(star, star.indexOf('under'), star.indexOf('under'), toggleList('bullet'))).toBe('Notes\n- \\* understand this\n');
+    expect(after(star, star.indexOf('under'), star.indexOf('under'), toggleList('bullet'))).toBe('Notes\n\n- \\* understand this\n');
   });
 
   it('puts the caret after the marker of a list made on an empty line', () => {
@@ -173,16 +175,26 @@ describe('the blank line above a setext heading', () => {
 });
 
 describe('the blank line under a list or quote', () => {
+  it('joins a paragraph to the list\'s last item on Backspace at its start, as a word processor does, never as a loose line of the item', () => {
+    const view = mount('- one\n- two\n\n‸After\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('- one\n- two‸After\n');
+  });
+
   it('moves the caret on Backspace or Delete instead of making the paragraph a line of the item or the quote', () => {
-    for (const doc of ['- one\n- two\n\n‸After\n', '> [!note] Title\n> Body\n\n‸After\n', '- one\n- two\n‸\nAfter\n']) {
+    for (const doc of ['> [!note] Title\n> Body\n\n‸After\n', '- one\n- two\n‸\nAfter\n']) {
       const view = mount(doc);
       press(view, 'Backspace');
       expect(text(view)).toBe(doc.replace('‸', ''));
       expect(text(view).slice(caret(view) - 3, caret(view))).toMatch(/two|ody/);
     }
+    // Delete at the end of a list pulls the paragraph under it up, as a word processor does; under a quote the caret still moves.
     const view = mount('- one\n- two‸\n\nAfter\n');
     press(view, 'Delete');
-    expect(marked(view)).toBe('- one\n- two\n\n‸After\n');
+    expect(marked(view)).toBe('- one\n- two‸After\n');
+    const quote = mount('> [!note] Title\n> Body‸\n\nAfter\n');
+    press(quote, 'Delete');
+    expect(marked(quote)).toBe('> [!note] Title\n> Body\n\n‸After\n');
     // Two blank lines: the first Backspace takes one of them, as before.
     const two = mount('- two\n\n\n‸After\n');
     press(two, 'Backspace');
@@ -387,7 +399,7 @@ describe('a wiki link split by its alias pipe in a drawn table', () => {
 describe('a list pasted on an empty list item', () => {
   it('takes the empty item\'s place at its level, never nesting under it', () => {
     const state = (doc: string) => {
-      const created = EditorState.create({ doc, selection: { anchor: doc.length }, extensions: markdownEditorExtensions(DOC) });
+      const created = EditorState.create({ doc, selection: { anchor: doc.length }, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
       ensureSyntaxTree(created, doc.length, 1_000);
       return created.update({}).state;
     };

@@ -7,6 +7,7 @@ import { parseWikiTarget } from '@/renderer/features/disk-explorer/components/ed
 import { toOpalFileUrl } from '@/common/opalFileUrl';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const PAGE = '/Vault/Notes/brief.md';
 const PERSON = '/Vault/People/Robert Xu.md';
@@ -25,7 +26,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, openNote = vi.fn(), page = PAGE) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, openNote) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, openNote, plainUnlessDocument(page)) }) });
   views.push(view);
   return { view, openNote };
 }

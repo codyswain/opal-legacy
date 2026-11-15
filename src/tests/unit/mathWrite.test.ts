@@ -24,6 +24,7 @@ import {
 import { objectFrame } from '@/renderer/features/disk-explorer/components/editor/objectFrame';
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const DOC = '/Vault/Notes/Plan.mdo';
 const NOTE = '/Vault/Notes/Plan.md';
@@ -41,7 +42,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, page = DOC): EditorView {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   ensureSyntaxTree(view.state, doc.length, 5_000);
   view.dispatch({});
   views.push(view);
@@ -78,7 +79,7 @@ function edit(view: EditorView, at: number, input: string) {
 
 /** Exactly one formula, spanning `formula`, in `doc`. */
 function readsAsOneFormula(doc: string, formula: string): boolean {
-  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(NOTE) });
+  const state = EditorState.create({ doc, extensions: markdownEditorExtensions(NOTE, undefined, plainUnlessDocument(NOTE)) });
   const tree = ensureSyntaxTree(state, doc.length, 5_000);
   if (!tree) return false;
   const found = mathNodes(tree, 0, doc.length);
@@ -272,12 +273,12 @@ describe('formula write rules', () => {
   });
 
   it('escapes the dollar until no formula is left with "Not a formula"', () => {
-    const state = EditorState.create({ doc: 'Raise $5M,$ now', extensions: markdownEditorExtensions(DOC) });
+    const state = EditorState.create({ doc: 'Raise $5M,$ now', extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
     ensureSyntaxTree(state, state.doc.length, 1_000);
     const changes = notAFormula(state, 6, 11);
     expect(changes).not.toBeNull();
     expect(state.update({ changes: changes ?? [] }).state.doc.toString()).toBe('Raise \\$5M,$ now');
-    const display = EditorState.create({ doc: 'the $$x$$ and', extensions: markdownEditorExtensions(DOC) });
+    const display = EditorState.create({ doc: 'the $$x$$ and', extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
     ensureSyntaxTree(display, display.doc.length, 1_000);
     const next = display.update({ changes: notAFormula(display, 4, 9) ?? [] }).state;
     ensureSyntaxTree(next, next.doc.length, 1_000);
@@ -569,7 +570,7 @@ describe('closing, switching and edits from elsewhere', () => {
 
   it('writes "Not a formula" for \\(…\\), \\[…\\] and $$…$$, and for a formula right after another', () => {
     const run = (doc: string, from: number, to: number) => {
-      const state = EditorState.create({ doc, extensions: markdownEditorExtensions(DOC) });
+      const state = EditorState.create({ doc, extensions: markdownEditorExtensions(DOC, undefined, plainUnlessDocument(DOC)) });
       ensureSyntaxTree(state, doc.length, 1_000);
       const changes = notAFormula(state, from, to);
       if (!changes) return null;

@@ -6,6 +6,8 @@
  */
 
 /* A document's setext underline takes no room: the heading reads as one. */
+/* So does the blank line Markdown needs between a list and the text beside it. */
+.opal-editor .cm-editor .cm-line.cm-md-gap-hidden,
 .opal-editor .cm-editor .cm-line.cm-md-setext-hidden {
   height: 0;
   padding: 0;
@@ -16,16 +18,16 @@
 
 /* Bullets by depth: a filled dot, a ring, a square, repeating. */
 .opal-editor .cm-editor .cm-md-list-marker[data-depth="1"] .cm-md-bullet {
-  width: 0.34em;
-  height: 0.34em;
+  width: 0.38em;
+  height: 0.38em;
   box-sizing: border-box;
   border: 1px solid currentColor;
   background-color: transparent;
 }
 
 .opal-editor .cm-editor .cm-md-list-marker[data-depth="2"] .cm-md-bullet {
-  width: 0.28em;
-  height: 0.28em;
+  width: 0.32em;
+  height: 0.32em;
   border-radius: 0;
 }
 

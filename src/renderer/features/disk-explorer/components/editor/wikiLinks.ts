@@ -12,7 +12,7 @@ import { basenameFsPath, isFsPathAtOrBelow, parentFsPath } from '@/common/fsPath
 import { validDate } from '@/common/vaultModel';
 import { LINK_TARGET_LIMIT } from '@/types/markdown';
 import type { VaultResult } from '@/types/vault';
-import { setLinkEditor } from './linkEditorEffect';
+import { setLinkEditor, followLinkClicks } from './linkEditorEffect';
 import { nodeDecorators, objectKinds, type DecorateContext } from './extensionPoints';
 import { docMode } from './livePreview';
 
@@ -375,7 +375,7 @@ const wikiObject = objectKinds.of({
  */
 const wikiNameClicks = EditorView.domEventHandlers({
   mousedown(event, view) {
-    if (event.button !== 0 || opensNewTab(event) || !view.state.facet(docMode) || !(event.target instanceof Element)) return false;
+    if (event.button !== 0 || opensNewTab(event) || !view.state.facet(docMode) || view.state.facet(followLinkClicks) || !(event.target instanceof Element)) return false;
     const element = event.target.closest('[data-wiki-name]');
     if (!element) return false;
     let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(view.posAtDOM(element), 1);

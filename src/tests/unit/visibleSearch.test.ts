@@ -13,6 +13,7 @@ import { VisibleQuery } from '@/renderer/features/disk-explorer/components/edito
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
 import { visibleLine } from '@/renderer/features/disk-explorer/components/editor/visibleText';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 const toasts = vi.hoisted(() => [] as string[]);
 vi.mock('sonner', () => ({ toast: Object.assign((message: string) => { toasts.push(message); }, { error: (message: string) => { toasts.push(message); }, success: (): void => undefined }), Toaster: (): null => null }));
@@ -34,7 +35,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, page = DOC, extra: Extension[] = []) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: [markdownEditorExtensions(page), extra] }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, extensions: [markdownEditorExtensions(page, undefined, plainUnlessDocument(page)), extra] }) });
   ensureSyntaxTree(view.state, view.state.doc.length, 5_000);
   view.dispatch({});
   views.push(view);

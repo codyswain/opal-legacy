@@ -11,6 +11,7 @@ import { objectFrame } from '@/renderer/features/disk-explorer/components/editor
 import { installDiskApi } from '@/tests/helpers/diskApi';
 import { installMarkdownApi } from '@/tests/helpers/markdownApi';
 import { vaultFiles } from '@/tests/fidelity/censusHelpers';
+import { plainUnlessDocument } from '@/tests/helpers/editingSetup';
 
 /*
  * Diagrams without layout: happy-dom draws no SVG, so these check what goes
@@ -34,7 +35,7 @@ afterEach(() => {
 });
 
 function mount(doc: string, at = 0, page = DOC) {
-  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: at }, extensions: markdownEditorExtensions(page) }) });
+  const view = new EditorView({ parent: document.body, state: EditorState.create({ doc, selection: { anchor: at }, extensions: markdownEditorExtensions(page, undefined, plainUnlessDocument(page)) }) });
   ensureSyntaxTree(view.state, doc.length, 5_000);
   view.dispatch({});
   views.push(view);

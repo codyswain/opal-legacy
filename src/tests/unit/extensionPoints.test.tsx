@@ -76,7 +76,7 @@ describe('node decorators', () => {
     const decorate = vi.fn(() => false);
     const view = mount(doc, nodeDecorators.of({ nodes: ['StrongEmphasis'], decorate }));
     expect(marks(view)).toEqual([[2, 4, false], [5, 7, false]]);
-    expect(decorate).toHaveBeenCalledWith(expect.objectContaining({ docMode: false, page: NOTE }), expect.objectContaining({ name: 'StrongEmphasis', from: 2, to: 7 }));
+    expect(decorate).toHaveBeenCalledWith(expect.objectContaining({ docMode: true, page: NOTE }), expect.objectContaining({ name: 'StrongEmphasis', from: 2, to: 7 }));
   });
 
   it('skip the built-in case and the node\'s children when they return true, and can mark units', () => {

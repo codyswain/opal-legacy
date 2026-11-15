@@ -9,6 +9,8 @@ import { normalizeFsPath, parentFsPath } from '@/common/fsPaths';
 import { toOpalFileUrl } from '@/common/opalFileUrl';
 import { activityLogSection } from './activityLog';
 import { followLink } from './linkSchemes';
+import { listGaps } from './listEdges';
+import { levelNumeral } from './listNumbers';
 import { mathSpan } from './math';
 import { blockRenderers, nodeDecorators, type DecorateContext, type Reveal, type TextRange } from './extensionPoints';
 import { CalloutIconWidget } from './callouts';
@@ -162,11 +164,12 @@ function listIndent(depth: number): number {
 }
 
 /**
- * A document's number for an ordered item: the list's first number plus
- * the item's place in it, so "1.", "1.", "1." and a list with an item
- * deleted read 1, 2, 3. The file keeps the numbers as written.
+ * The number the page draws for an ordered item: the list's first number
+ * plus the item's place in it, so "1.", "1.", "1." reads 1, 2, 3, drawn in
+ * its level's style: 1, a, i, then round again. The file keeps the digits
+ * as written.
  */
-function shownNumber(state: EditorState, item: SyntaxNode, mark: SyntaxNode): string {
+function shownNumber(state: EditorState, item: SyntaxNode, mark: SyntaxNode, depth: number): string {
   const list = item.parent;
   const written = state.sliceDoc(mark.from, mark.to);
   const first = list?.getChild('ListItem')?.getChild('ListMark');
@@ -174,7 +177,7 @@ function shownNumber(state: EditorState, item: SyntaxNode, mark: SyntaxNode): st
   let place = 0;
   for (let child = list.firstChild; child && child.from < item.from; child = child.nextSibling) if (child.name === 'ListItem') place += 1;
   const start = Number.parseInt(state.sliceDoc(first.from, first.to), 10) || 0;
-  return `${start + place}${written.slice(-1)}`;
+  return `${levelNumeral(start + place, depth)}${written.slice(-1)}`;
 }
 
 function listDepth(node: SyntaxNode): number {
@@ -740,7 +743,7 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
           // The marker shows as written only while the caret is in it.
           if (start <= ref.from && !reveal.span(start, textFrom - 1)) {
             const kind = task ? 'task' : ordered ? 'number' : 'bullet';
-            const label = ordered && docs ? shownNumber(state, item, node) : doc.sliceString(ref.from, ref.to);
+            const label = ordered ? shownNumber(state, item, node, depth) : doc.sliceString(ref.from, ref.to);
             out.push(Decoration.replace({ widget: new ListMarkerWidget(kind, label, checked, depth, task && ordered ? label : null), caretAfter: true }).range(start, textFrom));
           }
           if (checked && textFrom < line.to) out.push(taskDone.range(textFrom, line.to));
@@ -787,6 +790,22 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
       }
     },
   });
+
+  // The blank line Markdown needs between a list and the text beside it takes no room in a document, so a list
+  // sits right against its neighbours, as in a word processor, and the caret steps over the line (listEdges.ts).
+  if (state.facet(docMode)) {
+    const tree = syntaxTree(state);
+    for (const number of listGaps(doc, doc.lineAt(top).number, doc.lineAt(bottom).number)) {
+      const gap = doc.line(number);
+      // Never inside code or HTML, whose blank lines are their own, nor next to a drawn block, which needs a line for the caret.
+      let raw = false;
+      for (let node: SyntaxNode | null = tree.resolveInner(gap.from, 1); node; node = node.parent) if (['FencedCode', 'CodeBlock', 'HTMLBlock', 'CommentBlock'].includes(node.name)) raw = true;
+      if (raw || covered(gap.from) || covered(doc.line(number - 1).from) || covered(doc.line(number + 1).from)) continue;
+      if (gap.to > gap.from) hide(gap.from, gap.to);
+      lineClass(gap.from, 'cm-md-gap-hidden');
+      units?.push({ from: gap.from - 1, to: Math.min(doc.length, gap.to + 1) });
+    }
+  }
 
   for (const [number, { indent, quoted }] of continued) {
     const line = doc.line(number);
