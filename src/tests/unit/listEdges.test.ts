@@ -865,6 +865,13 @@ for (const [name, page] of PAGES) {
       expect(marked(onItem)).toBe('- a\n- b\n- a\n- b‸');
       const numbered = mountSelected('1. «a\n2. b»\n\nPara\n\n', page);
       expect(copied(numbered)).toBe('1. a\n2. b');
+      // A nested item takes its indent too, so the copied items stay siblings.
+      const nested = mountSelected('- p\n  - «b\n  - c»\n- ', page);
+      const both = copied(nested);
+      expect(both).toBe('  - b\n  - c');
+      caretToEnd(nested);
+      pasteText(nested, both);
+      expect(marked(nested)).toBe('- p\n  - b\n  - c\n  - b\n  - c‸');
       // A selection inside one item copies only its text.
       expect(copied(mountSelected('- «a»b', page))).toBe('a');
     });

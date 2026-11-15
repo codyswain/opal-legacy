@@ -113,10 +113,14 @@ not exist.
   beside a list one is that gap and the rest are rows; the blank line
   right under a list line is always the gap, so a list written with a
   blank line between its items, and two lists one blank line apart, are
-  drawn tight. A key that takes an item out of its list or ends a list
+  drawn tight. The gap rule holds only within one quote depth, so the
+  blank line between a quote and a list under it is a row. A key that
+  takes an item out of its list or ends a list
   changes no row of the page: it dispatches with the `keepsRows`
   annotation, and the same filter takes out the blank lines it left
-  showing and keeps the caret on a line that shows. Making a line a list
+  showing and keeps the caret on a line that shows. The blank line that
+  keeps text from standing right over a `---` or `===` line is never taken
+  out, even where it shows as a row. Making a line a list
   item changes no row either, by a list key, a typed marker (the autoformat
   step carries `keepsRows`) or a paste: an empty row beside the line would
   become the new list's gap, so a second blank line goes in beside it and

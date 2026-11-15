@@ -34,10 +34,10 @@ function codeAround(state: EditorState, from: number, to: number): SyntaxNode | 
 export function balancedText(state: EditorState, from: number, to: number): string {
   if (codeAround(state, from, to) && rawAt(state, from) && rawAt(state, to)) return state.sliceDoc(from, to);
   // A selection from the start of an item's text, where a click puts the caret, past the end of its line takes
-  // the item's hidden marker along, so the first line pastes as an item like the others.
+  // the item's hidden marker and its indent along, so the first line pastes as an item at the level of the others.
   const first = state.doc.lineAt(from);
   const item = to > first.to ? listItemOf(state, first) : null;
-  if (item && item.textFrom === from) from = item.markFrom;
+  if (item && item.textFrom === from) from = first.from + (/^(?:[ \t]*>[ \t]?)*/.exec(first.text)?.[0].length ?? 0);
   ({ from, to } = outsideProtected(state, from, to));
   ({ from, to } = withoutEdgeMarks(state, from, to));
   let before = '';
