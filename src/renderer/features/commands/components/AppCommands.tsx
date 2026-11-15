@@ -30,7 +30,7 @@ import { openDaily, openDailyPage } from "@/renderer/features/shell/utils/openDa
 import { useSettingsStore } from "@/renderer/features/settings/store/settingsStore";
 import { useUpdatesStore, useUpdatesSync } from "@/renderer/features/updates";
 import { commentTarget, openCommentBox, selectionCrossesPages, useCommentSync } from "@/renderer/features/comment";
-import { useAutoSync } from "@/renderer/features/auto";
+import { openAutoTab, useAutoSync } from "@/renderer/features/auto";
 import { commandRegistry, type Command } from "../services/commandRegistry";
 import { usePaletteStore } from "../store/paletteStore";
 
@@ -135,6 +135,14 @@ export const AppCommands: React.FC = () => {
         type: "navigation",
         keywords: ["history", "activity"],
         perform: ({ newTab } = {}) => navigateFiles(browseRecent(), { newTab }),
+      },
+      {
+        id: "nav.auto",
+        name: "Go to Auto",
+        type: "navigation",
+        keywords: ["agent", "threads", "inbox", "digest"],
+        // One Auto tab: the one already open, or a new one beside the page.
+        perform: () => openAutoTab(navigateFiles),
       },
       {
         id: COMMAND_IDS.back,

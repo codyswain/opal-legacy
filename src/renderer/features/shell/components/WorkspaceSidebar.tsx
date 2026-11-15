@@ -1,12 +1,11 @@
 import * as React from "react";
 import { ChevronsDownUp, Clock, Inbox, Settings } from "lucide-react";
-import { needsCount, useAutoStore } from "@/renderer/features/auto";
-import { browseAuto, browseRecent, isAutoLocation } from "@/renderer/features/disk-explorer/navigation";
+import { needsCount, openAutoTab, useAutoStore } from "@/renderer/features/auto";
+import { browseRecent, isAutoLocation } from "@/renderer/features/disk-explorer/navigation";
 import { useDiskStore } from "@/renderer/features/disk-explorer/store/diskStore";
 import { canCollapseTree } from "@/renderer/features/disk-explorer/store/treeExpansion";
 import {
   selectCurrentLocation,
-  tabLocation,
   useTabsStore,
 } from "@/renderer/features/disk-explorer/store/tabsStore";
 import { useSettingsStore } from "@/renderer/features/settings/store/settingsStore";
@@ -73,10 +72,7 @@ export function WorkspaceSidebar({
 
   // One Auto tab: the row goes to the one already open, or opens one beside the page.
   const goToAuto = () => {
-    const tabs = useTabsStore.getState();
-    const open = tabs.tabs.find((tab) => isAutoLocation(tabLocation(tab)));
-    if (open) tabs.activate(open.id);
-    else navigateFiles(browseAuto(), { newTab: true });
+    openAutoTab(navigateFiles);
     onNavigate?.();
   };
 
