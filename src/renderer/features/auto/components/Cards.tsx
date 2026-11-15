@@ -45,7 +45,8 @@ function OptionButton({ question, part, label, description, hint }: { question: 
         {description ? <span className="block text-foreground-tertiary">{description}</span> : null}
       </span>
       {picked ? <Check aria-hidden className="h-3.5 w-3.5 shrink-0" /> : null}
-      {hint ? <span aria-hidden className="shrink-0 pl-2 font-mono text-metadata text-foreground-tertiary">{hint}</span> : null}
+      {/* Its number shows only while the keyboard is in the card, which is when the number picks it. From the box a digit is typed. */}
+      {hint ? <span aria-hidden data-testid="auto-option-key" className="invisible shrink-0 pl-2 font-mono text-metadata text-foreground-tertiary group-focus-within/card:visible">{hint}</span> : null}
     </button>
   );
 }
@@ -66,7 +67,7 @@ export function QuestionCard({ question }: { question: Ask }) {
   return (
     <div
       data-testid="auto-question"
-      className={card}
+      className={cn(card, 'group/card')}
       onKeyDown={(event) => {
         if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
         const label = keys[Number(event.key) - 1];

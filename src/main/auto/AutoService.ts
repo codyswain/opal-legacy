@@ -1,6 +1,7 @@
 import type * as fsPromises from 'fs/promises';
 import path from 'path';
 import {
+  toArchived,
   toDigest,
   toDigestDays,
   toListEvent,
@@ -138,6 +139,8 @@ function shape(kind: AutoRoute['kind'], data: unknown): unknown {
       return Array.isArray(body.threads)
         ? { threads: toThreads(body.threads).filter((thread) => !thread.archived), cursor: validCursor(body.cursor) ? body.cursor : null }
         : null;
+    case 'archived':
+      return toArchived(body);
     case 'thread':
       return toSnapshot(body);
     case 'message':
@@ -149,6 +152,7 @@ function shape(kind: AutoRoute['kind'], data: unknown): unknown {
     case 'move':
       return Array.isArray(body.ids) ? { ids: body.ids.filter(validThreadId) } : null;
     case 'digest':
+    case 'digest-archive':
     case 'digest-resolve':
     case 'digest-note':
       return toDigest(body);

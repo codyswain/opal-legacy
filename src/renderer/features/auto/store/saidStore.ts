@@ -5,17 +5,23 @@ import { create } from 'zustand';
  * on offer from the moment its row or entry leaves, not from the service's
  * answer, and stays for half a minute. The last ten are kept: the line at
  * the foot of the list shows the newest and says how many more there are,
- * and Undo takes them back newest first. A refusal from the service is one
- * line of its own, with nothing to undo. Auto's actions say what they did
- * here, never in the app's corner.
+ * and Undo takes them back newest first. A put-away says what it did in the
+ * phone's sentence ("Snoozed until tomorrow 9:00 am.", "Archived: Seed
+ * order"). A refusal from the service is one line of its own, with nothing
+ * to undo. Auto's actions say what they did here, never in the app's corner.
  */
 
 export interface Said {
   id: number;
   /** The thread or entry it happened to: first on the line, so a long one is cut, not left out. */
   name: string;
-  /** What happened, short: "archived", "until Sun 9:00 am", "resolved". */
+  /** What happened, short: "resolved", "made a thread". For a put-away, the phone's own sentence. */
   text: string;
+  /**
+   * The text is a sentence of its own and comes first, whole: "Snoozed until
+   * tomorrow 9:00 am.", or "Archived:" with the name after it.
+   */
+  whole: boolean;
   /** What it happened to, so a later action on the same thing can take the line away. */
   subject: string;
   /** The way back, when there is one. */
@@ -46,7 +52,9 @@ export interface SaidStore {
    * can be taken back for less than the usual time, such as an answer held
    * a few seconds before it is posted.
    */
-  offer: (action: { name: string; text: string; subject?: string; undo?: () => void; open?: () => void; lasts?: number }) => number;
+  offer: (action: { name: string; text: string; whole?: boolean; subject?: string; undo?: () => void; open?: () => void; lasts?: number }) => number;
+  /** Says an offer still on the line in other words, and gives it its time again: a wait, once Auto has named who it is on. */
+  reword: (id: number, text: string) => void;
   /** Takes an offer away without running it: its post failed, or its time to be taken back is over. */
   drop: (id: number) => void;
   /** Takes away every offer about one thread or entry. */
@@ -92,6 +100,7 @@ export const useSaidStore = create<SaidStore>((set, get) => {
         id: count,
         name: action.name,
         text: action.text,
+        whole: action.whole ?? false,
         subject: action.subject ?? '',
         undo: action.undo ?? null,
         open: action.open ?? null,
@@ -102,6 +111,12 @@ export const useSaidStore = create<SaidStore>((set, get) => {
       set({ stack: [...get().stack, said].slice(-UNDO_DEPTH), notice: null });
       prune();
       return said.id;
+    },
+
+    reword: (id, text) => {
+      if (!get().stack.some((each) => each.id === id)) return;
+      set({ stack: get().stack.map((each) => (each.id === id ? { ...each, text, until: Date.now() + UNDO_MS } : each)) });
+      prune();
     },
 
     drop: (id) => {
@@ -118,7 +133,7 @@ export const useSaidStore = create<SaidStore>((set, get) => {
 
     refuse: (text, name = '') => {
       count += 1;
-      set({ notice: { id: count, name, text, subject: '', undo: null, open: null, problem: true, until: Date.now() + NOTICE_MS } });
+      set({ notice: { id: count, name, text, whole: true, subject: '', undo: null, open: null, problem: true, until: Date.now() + NOTICE_MS } });
       prune();
     },
 

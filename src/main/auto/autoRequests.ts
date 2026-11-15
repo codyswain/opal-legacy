@@ -2,6 +2,7 @@ import {
   NOTE_LIMIT,
   RESOLVE_LIMIT,
   TEXT_LIMIT,
+  WAIT_SAY_LIMIT,
   validCid,
   validCursor,
   validDate,
@@ -20,6 +21,9 @@ import type { AutoAnswer, AutoRoute, AutoStreamTarget } from '@/types/auto';
 
 /** The name Opal gives itself on every write, as the service asks of a client that is not its own page. */
 export const CLIENT_NAME = 'opal';
+
+/** The most archived threads one read may ask for by number; all of them is asked for with no number. */
+export const ARCHIVED_LIMIT = 500;
 
 export class AutoAddressError extends Error {}
 
@@ -103,6 +107,9 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, '/api/status/check', {});
     case 'threads':
       return get(base, '/api/threads');
+    case 'archived':
+      // What he archived. The limit is a whole number checked before it reaches the path.
+      return get(base, route.limit === null ? '/api/threads?archived=1' : `/api/threads?archived=1&limit=${route.limit}`);
     case 'thread':
       return get(base, `/api/threads/${route.id}`);
     case 'create':
@@ -125,7 +132,11 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
     case 'move':
       return post(base, `/api/threads/${route.id}/move`, { before: route.before });
     case 'snooze':
-      return post(base, `/api/threads/${route.id}/snooze`, { until: route.until });
+      // With a wait and no time, the service's own give-up time applies, so `until` is left out; alone, null brings the thread back.
+      return post(base, `/api/threads/${route.id}/snooze`, {
+        ...(route.wait && route.until === null ? {} : { until: route.until }),
+        ...(route.wait ? { wait: { say: route.wait.say } } : {}),
+      });
     case 'start':
       return post(base, `/api/threads/${route.id}/start`, {});
     case 'desk':
@@ -134,6 +145,8 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return get(base, route.date ? `/api/digest?date=${route.date}` : '/api/digest');
     case 'digests':
       return get(base, '/api/digests');
+    case 'digest-archive':
+      return post(base, '/api/digest/archive', { date: route.date, archived: route.archived });
     case 'digest-resolve':
       return post(base, '/api/digest/resolve', {
         date: route.date,
@@ -210,10 +223,16 @@ export function validRoute(value: unknown): AutoRoute | null {
       return words(route.text) && validModel(route.model) && validCid(route.cid)
         ? { kind: 'create', text: route.text, model: route.model, cid: route.cid }
         : null;
+    case 'archived':
+      return route.limit === null || (Number.isInteger(route.limit) && (route.limit as number) > 0 && (route.limit as number) <= ARCHIVED_LIMIT)
+        ? { kind: 'archived', limit: route.limit as number | null }
+        : null;
     case 'digests':
       return { kind: 'digests' };
     case 'digest':
       return route.date === null || validDate(route.date) ? { kind: 'digest', date: route.date as string | null } : null;
+    case 'digest-archive':
+      return validDate(route.date) && typeof route.archived === 'boolean' ? { kind: 'digest-archive', date: route.date, archived: route.archived } : null;
     case 'digest-resolve':
     case 'digest-note':
     case 'digest-thread':
@@ -245,10 +264,14 @@ export function validRoute(value: unknown): AutoRoute | null {
       return route.before === null || (validThreadId(route.before) && route.before !== id)
         ? { kind: 'move', id, before: route.before as string | null }
         : null;
-    case 'snooze':
-      return route.until === null || (typeof route.until === 'number' && Number.isFinite(route.until) && route.until > 0)
-        ? { kind: 'snooze', id, until: route.until as number | null }
-        : null;
+    case 'snooze': {
+      if (!(route.until === null || (typeof route.until === 'number' && Number.isFinite(route.until) && route.until > 0))) return null;
+      const until = route.until as number | null;
+      if (route.wait === undefined) return { kind: 'snooze', id, until };
+      // Put away until someone replies: who or what he waits for, in his own words, and nothing else of what the page sent.
+      const wait = route.wait && typeof route.wait === 'object' ? (route.wait as Fields) : null;
+      return wait && words(wait.say, WAIT_SAY_LIMIT) ? { kind: 'snooze', id, until, wait: { say: wait.say.trim() } } : null;
+    }
     case 'desk':
       return typeof route.on === 'boolean' ? { kind: 'desk', id, on: route.on } : null;
     default:

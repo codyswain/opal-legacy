@@ -19,6 +19,8 @@ import type {
   AutoThread,
   AutoThreadEvent,
   AutoThreadStatus,
+  AutoWait,
+  AutoWaitState,
 } from '@/types/auto';
 
 /*
@@ -103,6 +105,36 @@ function toAsk(value: unknown): AutoAsk | null {
   };
 }
 
+const WAIT_STATES: readonly AutoWaitState[] = ['finding', 'watching', 'met', 'expired'];
+const WAIT_PLACES = ['Slack', 'Gmail', 'WhatsApp'];
+/** The longest of his own words for a wait the service takes. */
+export const WAIT_SAY_LIMIT = 2_000;
+
+/**
+ * What a thread waits on, or null. Every line in it comes from the service
+ * or, through it, from someone else's message: each is cut to a length and
+ * shown as plain text. The link is kept as text; the page opens it only
+ * when it starts with `http`.
+ */
+export function toWait(value: unknown): AutoWait | null {
+  const wait = fields(value);
+  if (!wait) return null;
+  return {
+    say: text(wait.say, WAIT_SAY_LIMIT),
+    // A state this app does not know is read as still being watched.
+    state: WAIT_STATES.find((name) => name === wait.state) ?? 'watching',
+    on: text(wait.on, 80),
+    what: text(wait.what, 200),
+    where: WAIT_PLACES.find((name) => name === wait.where) ?? '',
+    link: text(wait.link, 500),
+    check: text(wait.check, 600),
+    since: time(wait.since),
+    expires: time(wait.expires),
+    heard: text(wait.heard, LINE_LIMIT),
+    reply: text(wait.reply, LINE_LIMIT),
+  };
+}
+
 /** A list entry, or null for anything without a usable id. */
 export function toThread(value: unknown): AutoThread | null {
   const thread = fields(value);
@@ -124,8 +156,11 @@ export function toThread(value: unknown): AutoThread | null {
     error: optional(thread.error, LINE_LIMIT),
     queued: count(thread.queued),
     archived: thread.archived === true,
+    archivedAt: thread.archived === true ? time(thread.archived_at) : null,
     snoozed: time(thread.snoozed),
+    snoozedAt: time(thread.snoozed) ? time(thread.snoozed_at) : null,
     woke: time(thread.woke),
+    wait: toWait(thread.wait),
     digest:
       digest && typeof digest.date === 'string' && typeof digest.id === 'string'
         ? { date: digest.date.slice(0, 40), id: digest.id.slice(0, 200) }
@@ -135,6 +170,14 @@ export function toThread(value: unknown): AutoThread | null {
     // The service keeps it to 80 characters; a longer one is cut, never trusted.
     yours: text(thread.yours, YOURS_LIMIT).trim(),
   };
+}
+
+/** The threads he archived, newest archived first, and how many there are before the limit. */
+export function toArchived(value: unknown): { threads: AutoThread[]; total: number } | null {
+  const body = fields(value);
+  if (!body || !Array.isArray(body.threads)) return null;
+  const threads = toThreads(body.threads).filter((thread) => thread.archived);
+  return { threads, total: Math.max(count(body.total), threads.length) };
 }
 
 export function toThreads(value: unknown): AutoThread[] {
@@ -381,6 +424,7 @@ export function toDigest(value: unknown): AutoDigest | null {
     path: text(digest.path, 1_024),
     // The service's own count; what Opal can see for itself when it gives none.
     left: typeof digest.left === 'number' && Number.isFinite(digest.left) && digest.left >= 0 ? Math.floor(digest.left) : open,
+    archived: digest.archived === true,
     sections,
   };
 }
@@ -390,7 +434,9 @@ export function toDigestDays(value: unknown): AutoDigestDays | null {
   const body = fields(value);
   if (!body || !Array.isArray(body.days)) return null;
   const days = [...new Set(body.days.slice(0, 400).filter(validDate))].sort().reverse();
-  return { days, latest: validDate(body.latest) ? body.latest : days[0] ?? null };
+  // Only a day that has a digest can be an archived one.
+  const archived = list(body.archived, 400).filter((day): day is string => validDate(day) && days.includes(day));
+  return { days, latest: validDate(body.latest) ? body.latest : days[0] ?? null, archived: [...new Set(archived)].sort().reverse() };
 }
 
 /** A list stream event, or null for a kind Opal does not know or a body that does not fit it. */

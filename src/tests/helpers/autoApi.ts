@@ -18,7 +18,8 @@ import type {
 export function autoThread(id: string, fields: Partial<AutoThread> = {}): AutoThread {
   return {
     id, title: `Thread ${id}`, status: 'idle', last: '', activity: '', ask: null, unread: false, model: '', created: 1_794_000_000,
-    updated: 1_794_000_000, error: null, queued: 0, archived: false, snoozed: null, woke: null, digest: null, waits: false, desk: null, yours: '', ...fields,
+    updated: 1_794_000_000, error: null, queued: 0, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null,
+    digest: null, waits: false, desk: null, yours: '', ...fields,
   };
 }
 
@@ -38,6 +39,7 @@ export function autoDigest(date: string, sections: Array<[string, AutoDigestEntr
     date,
     path: `Library/digests/${date} digest.md`,
     left: made.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open').length, 0),
+    archived: false,
     sections: made,
   };
 }
@@ -61,6 +63,8 @@ export interface FakeAuto {
     status: AutoStatus;
     threads: AutoThread[];
     snapshots: Record<string, AutoSnapshot>;
+    /** The threads he archived, in any order: the service answers them newest archived first. */
+    archived: AutoThread[];
     /** The digests the service has, by day. */
     digests: Record<string, AutoDigest>;
     /** Every request fails this way while set. */
@@ -86,7 +90,7 @@ export interface FakeAuto {
   stream: (stream: 'list' | 'thread', type: 'open' | 'down') => void;
 }
 
-const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'thread', 'digest', 'digests']);
+const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'archived', 'thread', 'digest', 'digests']);
 const NO_DIGEST: AutoResult<never> = { success: false, error: { kind: 'refused', message: 'No digest.', code: 'not_found', status: 404 } };
 
 /** Puts a fake of the main process's Auto bridge on `window`: an in-memory service and two streams to push events down. */
@@ -97,6 +101,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     status: AUTO_STATUS,
     threads: [],
     snapshots: {},
+    archived: [],
     digests: {},
     fail: null,
     failWrites: null,
@@ -107,7 +112,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
   };
   const followed: FakeAuto['followed'] = { list: null, thread: null };
   let tokens = 0;
-  const entry = (id: string) => state.threads.find((thread) => thread.id === id) ?? autoThread(id);
+  const entry = (id: string) => state.threads.find((thread) => thread.id === id) ?? state.archived.find((thread) => thread.id === id) ?? autoThread(id);
   const days = () => Object.keys(state.digests).sort().reverse();
   /** Changes entries of a day and answers the day as it is after, counted again. */
   const change = (date: string, ids: string[], fields: (found: AutoDigestEntry) => Partial<AutoDigestEntry>): AutoResult<unknown> => {
@@ -136,6 +141,10 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         return ok(state.status);
       case 'threads':
         return ok({ threads: state.threads, cursor: 'b.0' });
+      case 'archived': {
+        const all = [...state.archived].sort((left, right) => (right.archivedAt ?? 0) - (left.archivedAt ?? 0));
+        return ok({ threads: route.limit === null ? all : all.slice(0, route.limit), total: all.length });
+      }
       case 'thread':
         return state.snapshots[route.id]
           ? ok(state.snapshots[route.id])
@@ -154,10 +163,22 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         return ok({ ok: true });
       case 'move':
         return ok({ ids: state.threads.map((thread) => thread.id) });
-      case 'archive':
-        return ok({ thread: { ...entry(route.id), archived: route.archived } });
-      case 'snooze':
-        return ok({ thread: { ...entry(route.id), snoozed: route.until } });
+      case 'archive': {
+        // As the service keeps it: an archived thread leaves the list for the archive, and a restored one comes back.
+        const thread: AutoThread = { ...entry(route.id), archived: route.archived, archivedAt: route.archived ? 1_794_100_000 : null, ...(route.archived ? { desk: null } : {}) };
+        state.threads = state.threads.filter((each) => each.id !== route.id);
+        state.archived = state.archived.filter((each) => each.id !== route.id);
+        if (route.archived) state.archived = [thread, ...state.archived];
+        else state.threads = [thread, ...state.threads];
+        return ok({ thread });
+      }
+      case 'snooze': {
+        const found = entry(route.id);
+        const wait = route.wait && route.until !== null
+          ? { say: route.wait.say, state: 'finding' as const, on: '', what: '', where: '', link: '', check: '', since: 1_794_000_100, expires: route.until, heard: '', reply: '' }
+          : null;
+        return ok({ thread: { ...found, snoozed: route.until, snoozedAt: route.until === null ? null : 1_794_000_100, wait } });
+      }
       case 'rename':
         return ok({ thread: { ...entry(route.id), title: route.title } });
       case 'model':
@@ -167,7 +188,13 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
       case 'desk':
         return ok({ thread: { ...entry(route.id), desk: route.on ? { at: 1_794_000_900, by: 'opal' } : null } });
       case 'digests':
-        return ok({ days: days(), latest: days()[0] ?? null });
+        return ok({ days: days(), latest: days()[0] ?? null, archived: days().filter((day) => state.digests[day].archived) });
+      case 'digest-archive': {
+        const digest = state.digests[route.date];
+        if (!digest) return NO_DIGEST;
+        state.digests[route.date] = { ...digest, archived: route.archived };
+        return ok(state.digests[route.date]);
+      }
       case 'digest': {
         const date = route.date ?? days()[0];
         return date && state.digests[date] ? ok(state.digests[date]) : NO_DIGEST;

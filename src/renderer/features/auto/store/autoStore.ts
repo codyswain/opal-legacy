@@ -34,13 +34,20 @@ export interface AutoStore {
   /** When the list was last read, in ms. */
   refreshedAt: number;
   snoozedOpen: boolean;
+  /** The line over the threads put away until someone replies is open. */
+  waitingOpen: boolean;
+  /** The threads he archived. They are read when their line is first opened, a first few and then all. */
+  archive: Archive;
   /**
    * The row that takes the keyboard focus once the list has drawn it: a
    * thread's id, or a pane's name for New thread and Digest.
    */
   focusRow: string | null;
-  /** The thread whose snooze is being given a day and a time of his own, and where the action came from. */
-  picking: { thread: AutoThread; from: 'row' | 'pane' } | null;
+  /**
+   * The thread whose snooze is being given a day and a time of his own, or,
+   * with `reply`, put away until someone replies; and where the action came from.
+   */
+  picking: { thread: AutoThread; from: 'row' | 'pane'; reply?: boolean } | null;
   /** Answers picked on a row and held a few seconds before they are posted, by thread. The row shows the pick. */
   held: Record<string, string>;
 
@@ -58,12 +65,39 @@ export interface AutoStore {
   handle: (message: AutoStreamMessage) => void;
   upsert: (thread: AutoThread) => void;
   toggleSnoozed: () => void;
+  toggleWaiting: () => void;
+  /** Opens or closes the Archived line. Opening it reads the archive. */
+  toggleArchive: () => void;
+  /** Reads the archive: its newest few, or all of it. */
+  loadArchive: (all?: boolean) => Promise<void>;
+  /** A thread was archived or brought back here: the archive, once read, follows without asking again. */
+  archiveChanged: (thread: AutoThread) => void;
   checkStatus: () => Promise<void>;
 
   move: (id: string, before: string | null) => Promise<void>;
   /** Marks a thread for the Mac, or takes the mark off. The service ends the mark by itself. */
   desk: (thread: AutoThread, on: boolean) => Promise<void>;
 }
+
+export interface Archive {
+  open: boolean;
+  /** Read at least once. Until then nothing is known of it, not even how many there are. */
+  loaded: boolean;
+  loading: boolean;
+  /** Every archived thread was asked for, not only the newest few. */
+  all: boolean;
+  /** Newest archived first. */
+  threads: AutoThread[];
+  /** How many there are at the service, which may be more than are held here. */
+  total: number;
+  /** Why it could not be read. */
+  problem: string | null;
+}
+
+/** How many archived threads are read before he asks for all of them. */
+export const ARCHIVE_FIRST = 10;
+
+const NO_ARCHIVE: Archive = { open: false, loaded: false, loading: false, all: false, threads: [], total: 0, problem: null };
 
 export const autoApi = (): AutoAPI | undefined => (typeof window !== 'undefined' ? window.autoAPI : undefined);
 
@@ -78,6 +112,21 @@ let refreshing: Promise<boolean> | null = null;
  */
 export const unconfirmedThreads = unconfirmed<AutoThread>();
 const laid = (thread: AutoThread): AutoThread => unconfirmedThreads.lay(thread.id, thread);
+
+/**
+ * Where a thread sits in his order while an undo is putting it back there:
+ * above the thread named, or at the end for null. The service puts a thread
+ * that returns from snooze on top and says so in its order; until the move
+ * that undoes that has landed, the row stays where he had it.
+ */
+export const heldPlaces = new Map<string, string | null>();
+const placed = (threads: AutoThread[]): AutoThread[] => {
+  let next = threads;
+  for (const [id, before] of heldPlaces) {
+    if (next.some((thread) => thread.id === id) && (before === null || next.some((thread) => thread.id === before))) next = moved(next, id, before);
+  }
+  return next;
+};
 
 /** The row last asked to take the focus, and when. */
 let wanted: { row: string; at: number } | null = null;
@@ -146,6 +195,8 @@ export const useAutoStore = create<AutoStore>((set, get) => {
     listToken: null,
     refreshedAt: 0,
     snoozedOpen: false,
+    waitingOpen: false,
+    archive: NO_ARCHIVE,
     focusRow: null,
     picking: null,
     held: {},
@@ -165,6 +216,8 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       if (!result?.success) return result?.error.message ?? 'Opal could not save the address.';
       // Another address is another service: nothing of the old one stays.
       unconfirmedThreads.clear();
+      heldPlaces.clear();
+      set({ archive: NO_ARCHIVE });
       set({ address: result.data.url, editing: false, loaded: false, reachable: false, problem: null, threads: [], status: null, listToken: null });
       if (!result.data.url) void api.unfollow('list').catch(() => undefined);
       if (result.data.url) await get().refresh();
@@ -204,17 +257,63 @@ export const useAutoStore = create<AutoStore>((set, get) => {
         set({ reachable: false, problem: UNREACHABLE });
       } else if (message.type === 'event' && message.stream === 'list') {
         const event = message.event;
-        if (event.kind === 'thread') set({ threads: upsertThread(get().threads, laid(event.thread)) });
-        else if (event.kind === 'order') set({ threads: applyOrder(get().threads, event.ids) });
+        if (event.kind === 'thread') {
+          set({ threads: upsertThread(get().threads, laid(event.thread)) });
+          get().archiveChanged(laid(event.thread));
+        }
+        else if (event.kind === 'order') set({ threads: placed(applyOrder(get().threads, event.ids)) });
         else if (event.kind === 'status') set({ status: event.status });
         // The service can no longer say what was missed: read everything again.
         else if (event.kind === 'reset') void get().refresh();
       }
     },
 
-    upsert: (thread) => set({ threads: upsertThread(get().threads, laid(thread)) }),
+    upsert: (thread) => {
+      set({ threads: upsertThread(get().threads, laid(thread)) });
+      get().archiveChanged(laid(thread));
+    },
 
     toggleSnoozed: () => set({ snoozedOpen: !get().snoozedOpen }),
+
+    toggleWaiting: () => set({ waitingOpen: !get().waitingOpen }),
+
+    toggleArchive: () => {
+      const archive = get().archive;
+      set({ archive: { ...archive, open: !archive.open } });
+      // Read on every opening: threads archived on another device are not on the list's stream.
+      if (!archive.open) void get().loadArchive(archive.all);
+    },
+
+    loadArchive: async (all = false) => {
+      const api = autoApi();
+      const address = get().address;
+      if (!api || !address || get().archive.loading) return;
+      set({ archive: { ...get().archive, loading: true, problem: null } });
+      const result = await api.request({ kind: 'archived', limit: all ? null : ARCHIVE_FIRST }).catch((): null => null);
+      if (get().address !== address) return;
+      if (!result?.success) {
+        set({ archive: { ...get().archive, loading: false, problem: result?.error.message ?? UNREACHABLE } });
+        return;
+      }
+      // What he did a moment ago and the service has yet to confirm still holds.
+      const threads = result.data.threads.map(laid).filter((thread) => thread.archived);
+      set({ archive: { ...get().archive, loading: false, loaded: true, all, threads, total: Math.max(result.data.total, threads.length), problem: null } });
+    },
+
+    archiveChanged: (thread) => {
+      const archive = get().archive;
+      if (!archive.loaded) return;
+      const held = archive.threads.some((candidate) => candidate.id === thread.id);
+      // A digest entry nobody started is put away by the service and is not part of the archive.
+      if (thread.archived && !thread.waits) {
+        const rest = archive.threads.filter((candidate) => candidate.id !== thread.id);
+        // Newest archived first: one archived just now goes on top.
+        const threads = [...rest, thread].sort((left, right) => (right.archivedAt ?? 0) - (left.archivedAt ?? 0));
+        set({ archive: { ...archive, threads, total: archive.total + (held ? 0 : 1) } });
+      } else if (held) {
+        set({ archive: { ...archive, threads: archive.threads.filter((candidate) => candidate.id !== thread.id), total: Math.max(0, archive.total - 1) } });
+      }
+    },
 
     checkStatus: async () => {
       const result = await autoApi()?.request({ kind: 'check-status' }).catch((): null => null);

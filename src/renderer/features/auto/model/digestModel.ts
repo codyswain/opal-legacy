@@ -159,16 +159,18 @@ export function closedRow(entry: AutoDigestEntry): ClosedRow {
   return { title: titled ? entry.title : null, time, words: lines.filter(Boolean).join('\n') };
 }
 
+/** A digest's day, short: "Fri Nov 13". */
+export function shortDay(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const written = new Date(year, month - 1, day);
+  return Number.isNaN(written.getTime()) ? date : written.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
+}
+
 /** The second line of the list's Digest row: the day, how many entries it has and how many are resolved. */
 export function homeLine(digest: AutoDigest): string {
   const all = allEntries(digest);
   const resolved = all.filter((entry) => entry.state === 'resolved').length;
-  const [year, month, day] = digest.date.split('-').map(Number);
-  const written = new Date(year, month - 1, day);
-  const short = Number.isNaN(written.getTime())
-    ? digest.date
-    : written.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
-  return `${short}. ${all.length === 1 ? '1 entry' : `${all.length} entries`}, ${resolved} resolved.`;
+  return `${shortDay(digest.date)}. ${all.length === 1 ? '1 entry' : `${all.length} entries`}, ${resolved} resolved.`;
 }
 
 /** The entries' ids in the order the queue shows them. */

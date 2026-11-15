@@ -144,7 +144,7 @@ describe('the list under the keyboard', () => {
     expect(stops).toHaveLength(1);
     expect(stops[0]).toBe(rowButton(':new'));
     // The run of rows the arrows walk.
-    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual([':new', ':digest', 'beds', 'bread', 'seeds', 'trellis', 'inspect', ':snoozed']);
+    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual([':new', ':digest', 'beds', 'bread', 'seeds', 'trellis', 'inspect', ':snoozed', ':archived']);
   });
 
   it('moves with the arrows, Home and End, and J and K', async () => {
@@ -155,8 +155,10 @@ describe('the list under the keyboard', () => {
     key('j');
     expect(focusedRow()).toBe('beds');
     key('End');
-    expect(focusedRow()).toBe(':snoozed');
+    expect(focusedRow()).toBe(':archived');
     key('ArrowDown');
+    expect(focusedRow()).toBe(':archived');
+    key('k');
     expect(focusedRow()).toBe(':snoozed');
     key('k');
     key('ArrowUp');
@@ -191,7 +193,7 @@ describe('the list under the keyboard', () => {
     rowButton('inspect').focus();
     key('d');
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
-    expect(said()).toBe('Book the inspection, doneUndo');
+    expect(said()).toBe('Done: Book the inspectionUndo');
   });
 
   it('opens the snooze menu with S, and a pick snoozes with the keyboard moving on', async () => {
@@ -203,8 +205,8 @@ describe('the list under the keyboard', () => {
     await waitFor(() => expect(last('snooze')?.id).toBe('bread'));
     expect(rowIds()).not.toContain('bread');
     await waitFor(() => expect(focusedRow()).toBe('seeds'));
-    // The name first and the time short, so neither is lost in a narrow list.
-    expect(said()).toMatch(/^Sourdough timings, until [A-Z][a-z]{2} 9:00 amUndo$/);
+    // In the phone's words, whole.
+    expect(said()).toBe('Snoozed until tomorrow 9:00 am.Undo');
   });
 
   it('marks and unmarks for the Mac with M, the keyboard going with the row', async () => {
@@ -392,7 +394,7 @@ describe('undo', () => {
     rowButton('bread').focus();
     key('e');
     expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']);
-    expect(said()).toBe('Sourdough timings, archivedUndo');
+    expect(said()).toBe('Archived: Sourdough timingsUndo');
     // While the archive is on its way, word of the thread from the service (a new title, say) does not bring the row back.
     act(() => auto.list({ kind: 'thread', thread: { ...BREAD, title: 'Sourdough, timed' } }));
     expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']);
@@ -458,14 +460,14 @@ describe('undo', () => {
     key('e');
     await waitFor(() => expect(focusedRow()).toBe('inspect'));
     expect(rowIds()).toEqual(['beds', 'inspect']);
-    expect(said()).toBe('Tomato trellis, archivedUndo2 more');
+    expect(said()).toBe('Archived: Tomato trellisUndo2 more');
     expect(screen.getAllByTestId('auto-said')).toHaveLength(1);
     key('z', { metaKey: true });
     await waitFor(() => expect(rowIds()).toEqual(['beds', 'trellis', 'inspect']));
-    expect(said()).toBe('Seed order, archivedUndo1 more');
+    expect(said()).toBe('Archived: Seed orderUndo1 more');
     key('z', { metaKey: true });
     await waitFor(() => expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']));
-    expect(said()).toBe('Sourdough timings, archivedUndo');
+    expect(said()).toBe('Archived: Sourdough timingsUndo');
     key('z', { metaKey: true });
     await waitFor(() => expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']));
     expect(screen.queryByTestId('auto-said')).toBeNull();
@@ -516,16 +518,21 @@ describe('undo', () => {
     fireEvent.click(screen.getByTestId('auto-archive-bread'));
     // Gone, and on offer, before the service has said a word.
     expect(rowIds()).toEqual(['beds', 'seeds', 'trellis', 'inspect']);
-    expect(said()).toBe('Sourdough timings, archivedUndo');
+    expect(said()).toBe('Archived: Sourdough timingsUndo');
     release();
     await waitFor(() => expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']));
-    expect(said()).toBe('Sourdough timings: Auto is busy.');
+    // The reason first and whole, then the name, which is the part that may be cut.
+    expect(said()).toBe('Auto is busy.Sourdough timings');
+    expect(screen.getByTestId('auto-said-reason').textContent).toBe('Auto is busy.');
+    expect(screen.getByTestId('auto-said-about').className).toContain('truncate');
     expect(screen.getByTestId('auto-said').getAttribute('data-problem')).toBe('true');
     expect(within(screen.getByTestId('auto-said')).queryByRole('button')).toBeNull();
     expect(useSaidStore.getState().stack).toEqual([]);
   });
 
-  it('undoes a snooze, gives a thread snoozed again the time it had, and clears its line on Bring back', async () => {
+  it('undoes a snooze, gives a thread snoozed again the time it had, and says so on Bring back', async () => {
+    // A Wednesday morning: Next week is its own choice on any day but a Sunday.
+    vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 10, 11, 10, 0).getTime());
     await open();
     fireEvent.click(screen.getByTestId('auto-snoozed-line'));
     await userEvent.setup().click(screen.getByTestId('auto-snooze-labels'));
@@ -534,18 +541,26 @@ describe('undo', () => {
     expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Bring back');
     fireEvent.click(menu.getByRole('menuitem', { name: /^Next week/ }));
     await waitFor(() => expect(last('snooze')?.id).toBe('labels'));
-    expect(said()).toMatch(/^Pantry labels, until .+Undo$/);
+    expect(said()).toMatch(/^Snoozed until .+\.Undo$/);
     fireEvent.click(within(screen.getByTestId('auto-said')).getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until: 4_000_000_000 }));
     // Snoozed again and then brought back: the line about the snooze no longer holds.
     await userEvent.setup().click(screen.getByTestId('auto-snooze-labels'));
     fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: /^Tomorrow/ }));
-    expect(said()).toMatch(/^Pantry labels, until /);
+    expect(said()).toBe('Snoozed until tomorrow 9:00 am.Undo');
+    const until = last('snooze')?.until;
     fireEvent.click(within(row('labels')).getByRole('button', { name: 'Bring back' }));
-    expect(screen.queryByTestId('auto-said')).toBeNull();
+    // One line about the thread: the snooze's gives way to the bring back's.
+    expect(said()).toBe('Back in the list.Undo');
+    expect(useSaidStore.getState().stack).toHaveLength(1);
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until: null }));
     // Brought back, it is a row of the list again, and the keyboard goes with it.
     await waitFor(() => expect(focusedRow()).toBe('labels'));
+    expect(rowIds()).toContain('labels');
+    // Undo puts it away again as it was, to the time it had.
+    key('z', { metaKey: true });
+    await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until }));
+    expect(screen.getByTestId('auto-snoozed').querySelector('[data-thread-id="labels"]')).not.toBeNull();
   });
 
   it('holds a row’s answer with Undo, and picks with 1 to 3 on a focused waiting row', async () => {
@@ -589,7 +604,9 @@ describe('undo', () => {
   it('opens what the last action made with O, from a row or an entry', async () => {
     await open();
     await openQueue();
+    // A thread without words is one step further in: T, then the quiet button under the box.
     key('t');
+    fireEvent.click(await screen.findByTestId('auto-entry-wordless'));
     expect(said()).toBe('Order the trays, made a threadOpenUndo');
     await waitFor(() => expect(focusedRow()).toBe('text-a'));
     await waitFor(() => expect(auto.asked('digest-thread')).toHaveLength(1));
@@ -692,7 +709,7 @@ describe('the open thread’s own actions', () => {
     fireEvent.change(dialog.getByLabelText('Time'), { target: { value: '23:30' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Snooze' }));
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'bread', until: new Date(2026, 10, 14, 23, 30).getTime() / 1000 }));
-    expect(said()).toBe('Sourdough timings, until 11:30 pmUndo');
+    expect(said()).toBe('Snoozed until 11:30 pm.Undo');
   });
 
   it('offers a snoozed row another time beside Bring back', async () => {
@@ -959,7 +976,7 @@ describe('the queue under the keyboard', () => {
     expect(focusedRow()).toBe('text-c');
   });
 
-  it('makes a thread with T, opens the note with N, and saves it with Cmd+Enter', async () => {
+  it('opens the note with N and saves it with Cmd+Enter, and T opens the box a thread starts from', async () => {
     await open();
     await openQueue();
     key('n');
@@ -974,9 +991,24 @@ describe('the queue under the keyboard', () => {
     expect(screen.getByTestId('auto-entry-item-1').getAttribute('data-open')).toBe('true');
     key('Escape');
     expect(screen.getByTestId('auto-entry-item-1').getAttribute('data-open')).toBeNull();
+    // T makes nothing yet: it opens the entry with the caret in its box, for what he wants done.
     key('t');
-    await waitFor(() => expect(last('digest-thread')).toEqual({ kind: 'digest-thread', date: DAY, id: 'item-1', words: null, cid: null }));
-    await waitFor(() => expect(focusedRow()).toBe('text-a'));
+    const words = within(screen.getByTestId('auto-entry-item-1')).getByTestId('auto-entry-box');
+    await waitFor(() => expect(document.activeElement).toBe(words));
+    expect(screen.getByTestId('auto-entry-item-1').getAttribute('data-open')).toBe('true');
+    expect(auto.asked('digest-thread')).toEqual([]);
+    // Enter on no words does nothing, and stepping out makes nothing.
+    fireEvent.keyDown(words, { key: 'Enter' });
+    fireEvent.keyDown(words, { key: 'Escape' });
+    expect(focusedRow()).toBe('item-1');
+    expect(auto.asked('digest-thread')).toEqual([]);
+    // T again, with the entry open already, goes back to the box. His words start the thread.
+    key('t');
+    await waitFor(() => expect(document.activeElement).toBe(words));
+    fireEvent.change(words, { target: { value: 'Order two trays' } });
+    fireEvent.keyDown(words, { key: 'Enter' });
+    await waitFor(() => expect(last('digest-thread')).toMatchObject({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Order two trays' }));
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('from-item-1'));
   });
 
   it('opens an entry with Enter or Space, and goes back to the Digest row on Escape from a closed one', async () => {
@@ -1088,7 +1120,7 @@ describe('the narrow layout', () => {
     fireEvent.click(rowButton('bread'));
     await screen.findByTestId('auto-thread');
     fireEvent.click(screen.getByTestId('auto-archive-open'));
-    expect(said()).toBe('Sourdough timings, archivedUndo');
+    expect(said()).toBe('Archived: Sourdough timingsUndo');
     const bar = screen.getByTestId('auto-said');
     const form = screen.getByTestId('auto-thread').querySelector('form') as HTMLElement;
     expect(screen.getByTestId('auto-thread').contains(bar)).toBe(true);

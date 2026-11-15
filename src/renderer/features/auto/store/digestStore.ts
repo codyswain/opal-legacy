@@ -21,6 +21,8 @@ export interface DigestStore {
   status: 'unknown' | 'loaded' | 'none' | 'failed';
   /** The days that have a digest, newest first. */
   days: string[];
+  /** The days whose digest he archived, newest first. */
+  archivedDays: string[];
   /** A day he stepped to that is not the latest. */
   past: AutoDigest | null;
   filter: QueueFilter;
@@ -35,15 +37,34 @@ export interface DigestStore {
   focusEntry: string | null;
   /** The entry whose note takes the caret once it is open. */
   noteWanted: string | null;
+  /** The entry whose box takes the caret once it is open: he asked to make a thread of it. */
+  boxWanted: string | null;
 
   /** Reads the latest digest and the days again, and the day he stepped to. */
   refresh: () => Promise<void>;
   /** Steps to the earlier or the later day. An earlier day opens whole, since it is for looking back. */
   step: (older: boolean) => Promise<void>;
+  /** Shows one day, as a row of the archive asks for it. The latest day shows as it always does. */
+  show: (date: string) => Promise<void>;
+  /**
+   * Puts a day's digest away, or brings it back. Archived, it is off the
+   * list until the next one and reads as before. Either way offers Undo.
+   */
+  archive: (date: string, archived: boolean) => Promise<void>;
+  /** What became of an entry, read from the held day or from the service; null when it cannot be told. */
+  entryState: (date: string, id: string) => Promise<AutoDigestEntry['state'] | null>;
+  /** Takes a day the service answered a write with, when the write was made outside this store. */
+  take: (digest: AutoDigest) => void;
   setFilter: (filter: QueueFilter) => void;
   open: (id: string | null) => void;
   /** Opens an entry with the caret in its note. */
   openNote: (id: string) => void;
+  /**
+   * Opens an entry with the caret in its box, for the words a thread of it
+   * starts with. Nothing is made until he sends them, or asks for a thread
+   * without words.
+   */
+  openBox: (id: string) => void;
   requestFocus: (entry: string | null) => void;
   /**
    * Resolves entries of the shown day, or reopens them. They leave "Left"
@@ -53,7 +74,7 @@ export interface DigestStore {
   resolve: (ids: string[], resolved: boolean, section?: string) => Promise<void>;
   /** Saves his note on an entry; empty text removes it. */
   setNote: (id: string, text: string) => Promise<boolean>;
-  /** Makes an entry a thread that waits on top of the list. He stays in the queue. */
+  /** Makes an entry a thread without words: it waits on top of the list, not started. He stays in the queue. */
   makeThread: (id: string) => Promise<void>;
   setWords: (id: string, text: string) => void;
   /** Starts a thread with the entry and his words, and opens it. His words stay in the box if the post fails. */
@@ -80,11 +101,18 @@ type EntryState = AutoDigestEntry['state'];
  */
 const unconfirmedEntries = unconfirmed<AutoDigestEntry>();
 const entryKey = (date: string, id: string): string => `${date}/${id}`;
+/** A day he has just archived or brought back, until the service has confirmed it. */
+const unconfirmedDays = unconfirmed<{ archived: boolean }>();
 /** A day as the service gave it, with what he has done since laid over it and what is left counted again. */
-const laid = (digest: AutoDigest): AutoDigest => {
+const laid = (answer: AutoDigest): AutoDigest => {
+  const archived = unconfirmedDays.lay(answer.date, { archived: answer.archived }).archived;
+  const digest = archived === answer.archived ? answer : { ...answer, archived };
   const ids = allEntries(digest).filter((entry) => unconfirmedEntries.has(entryKey(digest.date, entry.id))).map((entry) => entry.id);
   return ids.length === 0 ? digest : withState(digest, ids, (entry) => unconfirmedEntries.lay(entryKey(digest.date, entry.id), entry).state);
 };
+/** The archived days as the service listed them, with the days he has just archived or brought back laid over. */
+const laidDays = (days: readonly string[], archived: readonly string[]): string[] =>
+  days.filter((day) => unconfirmedDays.lay(day, { archived: archived.includes(day) }).archived);
 /** Where an entry is when it is not resolved. */
 const unresolved = (entry: AutoDigestEntry): EntryState => (entry.thread ? 'thread' : 'open');
 
@@ -111,6 +139,14 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     if (result?.success) took(result.data);
   };
 
+  /** Reads the days that have a digest, and which of them he archived. */
+  const days = async () => {
+    const result = await autoApi()?.request({ kind: 'digests' }).catch((): null => null);
+    if (!result?.success) return;
+    served = result.data.archived;
+    set({ days: result.data.days, archivedDays: laidDays(result.data.days, served) });
+  };
+
   /** An entry that left "Left" is no longer open in place, and the keyboard moves on to the next one. */
   const moveOn = (day: AutoDigest, ids: readonly string[]) => {
     const { opened, filter } = get();
@@ -119,6 +155,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     set({ focusEntry: afterLeaving(queueOrder(queueSections(day, filter)), ids) ?? QUEUE_TOP });
   };
   const said = () => useSaidStore.getState();
+  /** The archived days as the service last listed them. */
+  let served: string[] = [];
   const named = (day: AutoDigest, id: string): string => {
     const entry = allEntries(day).find((candidate) => candidate.id === id);
     return entry ? entryName(entry) : '';
@@ -128,6 +166,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     latest: null,
     status: 'unknown',
     days: [],
+    archivedDays: [],
     past: null,
     filter: 'left',
     opened: null,
@@ -136,6 +175,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     failed: null,
     focusEntry: null,
     noteWanted: null,
+    boxWanted: null,
 
     refresh: async () => {
       const api = autoApi();
@@ -153,10 +193,116 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       } else if (!get().latest) {
         set({ status: 'failed' });
       }
-      if (days?.success) set({ days: days.data.days });
+      if (days?.success) {
+        served = days.data.archived;
+        set({ days: days.data.days, archivedDays: laidDays(days.data.days, served) });
+      }
       const past = get().past;
       if (past) await reload(past.date);
     },
+
+    show: async (date) => {
+      const api = autoApi();
+      if (!api) return;
+      if (date === get().latest?.date) {
+        set({ past: null, opened: null });
+        return;
+      }
+      if (get().past?.date === date) return;
+      const result = await api.request({ kind: 'digest', date }).catch((): null => null);
+      if (result?.success) set({ past: laid(result.data), filter: 'all', opened: null });
+      else said().refuse(result?.error.message ?? UNREACHABLE);
+    },
+
+    archive: async (date, archived) => {
+      const api = autoApi();
+      if (!api) return;
+      /** Shows the day as archived or not, in its own copy and in the list of archived days, whatever is read meanwhile. */
+      const mark = (on: boolean): (() => void) => {
+        const token = unconfirmedDays.keep(date, () => ({ archived: on }));
+        const now = held(date);
+        if (now) took(now);
+        set({ archivedDays: laidDays(get().days, served) });
+        return () => unconfirmedDays.end(date, token);
+      };
+      let end = mark(archived);
+      const post = api.request({ kind: 'digest-archive', date, archived }).catch((): null => null);
+      let undone = false;
+      let offer = 0;
+      /** The service's answer, or the day put back as it was when the post did not go. */
+      const settle = (result: Awaited<typeof post>, was: boolean) => {
+        end();
+        if (result?.success) {
+          served = result.data.archived ? [...new Set([...served, date])] : served.filter((day) => day !== date);
+          took(result.data);
+        } else {
+          const now = held(date);
+          if (now) took({ ...now, archived: was });
+          said().refuse(result?.error.message ?? UNREACHABLE, 'Digest');
+        }
+        set({ archivedDays: laidDays(get().days, served) });
+      };
+      if (archived) {
+        // On offer from the moment the Digest row leaves.
+        offer = said().offer({
+          name: 'Digest',
+          text: 'Digest archived. It is off the list.',
+          whole: true,
+          subject: `${date}/digest`,
+          undo: () => {
+            undone = true;
+            end = mark(false);
+            // The archive goes first, then its undoing.
+            void post.then((result) => {
+              if (!result?.success) {
+                end();
+                set({ archivedDays: laidDays(get().days, served) });
+                return;
+              }
+              served = [...new Set([...served, date])];
+              return api.request({ kind: 'digest-archive', date, archived: false }).catch((): null => null).then((back) => settle(back, true));
+            });
+          },
+        });
+      } else {
+        // Brought back, an older line about archiving it no longer holds. It can be put away again.
+        said().dropSubject(`${date}/digest`);
+        offer = said().offer({
+          name: 'Digest',
+          text: 'Back in the list.',
+          whole: true,
+          subject: `${date}/digest`,
+          undo: () => {
+            undone = true;
+            end = mark(true);
+            void post.then((result) => {
+              if (!result?.success) {
+                end();
+                set({ archivedDays: laidDays(get().days, served) });
+                return;
+              }
+              served = served.filter((day) => day !== date);
+              return api.request({ kind: 'digest-archive', date, archived: true }).catch((): null => null).then((again) => settle(again, false));
+            });
+          },
+        });
+      }
+      const result = await post;
+      // Undone meanwhile: the undo ends what it kept, once its own post has landed.
+      if (undone) return;
+      if (!result?.success) said().drop(offer);
+      settle(result, !archived);
+    },
+
+    entryState: async (date, id) => {
+      const find = (day: AutoDigest | null) => allEntries(day ?? { date, path: '', left: 0, archived: false, sections: [] }).find((entry) => entry.id === id)?.state ?? null;
+      const now = held(date);
+      if (now) return find(now);
+      const result = await autoApi()?.request({ kind: 'digest', date }).catch((): null => null);
+      return result?.success ? find(result.data) : null;
+    },
+
+    take: (digest) => took(digest),
 
     step: async (older) => {
       const day = selectDay(get());
@@ -178,6 +324,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     open: (id) => set({ opened: id }),
 
     openNote: (id) => set({ opened: id, noteWanted: id }),
+
+    openBox: (id) => set({ opened: id, boxWanted: id }),
 
     requestFocus: (entry) => set({ focusEntry: entry }),
 
@@ -346,8 +494,10 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       const { date } = message.event;
       const { latest, past } = get();
       if (past?.date === date) void reload(date);
-      // The latest day changed, or a newer day has arrived.
+      // The latest day changed, or a newer day has arrived: read it again. For any other day only the days and
+      // which of them are archived can have changed for the list.
       if (!latest || date >= latest.date) void get().refresh();
+      else void days();
     },
   };
 });
@@ -357,7 +507,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
 useAutoStore.subscribe((state, before) => {
   if (state.address !== before.address) {
     unconfirmedEntries.clear();
-    useDigestStore.setState({ latest: null, status: 'unknown', days: [], past: null, filter: 'left', opened: null, words: {}, notSent: null, failed: null, focusEntry: null });
+    unconfirmedDays.clear();
+    useDigestStore.setState({ latest: null, status: 'unknown', days: [], archivedDays: [], past: null, filter: 'left', opened: null, words: {}, notSent: null, failed: null, focusEntry: null, noteWanted: null, boxWanted: null });
   }
   // Read while a tab is open: when the list is read, and when the tab opens on a list read before.
   const read = state.refreshedAt !== before.refreshedAt || (state.tabOpen && !before.tabOpen);

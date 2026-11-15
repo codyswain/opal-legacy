@@ -387,16 +387,47 @@ describe('the queue', () => {
     auto.state.failWrites = { kind: 'refused', message: 'That entry is no longer in the digest.', code: 'gone', status: 409 };
     press('text-b', 'Resolve');
     expect(entryIds()).not.toContain('text-b');
-    await waitFor(() => expect(saidText()).toBe('Sowed the beans.: That entry is no longer in the digest.'));
+    // The reason first and whole; what it was about after it.
+    await waitFor(() => expect(saidText()).toBe('That entry is no longer in the digest.Sowed the beans.'));
     expect(said()?.getAttribute('data-problem')).toBe('true');
     expect(within(said() as HTMLElement).queryByRole('button')).toBeNull();
     expect(entryIds()).toContain('text-b');
     expect(digestWord()).toBe('Digest5 left');
   });
 
-  it('makes a thread that waits on top of the list, says so with Open and Undo, and he stays in the queue', async () => {
+  it('opens an entry with the caret in its box for Thread, and makes nothing until he says what he wants done', async () => {
     await openQueue();
     press('meeting-committee', 'Thread');
+    const words = within(entry('meeting-committee')).getByTestId('auto-entry-box') as HTMLTextAreaElement;
+    await waitFor(() => expect(document.activeElement).toBe(words));
+    expect(entry('meeting-committee').getAttribute('data-open')).toBe('true');
+    expect(words.placeholder).toBe('Say what you want done');
+    // Nothing is made by the button, by Enter on no words, or by stepping out.
+    fireEvent.keyDown(words, { key: 'Enter' });
+    expect(within(entry('meeting-committee')).getByRole('button', { name: 'Start a thread with it' })).toBeDisabled();
+    fireEvent.keyDown(words, { key: 'Escape' });
+    openEntry('meeting-committee');
+    expect(entry('meeting-committee').getAttribute('data-open')).toBeNull();
+    expect(auto.asked('digest-thread')).toEqual([]);
+    expect(entryIds()).toContain('meeting-committee');
+    expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'inspect']);
+
+    // The way without words is offered only while the box is empty.
+    press('meeting-committee', 'Thread');
+    expect(within(entry('meeting-committee')).getByTestId('auto-entry-wordless').textContent).toBe('Make it without words');
+    fireEvent.change(within(entry('meeting-committee')).getByTestId('auto-entry-box'), { target: { value: 'Add the water butts to the agenda' } });
+    expect(within(entry('meeting-committee')).queryByTestId('auto-entry-wordless')).toBeNull();
+    // His words start the thread, with the entry, and it opens.
+    fireEvent.keyDown(within(entry('meeting-committee')).getByTestId('auto-entry-box'), { key: 'Enter' });
+    await waitFor(() => expect(last('digest-thread')).toMatchObject({ kind: 'digest-thread', date: DAY, id: 'meeting-committee', words: 'Add the water butts to the agenda', cid: expect.any(String) }));
+    expect(auto.asked('digest-thread')).toHaveLength(1);
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('from-meeting-committee'));
+  });
+
+  it('makes a thread without words that waits on top of the list, says so with Open and Undo, and he stays in the queue', async () => {
+    await openQueue();
+    press('meeting-committee', 'Thread');
+    fireEvent.click(within(entry('meeting-committee')).getByTestId('auto-entry-wordless'));
     // The entry leaves Left at once.
     expect(entryIds()).not.toContain('meeting-committee');
     await waitFor(() => expect(last('digest-thread')).toEqual({ kind: 'digest-thread', date: DAY, id: 'meeting-committee', words: null, cid: null }));
@@ -417,6 +448,7 @@ describe('the queue', () => {
   it('opens the thread it made from the line at the foot of the list', async () => {
     await openQueue();
     press('meeting-committee', 'Thread');
+    fireEvent.click(within(entry('meeting-committee')).getByTestId('auto-entry-wordless'));
     expect(saidText()).toBe('Committee, made a threadOpenUndo');
     pressSaid('Open');
     await waitFor(() => expect(auto.followed.thread?.id).toBe('from-meeting-committee'));
@@ -434,7 +466,9 @@ describe('an entry opened in place', () => {
     expect(entry('item-1').querySelector('.auto-clip')).toBeNull();
     expect(opened.getByRole('textbox', { name: 'Your note' }).getAttribute('placeholder')).toBe('Add a note');
     expect(opened.getByTestId('auto-entry-draft').textContent).toBe('Reply drafted for Garden centreTwo trays, please.\n\nI can collect them.Copy');
-    expect(opened.getByTestId('auto-entry-box').getAttribute('placeholder')).toBe('Say what to do with it');
+    expect(opened.getByTestId('auto-entry-box').getAttribute('placeholder')).toBe('Say what you want done');
+    // Opened to read, the caret is not put in the box.
+    expect(document.activeElement).not.toBe(opened.getByTestId('auto-entry-box'));
     // No button until the note differs from the saved one.
     expect(opened.queryByRole('button', { name: /the note$/ })).toBeNull();
     openEntry('text-c');
@@ -655,10 +689,212 @@ describe('the days', () => {
   });
 });
 
+describe('the queue’s own keys', () => {
+  const pane = () => screen.getByTestId('auto-queue-pane');
+  const focusedEntry = () => document.activeElement?.getAttribute('data-entry-id') ?? null;
+
+  it('steps to the earlier day with [ and the later with ], with the keyboard on the day’s first entry', async () => {
+    await openQueue();
+    await waitFor(() => expect(focusedEntry()).toBe('meeting-committee'));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: '[' });
+    await waitFor(() => expect(screen.getByTestId('auto-queue-day').textContent).toBe('Thursday, November 12'));
+    await waitFor(() => expect(focusedEntry()).toBe('item-1'));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: ']' });
+    await waitFor(() => expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13'));
+    await waitFor(() => expect(focusedEntry()).toBe('meeting-committee'));
+    // At the latest day ] has nowhere to go.
+    const reads = auto.asked('digest').length;
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: ']' });
+    expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13');
+    expect(auto.asked('digest')).toHaveLength(reads);
+  });
+
+  it('switches between Left and All with A', async () => {
+    await openQueue();
+    await waitFor(() => expect(focusedEntry()).toBe('meeting-committee'));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'a' });
+    expect(screen.getByTestId('auto-queue-all').getAttribute('aria-pressed')).toBe('true');
+    expect(entryIds()).toContain('text-a');
+    await waitFor(() => expect(focusedEntry()).toBe('meeting-committee'));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'a' });
+    expect(screen.getByTestId('auto-queue-left').getAttribute('aria-pressed')).toBe('true');
+    expect(entryIds()).not.toContain('text-a');
+  });
+
+  it('leaves the keys alone in a field, with a modifier, and in a menu', async () => {
+    await openQueue();
+    openEntry('item-1');
+    const words = within(entry('item-1')).getByTestId('auto-entry-box');
+    for (const name of ['[', ']', 'a']) expect(fireEvent.keyDown(words, { key: name })).toBe(true);
+    const note = within(entry('item-1')).getByRole('textbox', { name: 'Your note' });
+    for (const name of ['[', ']', 'a']) expect(fireEvent.keyDown(note, { key: name })).toBe(true);
+    expect(fireEvent.keyDown(pane(), { key: 'a', metaKey: true })).toBe(true);
+    expect(fireEvent.keyDown(pane(), { key: '[', metaKey: true })).toBe(true);
+    expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13');
+    expect(screen.getByTestId('auto-queue-left').getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('archiving the digest', () => {
+  const archiveFromMenu = async () => {
+    await userEvent.setup().click(screen.getByTestId('auto-digest-menu'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Archive the digest' }));
+  };
+  const openArchive = async () => {
+    fireEvent.click(screen.getByTestId('auto-archived-line'));
+    await screen.findByTestId('auto-archived');
+  };
+
+  it('takes the Digest row off the list from the queue’s menu, says so, and Undo puts it back', async () => {
+    await openQueue();
+    await userEvent.setup().click(screen.getByTestId('auto-digest-menu'));
+    // One thing in the menu, as on the phone.
+    expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Archive the digest']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Archive the digest' }));
+    // At once: the row has left, and the queue stays open to read.
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    expect(saidText()).toBe('Digest archived. It is off the list.Undo');
+    await waitFor(() => expect(last('digest-archive')).toEqual({ kind: 'digest-archive', date: DAY, archived: true }));
+    expect(screen.getByTestId('auto-queue-pane')).toBeInTheDocument();
+    expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']);
+    // Nothing in it changed.
+    expect(auto.asked('digest-resolve')).toEqual([]);
+    pressSaid('Undo');
+    expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument();
+    await waitFor(() => expect(last('digest-archive')).toEqual({ kind: 'digest-archive', date: DAY, archived: false }));
+    expect(auto.asked('digest-archive').map((route) => route.archived)).toEqual([true, false]);
+    expect(digestWord()).toBe('Digest5 left');
+  });
+
+  it('says Archived at its foot with the way back, as an archived thread does, and the menu offers Bring back', async () => {
+    await openQueue();
+    expect(screen.queryByTestId('auto-queue-archived')).toBeNull();
+    await archiveFromMenu();
+    const foot = await screen.findByTestId('auto-queue-archived');
+    expect(foot.textContent).toBe('ArchivedIt is off the list until the next digest.Bring back');
+    // The day's own title is as it was.
+    expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13');
+    await userEvent.setup().click(screen.getByTestId('auto-digest-menu'));
+    expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Bring back']);
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    fireEvent.click(screen.getByTestId('auto-digest-back'));
+    expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('auto-queue-archived')).toBeNull();
+    await waitFor(() => expect(last('digest-archive')).toEqual({ kind: 'digest-archive', date: DAY, archived: false }));
+    // Bringing back can be undone too: it is put away again.
+    expect(saidText()).toBe('Back in the list.Undo');
+    pressSaid('Undo');
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    await waitFor(() => expect(auto.asked('digest-archive').map((route) => route.archived)).toEqual([true, false, true]));
+  });
+
+  it('lists an archived digest first under Archived, opens it from there, and brings it back from its row', async () => {
+    await openQueue({ archived: [autoThread('old', { title: 'Old thread', archived: true, archivedAt: 1_794_000_000 })] });
+    await archiveFromMenu();
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    // Away from the queue, the archive is the way to it.
+    fireEvent.click(row('bread').querySelector('[data-auto-row]') as HTMLElement);
+    await screen.findByTestId('auto-thread');
+    await openArchive();
+    const rows = [...screen.getByTestId('auto-archived').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'));
+    expect(rows[0]).toBe(`:digest:${DAY}`);
+    await waitFor(() => expect(screen.getByTestId('auto-archived').querySelector('[data-thread-id="old"]')).not.toBeNull());
+    const digest = screen.getByTestId(`auto-archived-digest-${DAY}`);
+    expect(digest.textContent).toBe('DigestFri Nov 13');
+    fireEvent.click(digest.querySelector('[data-auto-row]') as HTMLElement);
+    await screen.findByTestId('auto-queue-pane');
+    expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13');
+    expect(screen.getByTestId('auto-queue-archived')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(`auto-restore-digest-${DAY}`));
+    expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument();
+    expect(screen.queryByTestId(`auto-archived-digest-${DAY}`)).toBeNull();
+    await waitFor(() => expect(last('digest-archive')).toEqual({ kind: 'digest-archive', date: DAY, archived: false }));
+  });
+
+  it('brings an archived digest back with E on its row', async () => {
+    await openQueue();
+    await archiveFromMenu();
+    await openArchive();
+    const digest = screen.getByTestId(`auto-archived-digest-${DAY}`).querySelector('[data-auto-row]') as HTMLElement;
+    expect(digest.getAttribute('aria-keyshortcuts')).toBe('E');
+    fireEvent.keyDown(digest, { key: 'e' });
+    await waitFor(() => expect(last('digest-archive')).toEqual({ kind: 'digest-archive', date: DAY, archived: false }));
+    expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument();
+  });
+
+  it('offers Archive the digest once nothing is left in it', async () => {
+    await openQueue({ digests: { [DAY]: autoDigest(DAY, [['Yesterday', [digestEntry('a')]]]) } });
+    expect(screen.queryByTestId('auto-digest-archive-done')).toBeNull();
+    press('a', 'Resolve');
+    fireEvent.click(await screen.findByTestId('auto-digest-archive-done'));
+    await waitFor(() => expect(last('digest-archive')).toEqual({ kind: 'digest-archive', date: DAY, archived: true }));
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    // Archived already, the button has done its work.
+    expect(screen.queryByTestId('auto-digest-archive-done')).toBeNull();
+    expect(screen.getByTestId('auto-queue-archived')).toBeInTheDocument();
+  });
+
+  it('reads an archived digest from the service: no Digest row, and the day in the archive', async () => {
+    const archived = { ...day(), archived: true };
+    await open({ digests: { [DAY]: archived, [EARLIER]: earlier() } });
+    await waitFor(() => expect(useDigestStore.getState().archivedDays).toEqual([DAY]));
+    expect(screen.queryByTestId('auto-digest-row')).toBeNull();
+    await openArchive();
+    expect(screen.getByTestId(`auto-archived-digest-${DAY}`)).toBeInTheDocument();
+    // An older day he archived is listed too, and reads whole.
+    auto.state.digests[EARLIER] = { ...earlier(), archived: true };
+    act(() => auto.list({ kind: 'digest', date: EARLIER }));
+    await screen.findByTestId(`auto-archived-digest-${EARLIER}`);
+    fireEvent.click(screen.getByTestId(`auto-archived-digest-${EARLIER}`).querySelector('[data-auto-row]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('auto-queue-day').textContent).toBe('Thursday, November 12'));
+    expect(screen.getByTestId('auto-queue-all').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('auto-queue-archived')).toBeInTheDocument();
+  });
+
+  it('follows an archive made on another device, and shows the row again when the next digest arrives', async () => {
+    await openQueue();
+    auto.state.digests[DAY] = { ...day(), archived: true };
+    act(() => auto.list({ kind: 'digest', date: DAY }));
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    expect(await screen.findByTestId('auto-queue-archived')).toBeInTheDocument();
+    // The next day's digest is not archived: the row is back, counting the new day.
+    const NEXT = '2026-11-14';
+    auto.state.digests[NEXT] = autoDigest(NEXT, [['Top 3', [digestEntry('item-1', { kind: 'item', title: 'Water the beds' })]]]);
+    act(() => auto.list({ kind: 'digest', date: NEXT }));
+    await waitFor(() => expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument());
+    expect(digestWord()).toBe('Digest1 left');
+  });
+
+  it('puts the row back with the service’s sentence when the service refuses', async () => {
+    await openQueue();
+    auto.state.failWrites = { kind: 'refused', message: 'Send archived, true or false.', code: 'bad_request', status: 400 };
+    await archiveFromMenu();
+    await waitFor(() => expect(saidText()).toBe('Send archived, true or false.Digest'));
+    expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('auto-queue-archived')).toBeNull();
+    expect(useSaidStore.getState().stack).toEqual([]);
+  });
+
+  it('keeps the row away while the archive is on its way, whatever is read of the day meanwhile', async () => {
+    await openQueue();
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    await archiveFromMenu();
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    // The service still has it as not archived, and says the day changed for another reason.
+    act(() => auto.list({ kind: 'digest', date: DAY }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByTestId('auto-digest-row')).toBeNull();
+    release();
+    await waitFor(() => expect(auto.state.digests[DAY].archived).toBe(true));
+    expect(screen.queryByTestId('auto-digest-row')).toBeNull();
+  });
+});
+
 describe('the empty queue', () => {
   it('says Nothing left with Show all, which shows the day whole', async () => {
     await openQueue({ digests: { [DAY]: autoDigest(DAY, [['Yesterday', [digestEntry('a', { state: 'resolved' }), digestEntry('b', { state: 'thread', thread: 'inspect' })]]]) } });
-    expect(screen.getByTestId('auto-queue-empty').textContent).toBe('Nothing left in this digest.Show all 2');
+    expect(screen.getByTestId('auto-queue-empty').textContent).toBe('Nothing left in this digest.Show all 2Archive the digest');
     fireEvent.click(screen.getByRole('button', { name: 'Show all 2' }));
     expect(entryIds()).toEqual(['a', 'b']);
     expect(screen.getByTestId('auto-queue-all').getAttribute('aria-pressed')).toBe('true');
@@ -667,7 +903,7 @@ describe('the empty queue', () => {
   it('says so once the last open entry is resolved', async () => {
     await openQueue({ digests: { [DAY]: autoDigest(DAY, [['Yesterday', [digestEntry('a')]]]) } });
     press('a', 'Resolve');
-    await waitFor(() => expect(screen.getByTestId('auto-queue-empty').textContent).toBe('Nothing left in this digest.Show all 1'));
+    await waitFor(() => expect(screen.getByTestId('auto-queue-empty').textContent).toBe('Nothing left in this digest.Show all 1Archive the digest'));
     expect(digestWord()).toBe('DigestDone');
   });
 
@@ -765,6 +1001,7 @@ describe('what the queue asks the service for', () => {
     press('text-b', 'Resolve');
     await waitFor(() => expect(auto.asked('digest-resolve')).toHaveLength(1));
     press('meeting-committee', 'Thread');
+    fireEvent.click(within(entry('meeting-committee')).getByTestId('auto-entry-wordless'));
     await waitFor(() => expect(auto.asked('digest-thread')).toHaveLength(1));
     openEntry('item-1');
     fireEvent.change(within(entry('item-1')).getByRole('textbox', { name: 'Your note' }), { target: { value: 'A note' } });
