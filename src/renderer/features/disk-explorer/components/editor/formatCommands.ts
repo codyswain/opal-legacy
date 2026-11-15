@@ -786,7 +786,8 @@ export function toggleList(kind: ListKind): StateCommand {
     // A caret where a marker went in goes after it, ready to type.
     const { head } = state.selection.main;
     const marked = state.selection.main.empty ? changes.find((change) => (change as { from: number }).from === head && (change as { insert?: string }).insert?.trim()) as { insert: string } | undefined : undefined;
-    const selection = blank ? { anchor: changeSet.mapPos(head, 1) } : marked ? { anchor: changeSet.mapPos(head, -1) + marked.insert.length } : undefined;
+    // After the marker, and before a blank line written under it at the same place.
+    const selection = marked ? { anchor: changeSet.mapPos(head, -1) + (blank && blank.from === head ? blank.insert.length : 0) + marked.insert.length } : blank ? { anchor: changeSet.mapPos(head, 1) } : undefined;
     const effects = blank ? [provisionalBlank(changeSet.mapPos(blank.from, -1), blank.insert.length)] : [];
     dispatch(state.update({ changes: changeSet, selection, effects, scrollIntoView: true, userEvent: 'input' }));
     return true;

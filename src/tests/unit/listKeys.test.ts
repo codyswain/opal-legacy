@@ -129,7 +129,7 @@ describe('lists in a document', () => {
   });
 
   it('takes the first item out of a numbered list on Backspace at its start, the next item taking its number', () => {
-    expect(after('1. ‸a\n2. b\n3. c\n', 'Backspace')).toBe('a\n1. b\n2. c\n');
+    expect(after('1. ‸a\n2. b\n3. c\n', 'Backspace')).toBe('a\n\n1. b\n2. c\n');
     const view = mount('1. ‸a\n2. b\n3. c\n');
     press(view, 'Backspace');
     expect(shown(view, '.cm-md-number')).toEqual(['1.', '2.']);

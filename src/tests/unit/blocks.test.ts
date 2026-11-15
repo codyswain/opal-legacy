@@ -248,9 +248,9 @@ describe('formatting a selection that covers blocks', () => {
       .every((block) => doc.includes(block));
     expect(onAll(BLOCKS, toggleMarker('**'))).toBe(BLOCKS.replace('Para one', '**Para one**').replace('Para two', '**Para two**').replace('Title\n> body', '**Title**\n> **body**'));
     expect(onAll(BLOCKS, setHeading(2))).toBe(BLOCKS.replace('Para one', '## Para one').replace('Para two', '## Para two').replace('> body', '> ## body'));
-    expect(onAll(BLOCKS, toggleList('bullet'))).toBe(BLOCKS.replace('Para one', '- Para one').replace('Para two', '- Para two').replace('> body', '> - body'));
+    expect(onAll(BLOCKS, toggleList('bullet'))).toBe(BLOCKS.replace('Para one', '- Para one').replace('Para two', '- Para two').replace('> body', '>\n> - body'));
     // Numbers start again after a block, so no list starts at 2, which could not follow the callout's title.
-    expect(onAll(BLOCKS, toggleList('number'))).toBe(BLOCKS.replace('Para one', '1. Para one').replace('Para two', '1. Para two').replace('> body', '> 1. body'));
+    expect(onAll(BLOCKS, toggleList('number'))).toBe(BLOCKS.replace('Para one', '1. Para one').replace('Para two', '1. Para two').replace('> body', '>\n> 1. body'));
     const bold = onAll(BLOCKS, toggleMarker('**'));
     expect(onAll(bold, clearFormatting)).toBe(BLOCKS);
     for (const command of [toggleMarker('*'), toggleMarker('~~'), indentList(true), indentList(false), setHeading(0)]) {

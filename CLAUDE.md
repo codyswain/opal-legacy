@@ -101,10 +101,18 @@ not exist.
   same transaction, so one undo takes both back; a list keeps its first
   number, and text from the disk, undo and redo keep their bytes. Nested
   levels are drawn 1, a, i (`levelNumeral`) while the file keeps digits.
-  Paste reads the clipboard's HTML into Markdown (`pasteHtml.ts`), and
-  pasted lines become items (`clipboard.ts`). The rows a word processor is
-  compared on, with the differences kept on purpose and why, are in
-  `e2e/acceptance/doc-parity-rows.mjs`
+  A number that grows a digit indents the lines nested under its item, so
+  they stay inside it. Markdown reads a line of text right under an item as
+  more of that item, so the editor writes a blank line wherever a list
+  meets text (a bullet typed over a line, text typed or pasted under a
+  list, Backspace moving an item's text to the margin), and
+  `livePreview.ts` gives that blank line no room when the list sits right
+  under the text above it, the caret stepping over it. Backspace at an
+  item's start takes three steps: marker off, text to the margin, text
+  joined to the item above. Paste reads the clipboard's HTML into Markdown
+  (`pasteHtml.ts`), and pasted lines become items (`clipboard.ts`). The
+  rows a word processor is compared on, with the differences kept on
+  purpose and why, are in `e2e/acceptance/doc-parity-rows.mjs`
 - **Feature-based structure:** Self-contained modules under `src/renderer/features/`
   (`disk-explorer` is the Files feature; `shell` is the workspace frame;
   `day-sidebar` is the right sidebar, one vault day beside the page)

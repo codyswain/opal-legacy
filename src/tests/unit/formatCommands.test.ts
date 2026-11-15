@@ -128,8 +128,8 @@ describe('lists', () => {
 
   it('keeps a paragraph next to a list a paragraph with a blank line', () => {
     expect(run('‸a\nb', toggleList('bullet'))).toBe('- ‸a\n\nb');
-    // A bullet below reads as a list right under text; a numbered item below needs a blank line to stay one.
-    expect(run('- a\n- ‸b\n- c', toggleList('bullet'))).toBe('- a\n\n‸b\n- c');
+    // Text and a list are always a blank line apart in the file.
+    expect(run('- a\n- ‸b\n- c', toggleList('bullet'))).toBe('- a\n\n‸b\n\n- c');
     expect(run('1. a\n2. ‸b\n3. c', toggleList('number'))).toBe('1. a\n\n‸b\n\n2. c');
   });
 

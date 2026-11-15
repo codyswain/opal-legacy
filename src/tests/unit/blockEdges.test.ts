@@ -134,7 +134,8 @@ describe('headings and lists on headings and tasks', () => {
     const doc = 'It is **a long\nbold sentence** that ends.\n';
     const at = doc.indexOf('bold');
     expect(after(doc, at, at, setHeading(2))).toBe('It is **a long**\n## **bold sentence** that ends.\n');
-    expect(after(doc, at, at, toggleList('bullet'))).toBe('It is **a long**\n- **bold sentence** that ends.\n');
+    // A list under text gets the blank line Markdown needs, which the page gives no room.
+    expect(after(doc, at, at, toggleList('bullet'))).toBe('It is **a long**\n\n- **bold sentence** that ends.\n');
     const three = 'One *two\nthree four\nfive* six\n';
     const middle = three.indexOf('three');
     expect(after(three, middle, middle, setHeading(2))).toBe('One *two*\n## *three four*\n*five* six\n');
@@ -144,7 +145,7 @@ describe('headings and lists on headings and tasks', () => {
     const doc = 'Log:\n      raw_log: x\n';
     const at = doc.indexOf('raw');
     expect(after(doc, at, at, setHeading(2))).toBe('Log:\n## raw_log: x\n');
-    expect(after(doc, at, at, toggleList('bullet'))).toBe('Log:\n- raw_log: x\n');
+    expect(after(doc, at, at, toggleList('bullet'))).toBe('Log:\n\n- raw_log: x\n');
     const item = '- Item\n        more text\n';
     expect(after(item, item.indexOf('more'), item.indexOf('more'), toggleList('number'))).toBe('- Item\n1. more text\n');
     // A heading stays in the item, so the item's later blocks stay in it too.
@@ -152,7 +153,7 @@ describe('headings and lists on headings and tasks', () => {
     const evidence = numbered.indexOf('Evidence');
     expect(after(numbered, evidence, evidence, setHeading(1))).toBe('12. Split it.\n    # Evidence here.\n\n    | a | b |\n    |---|---|\n    | 1 | 2 |\n');
     const star = 'Notes\n\t* understand this\n';
-    expect(after(star, star.indexOf('under'), star.indexOf('under'), toggleList('bullet'))).toBe('Notes\n- \\* understand this\n');
+    expect(after(star, star.indexOf('under'), star.indexOf('under'), toggleList('bullet'))).toBe('Notes\n\n- \\* understand this\n');
   });
 
   it('puts the caret after the marker of a list made on an empty line', () => {

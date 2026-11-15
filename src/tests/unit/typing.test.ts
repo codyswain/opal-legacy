@@ -187,7 +187,7 @@ describe('typing in a document', () => {
     expect(text(equals)).toBe('abc\n\n===\n');
   });
 
-  it('starts a list on the empty line under a paragraph, and the typed item sits right under it', () => {
+  it('starts a list on the empty line under a paragraph, a blank line apart in the file and right under it on the page', () => {
     for (const [kind, marker] of [['bullet', '- '], ['number', '1. '], ['task', '- [ ] ']] as const) {
       const view = mount('Plan the week\n', '/Vault/Library/daily/2026-11-04.mdo');
       at(view, text(view).length);
@@ -195,7 +195,8 @@ describe('typing in a document', () => {
       // The empty item draws as a list item, not as the paragraph's heading underline.
       expect(formatState(view.state).list).toBe(kind);
       type(view, 'First item');
-      expect(text(view)).toBe(`Plan the week\n${marker}First item`);
+      expect(text(view)).toBe(`Plan the week\n\n${marker}First item`);
+      expect(view.contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
     }
   });
 

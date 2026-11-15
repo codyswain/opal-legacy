@@ -368,6 +368,13 @@ const clipboardEvents = EditorView.domEventHandlers({
     const rich = html && !MARKDOWN_SOURCE.test(plain) ? markdownFromHtml(html) : null;
     const text = rich ?? plain;
     if (!text) return false;
+    // A list pasted over a selection that runs across items: the selection goes first, as Backspace takes it, and
+    // the list is then pasted at the caret inside the item that is left.
+    const { main } = view.state.selection;
+    if (!main.empty && view.state.selection.ranges.length === 1 && view.state.doc.lineAt(main.from).number !== view.state.doc.lineAt(main.to).number
+      && LIST_LINE.test(text.split('\n')[0]) && listItemOf(view.state, view.state.doc.lineAt(main.from))) {
+      view.dispatch({ ...view.state.replaceSelection(''), userEvent: 'delete.selection' });
+    }
     const spec = pasteSpec(view.state, text, false)
       ?? (rich ? { ...view.state.replaceSelection(rich), scrollIntoView: true, userEvent: 'input.paste' } : null);
     if (!spec) return false;

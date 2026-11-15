@@ -287,8 +287,8 @@ const ITEM_LINE = /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]|$)/;
  * steps. First the marker goes and the text stays where it is, as one more
  * line of the item above. Then the text moves out to the margin, as a
  * paragraph of its own, which in Markdown is a blank line above it. Then it
- * joins the end of the item above (`listJoin`). An empty item goes the same
- * way. The first item of a top-level list is left to the commands that turn it into
+ * joins the end of the item above (`listJoin`). An empty item has nothing to
+ * keep in place, so its first Backspace is the second step. The first item of a top-level list is left to the commands that turn it into
  * a paragraph.
  */
 const listBackspace = deleteHandlers.of({
@@ -304,6 +304,18 @@ const listBackspace = deleteHandlers.of({
     const found = item && listItemOf(state, line);
     if (item && found) {
       if (found.textFrom !== main.head) return false;
+      // An empty item has no text to keep in place, and a line of spaces is a blank line in Markdown: the item
+      // goes and the caret takes a line at the margin, the second step, one blank line under the list.
+      if (found.textFrom === line.to) {
+        const quote = state.doc.sliceString(line.from, item.indentFrom);
+        const gap = quote.replace(/[ \t]+$/, '');
+        const next = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
+        const reuse = next !== null && !hasText(next);
+        view.dispatch(reuse
+          ? { changes: { from: line.from, to: line.to, insert: gap }, selection: { anchor: next.to - (line.length - gap.length) }, scrollIntoView: true, userEvent: 'delete.backward' }
+          : { changes: { from: line.from, to: line.to, insert: `${gap}\n${quote}` }, selection: { anchor: line.from + gap.length + 1 + quote.length }, scrollIntoView: true, userEvent: 'delete.backward' });
+        return true;
+      }
       let previous = item.node.prevSibling;
       while (previous && previous.name !== 'ListItem') previous = previous.prevSibling;
       const parent = item.node.parent?.parent?.name === 'ListItem' ? item.node.parent.parent : null;

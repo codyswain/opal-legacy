@@ -107,7 +107,7 @@ describe('numbers that count for themselves', () => {
     // The same kind again takes only that item out of the list.
     const off = mount('- one\n- tw‸o\n- three\n');
     toggleList('bullet')(off);
-    expect(text(off)).toBe('- one\n\ntwo\n- three\n');
+    expect(text(off)).toBe('- one\n\ntwo\n\n- three\n');
   });
 
   it('numbers a nested bullet turned into a number from 1', () => {
@@ -170,14 +170,16 @@ describe('Enter and Backspace at an item\'s start', () => {
     expect(marked(view)).toBe('- one‸two\n');
   });
 
-  it('takes an empty item away in the same three steps', () => {
+  it('takes an empty item away in two steps: out to the margin, then back to the end of the item above', () => {
     const view = mount('- one\n- ‸\n');
     press(view, 'Backspace');
-    expect(marked(view)).toBe('- one\n  ‸\n');
+    expect(marked(view)).toBe('- one\n\n‸');
     press(view, 'Backspace');
-    expect(marked(view)).toBe('- one\n\n‸\n');
-    press(view, 'Backspace');
-    expect(marked(view)).toBe('- one‸\n');
+    expect(marked(view)).toBe('- one‸');
+    // With a blank line already under it, that line is used and no row is added.
+    const over = mount('- one\n- ‸\n\nAfter\n');
+    press(over, 'Backspace');
+    expect(marked(over)).toBe('- one\n\n‸\nAfter\n');
   });
 
   it('keeps the list below a list, and counting on, when a numbered item goes out to the margin', () => {
@@ -285,7 +287,7 @@ describe('what the fresh review found', () => {
     for (const typed of ['- ', '1. ']) {
       const view = mount('Alpha\n‸Beta\nGamma\n');
       type(view, typed);
-      expect(text(view)).toBe(`Alpha\n${typed}Beta\n\nGamma\n`);
+      expect(text(view)).toBe(`Alpha\n\n${typed}Beta\n\nGamma\n`);
       undo(view);
       expect(text(view).endsWith('Beta\nGamma\n')).toBe(true);
     }
@@ -293,11 +295,11 @@ describe('what the fresh review found', () => {
     const box = mount('Alpha\n\n‸\nGamma\n');
     type(box, '[] x');
     expect(text(box)).toBe('Alpha\n\n- [ ] x\n\nGamma\n');
-    // Nothing is added over a blank line, another item or a heading.
-    for (const below of ['', '- next', '## Head']) {
+    // Nothing is added over a blank line or another item. A heading under it is text too, and gets its blank line.
+    for (const [below, written] of [['', ''], ['- next', '- next'], ['## Head', '\n## Head']]) {
       const view = mount(`‸Beta\n${below}\n`);
       type(view, '- ');
-      expect(text(view)).toBe(`- Beta\n${below}\n`);
+      expect(text(view)).toBe(`- Beta\n${written}\n`);
     }
   });
 
@@ -370,16 +372,37 @@ describe('what the fresh review found', () => {
     expect(text(view)).toBe('- one\n  two\n  x\n- three\n');
   });
 
-  it('gives the blank line under a list no room when the list sits right under text, and the caret steps over it', () => {
-    const tight = mount('Intro\n- one\n- two\n\nAfter‸\n');
-    expect(tight.contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+  it('gives the blank line between a list and text no room, on either side, and the caret steps over it', () => {
+    const view = mount('Intro\n\n- one\n- two\n\nAfter‸\n');
+    expect(view.contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(2);
     // Left from the start of "After" lands at the end of "two".
-    tight.dispatch({ selection: { anchor: tight.state.doc.toString().indexOf('After') }, userEvent: 'select' });
-    press(tight, 'ArrowLeft');
-    expect(marked(tight)).toBe('Intro\n- one\n- two‸\n\nAfter\n');
-    // A list with a blank line above it keeps the one below, and a note that is only read keeps every line.
-    expect(mount('Intro\n\n- one\n\nAfter‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
-    expect(mount('Intro\n- one\n\n\nAfter‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+    view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('After') }, userEvent: 'select' });
+    press(view, 'ArrowLeft');
+    expect(marked(view)).toBe('Intro\n\n- one\n- two‸\n\nAfter\n');
+    // A second blank line is a row the person made, and the blank lines between a list's own items show.
+    expect(mount('- one\n\n\nAfter‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+    expect(mount('- one\n\n- two‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
+    // Nor a blank line inside code, or between an item and its own later paragraph.
+    expect(mount('```\n- a\n\nb\n```\n‸').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
+    expect(mount('- one\n\n  more‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
+  });
+
+  it('writes a blank line where an edit leaves a list touching text, and leaves lines that already touched', () => {
+    // An emptied first item under text would read as that text's heading underline.
+    const emptied = mount('Groceries:\n- m‸\n- eggs\n');
+    press(emptied, 'Backspace');
+    expect(text(emptied)).toBe('Groceries:\n\n- \n- eggs\n');
+    expect(emptied.contentDOM.querySelectorAll('.cm-md-bullet')).toHaveLength(2);
+    type(emptied, 'tea');
+    expect(text(emptied)).toBe('Groceries:\n\n- tea\n- eggs\n');
+    // Typing in an item that already sat under text changes that line only.
+    const stood = mount('Groceries:\n- milk‸\n- eggs\nNotes\n');
+    type(stood, 'y');
+    expect(text(stood)).toBe('Groceries:\n- milky\n- eggs\nNotes\n');
+    // Text from the disk is never touched.
+    const disk = mount('a‸\n');
+    disk.dispatch({ changes: { from: 1, insert: '\n- b\nc' }, annotations: Transaction.remote.of(true) });
+    expect(text(disk)).toBe('a\n- b\nc\n');
   });
 
   it('starts a paragraph for a word typed on the empty line right under a list', () => {
@@ -415,14 +438,14 @@ describe('what the fresh review found', () => {
     press(typed, 'Enter');
     press(typed, 'Enter');
     type(typed, 'mid');
-    expect(text(typed)).toBe('Top\n- a\n- b\n\nmid\nBottom\n');
+    expect(text(typed)).toBe('Top\n\n- a\n- b\n\nmid\nBottom\n');
   });
 
   it('keeps a numbered list under a line of text a list when its first item goes or moves', () => {
     const cut = mount('Steps:\n‸1. one\n‸2. two\n3. three\n');
     cut.dispatch({ ...cut.state.replaceSelection(''), userEvent: 'delete.selection' });
-    expect(text(cut)).toBe('Steps:\n1. two\n2. three\n');
-    expect(after('Steps:\n1. one\n2. tw‸o\n3. three\n', 'ArrowUp', { ctrlKey: true, shiftKey: true })).toBe('Steps:\n1. two\n2. one\n3. three\n');
+    expect(text(cut)).toBe('Steps:\n\n1. two\n2. three\n');
+    expect(after('Steps:\n1. one\n2. tw‸o\n3. three\n', 'ArrowUp', { ctrlKey: true, shiftKey: true })).toBe('Steps:\n\n1. two\n2. one\n3. three\n');
   });
 
   it('numbers a nested list from 1 when a selection across levels becomes numbers', () => {
@@ -450,21 +473,21 @@ describe('what the fresh review found', () => {
     expect(after('one\ntw‸o\n', 'ArrowUp', { ctrlKey: true, shiftKey: true })).toBe('two\none\n');
   });
 
-  it('keeps an empty row the person can see when an item is typed under it', () => {
-    const view = mount('Intro\n\n- one\n- two\n\n‸');
+  it('keeps an empty row the person made when an item is typed under it', () => {
+    const view = mount('Intro\n\n- one\n- two\n\n\n‸');
     type(view, '- x');
-    expect(text(view)).toBe('Intro\n\n- one\n- two\n\n- x');
+    expect(text(view)).toBe('Intro\n\n- one\n- two\n\n\n- x');
   });
 
   it('gives a pasted list lines of its own, and keeps the text under it a paragraph', () => {
     const over = mount('Top\n‸\nBottom\n');
     const overSpec = pasteSpec(over.state, '- a\n- b', false);
     if (overSpec) over.dispatch(overSpec);
-    expect(text(over)).toBe('Top\n- a\n- b\n\nBottom\n');
+    expect(text(over)).toBe('Top\n\n- a\n- b\n\nBottom\n');
     const inside = mount('Par‸a\n');
     const insideSpec = pasteSpec(inside.state, '- two\n- three', false);
     if (insideSpec) inside.dispatch(insideSpec);
-    expect(text(inside)).toBe('Par\n- two\n- three\n\na\n');
+    expect(text(inside)).toBe('Par\n\n- two\n- three\n\na\n');
   });
 
   it('keeps the row after a callout that ends in a list', () => {

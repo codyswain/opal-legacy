@@ -5,6 +5,7 @@ import { EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/vie
 import type { SyntaxNode } from '@lezer/common';
 import { latestTree, nodeDecorators, protectedIn } from './extensionPoints';
 import { inlineSpans, typingStyle } from './formatCommands';
+import { withListEdges } from './listEdges';
 import { withListNumbers } from './listNumbers';
 import { docMode, hiddenRanges } from './livePreview';
 import { OBJECT as OBJECT_CHARACTER, visibleLine, visibleOffset, visibleSlice } from './visibleText';
@@ -164,9 +165,14 @@ function format(view: EditorView, doc: Text, removals: readonly { from: number; 
     annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.autoformat')],
     filter: false,
   };
-  // The formatting is what makes a typed "1. " an item, so the list it starts or joins is numbered in this same step.
-  const numbered = withListNumbers(view.state.update(spec));
-  view.dispatch(spec, ...(Array.isArray(numbered) ? numbered.slice(1) as TransactionSpec[] : []));
+  // The formatting is what makes a typed "1. " an item, so the list it starts or joins gets its blank lines and its
+  // numbers in this same step, as the filters would give them to any other edit.
+  const extra: TransactionSpec[] = [];
+  for (const pass of [withListEdges, withListNumbers]) {
+    const result = pass(view.state.update(spec, ...extra));
+    if (Array.isArray(result)) extra.push(...result.slice(1) as TransactionSpec[]);
+  }
+  view.dispatch(spec, ...extra);
 }
 
 function formatting(tr: Transaction): readonly { from: number; to: number; insert?: string }[] | undefined {
@@ -187,10 +193,11 @@ function inTable(node: SyntaxNode): boolean {
 
 /**
  * The blank line over a list item typed on `line`, when the line above that
- * blank line is a list item too and the page gives the blank line no room:
- * an item typed right after a list was ended carries the list on, so the
- * blank line between them goes, and the list stays as tight as it was. Null
- * when there is none.
+ * blank line is a list item too: that one blank line is the gap the page
+ * gives no room, so an item typed right after a list was ended carries the
+ * list on, and the gap goes rather than show as a row between its items.
+ * With two blank lines there, the second is a row the person made, and the
+ * item starts under it. Null when there is none.
  */
 function gapOver(state: EditorState, line: { number: number; from: number; text: string }): { from: number; to: number } | null {
   if (line.number < 3) return null;
@@ -198,11 +205,6 @@ function gapOver(state: EditorState, line: { number: number; from: number; text:
   const above = state.doc.line(line.number - 2);
   const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '';
   if (/[^\s>]/.test(gap.text) || !/^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(above.text.slice(quote.length))) return null;
-  // Only the blank line the page gives no room: under a list that sits right under text, or at the page's top.
-  // An empty row the person can see stays, and the item typed under it starts a list of its own.
-  let top = above.number;
-  while (top > 1 && /[^\s>]/.test(state.doc.line(top - 1).text)) top -= 1;
-  if (top > 1 && /^[\s>]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(state.doc.line(top).text)) return null;
   return { from: gap.from, to: line.from };
 }
 

@@ -41,6 +41,7 @@ import { blockPosition, docMode, drawnBlockAt, hiddenRanges, setCellCaret, setOp
 import { objectAt } from './extensionPoints';
 import { currentKeyEvent, deleteObject, focusObjectBar, objectFrameExtension, setFrame } from './objectFrame';
 import { headingKeys } from './headingKeys';
+import { withListEdges } from './listEdges';
 import { docListKeys } from './listKeys';
 import { quoteKeys } from './quoteKeys';
 import { insertTableItem } from './tableInsert';
@@ -568,6 +569,8 @@ export function docModeExtensions({ followLinks = false }: { followLinks?: boole
     imageFrame,
     [typingExtension(replaceVisible), visibleSearch(replaceVisible), wordMotion(replaceVisible), clipboard(replaceVisible)],
     clearFormattingKey,
+    // After every other filter and just before the numbering (editorSetup.ts), which then counts the lists as they will be read.
+    Prec.highest(EditorState.transactionFilter.of(withListEdges)),
     Prec.high(keymap.of([
       { key: 'ArrowLeft', run: moveVisibly(false, false), shift: moveVisibly(false, true) },
       { key: 'ArrowRight', run: moveVisibly(true, false), shift: moveVisibly(true, true) },

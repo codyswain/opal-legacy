@@ -9,6 +9,7 @@ import { normalizeFsPath, parentFsPath } from '@/common/fsPaths';
 import { toOpalFileUrl } from '@/common/opalFileUrl';
 import { activityLogSection } from './activityLog';
 import { followLink } from './linkSchemes';
+import { listGaps } from './listEdges';
 import { levelNumeral } from './listNumbers';
 import { mathSpan } from './math';
 import { blockRenderers, nodeDecorators, type DecorateContext, type Reveal, type TextRange } from './extensionPoints';
@@ -718,28 +719,6 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
           }
           return false;
         }
-        case 'BulletList':
-        case 'OrderedList': {
-          // The blank line Markdown needs between a list and the text after it takes no room in a document, when
-          // the list sits right under the text above it, so a page typed without empty rows shows none, as in a
-          // word processor. The caret steps over it. A list with a blank line above it keeps the one below.
-          if (!state.facet(docMode) || node.parent?.name === 'ListItem') return true;
-          const first = doc.lineAt(ref.from);
-          const last = lastLine(doc, node);
-          if (last.number + 2 > doc.lines) return true;
-          const gap = doc.line(last.number + 1);
-          const set = first.number === 1 || /[^\s>]/.test(doc.line(first.number - 1).text);
-          // Only a blank line at the list's own quote depth: the one after a callout that ends in a list keeps
-          // its row, as after any callout. And never next to a drawn block, which needs a line for the caret.
-          const own = quotePrefix(gap.text) > 0 === quotePrefix(first.text) > 0;
-          const next = doc.line(last.number + 2);
-          if (set && own && !/[^\s>]/.test(gap.text) && gap.from >= top && gap.from <= bottom && !covered(gap.from) && !covered(next.from)) {
-            if (gap.to > gap.from) hide(gap.from, gap.to);
-            lineClass(gap.from, 'cm-md-gap-hidden');
-            units?.push({ from: gap.from - 1, to: Math.min(doc.length, gap.to + 1) });
-          }
-          return true;
-        }
         case 'HorizontalRule':
           if (!reveal.lines(ref.from, ref.to)) out.push(Decoration.replace({ widget: state.facet(docMode) ? horizontalRuleObject : horizontalRule }).range(ref.from, ref.to));
           return false;
@@ -811,6 +790,22 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
       }
     },
   });
+
+  // The blank line Markdown needs between a list and the text beside it takes no room in a document, so a list
+  // sits right against its neighbours, as in a word processor, and the caret steps over the line (listEdges.ts).
+  if (state.facet(docMode)) {
+    const tree = syntaxTree(state);
+    for (const number of listGaps(doc, doc.lineAt(top).number, doc.lineAt(bottom).number)) {
+      const gap = doc.line(number);
+      // Never inside code or HTML, whose blank lines are their own, nor next to a drawn block, which needs a line for the caret.
+      let raw = false;
+      for (let node: SyntaxNode | null = tree.resolveInner(gap.from, 1); node; node = node.parent) if (['FencedCode', 'CodeBlock', 'HTMLBlock', 'CommentBlock'].includes(node.name)) raw = true;
+      if (raw || covered(gap.from) || covered(doc.line(number - 1).from) || covered(doc.line(number + 1).from)) continue;
+      if (gap.to > gap.from) hide(gap.from, gap.to);
+      lineClass(gap.from, 'cm-md-gap-hidden');
+      units?.push({ from: gap.from - 1, to: Math.min(doc.length, gap.to + 1) });
+    }
+  }
 
   for (const [number, { indent, quoted }] of continued) {
     const line = doc.line(number);
