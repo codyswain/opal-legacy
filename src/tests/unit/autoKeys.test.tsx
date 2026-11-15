@@ -616,6 +616,40 @@ describe('his place in a thread', () => {
   });
 });
 
+describe('his place in the list and in the queue', () => {
+  const remount = () =>
+    render(
+      <MemoryRouter initialEntries={['/files']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <ThemeProvider><TooltipProvider><ShellProvider><Sync /><AutoView /></ShellProvider></TooltipProvider></ThemeProvider>
+      </MemoryRouter>
+    );
+
+  it('keeps the list where he scrolled it when the tab is left and shown again', async () => {
+    const view = await open();
+    const rows = screen.getByTestId('auto-list-rows');
+    rows.scrollTop = 260;
+    fireEvent.scroll(rows);
+    expect(placeOf('list')?.top).toBe(260);
+    view.unmount();
+    remount();
+    await screen.findByTestId('auto-row-bread');
+    expect(screen.getByTestId('auto-list-rows').scrollTop).toBe(260);
+  });
+
+  it('keeps each day of the queue where he scrolled it', async () => {
+    const view = await open();
+    await openQueue();
+    const queue = screen.getByTestId('auto-queue');
+    queue.scrollTop = 340;
+    fireEvent.scroll(queue);
+    expect(placeOf(`queue:${DAY}`)?.top).toBe(340);
+    view.unmount();
+    remount();
+    await screen.findByTestId('auto-queue-pane');
+    await waitFor(() => expect(screen.getByTestId('auto-queue').scrollTop).toBe(340));
+  });
+});
+
 describe('the queue under the keyboard', () => {
   it('opens with the keyboard on its first entry, which is its one Tab stop', async () => {
     await open();

@@ -658,6 +658,7 @@ async function tour() {
     await page.getByTestId('auto-thread').waitFor({ timeout: 5_000 });
     // With the list hidden, what the last action did shows above the box.
     await page.getByTestId('auto-archive-open').click();
+    check('narrow, the header, the thread and the box are still one column', (await oneColumn('auto-thread')) && new Set((await threadEdges()).slice(1)).size === 1, (await threadEdges()).join());
     check('with the list hidden the line sits above the box, never over it', await until(() => page.evaluate(() => {
       const bar = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-said"]')?.getBoundingClientRect();
       const form = document.querySelector('[data-testid="auto-thread"] form')?.getBoundingClientRect();
@@ -933,32 +934,35 @@ async function tour() {
     await fromMenu(BREAD, 'Take off the Mac mark');
     await until(() => service.thread(BREAD)?.desk === null);
 
-    // --- A wide window: the page laid out at 1700 x 1000, with the right sidebar shown and hidden.
-    await page.setViewportSize({ width: 1700, height: 1000 });
-    await wait(500);
-    await row(BREAD).click();
-    await talk.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    check('at 1700 wide the title, the text and the box share their edges', (await oneColumn('auto-thread')) && new Set(await threadEdges()).size === 1, (await threadEdges()).join());
-    await shot(39, 'wide-thread');
+    // --- One reading column at every width: 1512 and 1700 wide, with the right sidebar shown and hidden.
     const rightSidebar = async (shown) => {
       if (((await page.getByTestId('day-sidebar').count()) === 1) !== shown) await page.getByRole('button', { name: /right sidebar/i }).first().click();
       await until(async () => ((await page.getByTestId('day-sidebar').count()) === 1) === shown);
       await wait(300);
     };
-    await rightSidebar(false);
-    check('with the right sidebar hidden they still do, and the column keeps its width', (await oneColumn('auto-thread')) && new Set(await threadEdges()).size === 1 && (await page.evaluate(() => (document.querySelector('[data-testid="auto-thread"] form')?.getBoundingClientRect().width ?? 0))) <= 672.5, (await threadEdges()).join());
-    await shot(40, 'wide-thread-no-right-sidebar');
-    await digestRow.click();
-    await page.getByTestId('auto-queue-all').click();
-    check('the wide queue’s day, labels and entries share their edges', (await oneColumn('auto-queue-pane')) && await page.evaluate(() => {
+    const queueEdges = () => page.evaluate(() => {
       const left = (selector) => Math.round(document.querySelector(selector)?.getBoundingClientRect().left ?? -1);
       const words = document.querySelector('[data-testid="auto-queue"] [data-auto-entry] p');
-      return new Set([left('[data-testid="auto-queue-day"]'), left('[data-testid="auto-queue"] h2'), Math.round(words?.getBoundingClientRect().left ?? -2)]).size === 1;
-    }));
-    await shot(41, 'wide-queue-no-right-sidebar');
-    await rightSidebar(true);
-    await shot(42, 'wide-queue');
-    await page.getByTestId('auto-queue-left').click();
+      return [left('[data-testid="auto-queue-day"]'), left('[data-testid="auto-queue"] h2'), Math.round(words?.getBoundingClientRect().left ?? -2)];
+    });
+    for (const [width, height] of [[1512, 944], [1700, 1000]]) {
+      await page.setViewportSize({ width, height });
+      await wait(500);
+      for (const shown of [true, false]) {
+        const where = `at ${width} wide with the right sidebar ${shown ? 'shown' : 'hidden'}`;
+        await rightSidebar(shown);
+        await row(BREAD).click();
+        await talk.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+        check(`${where}, the title, the text and the box share their edges`, (await oneColumn('auto-thread')) && new Set(await threadEdges()).size === 1 && (await page.evaluate(() => (document.querySelector('[data-testid="auto-thread"] form')?.getBoundingClientRect().width ?? 9999))) <= 672.5, (await threadEdges()).join());
+        if (width === 1700) await shot(shown ? 39 : 40, shown ? 'wide-thread' : 'wide-thread-no-right-sidebar');
+        await digestRow.click();
+        await page.getByTestId('auto-queue-all').click();
+        check(`${where}, the queue’s day, labels and entries share their edges`, (await oneColumn('auto-queue-pane')) && new Set(await queueEdges()).size === 1, (await queueEdges()).join());
+        if (width === 1700) await shot(shown ? 42 : 41, shown ? 'wide-queue' : 'wide-queue-no-right-sidebar');
+        await page.getByTestId('auto-queue-left').click();
+      }
+      await rightSidebar(true);
+    }
     await page.setViewportSize({ width: WIDTH, height: HEIGHT });
     await wait(400);
 
