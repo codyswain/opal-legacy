@@ -146,7 +146,8 @@ const readPage = () => page.evaluate(() => {
     return `${marker.dataset.kind}:${numeral(marker)}:${level}`;
   });
   const shown = [...view.contentDOM.querySelectorAll('.cm-line')].map((line) => line.textContent ?? '');
-  return { text, markers, shown, linkBox: document.querySelector('input[aria-label="Link"]') !== null, links: view.contentDOM.querySelectorAll('.cm-md-link').length };
+  const rows = [...view.contentDOM.querySelectorAll('.cm-line')].filter((line) => line.getBoundingClientRect().height > 1).length;
+  return { text, markers, shown, rows, linkBox: document.querySelector('input[aria-label="Link"]') !== null, links: view.contentDOM.querySelectorAll('.cm-md-link').length };
 });
 
 /** A clipboard event with its own data, dispatched on the page's text. Returns what a copy or cut wrote. */
@@ -203,6 +204,7 @@ async function runRow(row, mode) {
   if (!wanted.includes(got.text)) problems.push(`file ${JSON.stringify(got.text)}, wanted ${JSON.stringify(wanted[0])}`);
   if (!differs && row.shows && JSON.stringify(got.markers) !== JSON.stringify(row.shows)) problems.push(`drawn ${JSON.stringify(got.markers)}, wanted ${JSON.stringify(row.shows)}`);
   if (!differs && row.shows && got.shown.some((line) => /^\s*(?:[-*+]|\d+[.)])\s/.test(line))) problems.push(`a marker shows as text: ${JSON.stringify(got.shown)}`);
+  if (!differs && row.rows !== undefined && got.rows !== row.rows) problems.push(`${got.rows} rows drawn, wanted ${row.rows}`);
   if (row.linkBox && !got.linkBox) problems.push('no link box');
   if (row.linkShown && got.links === 0) problems.push('no link drawn');
   if (row.linkBox) await page.keyboard.press('Escape');

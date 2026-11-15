@@ -12,6 +12,9 @@
 // as "kind:label:depth" (label only for numbers), and that no Markdown
 // mark is on show.
 //
+// `rows`, when set, is how many rows the page draws: the blank line Markdown
+// needs between a list and text takes no room.
+//
 // `opal` and `why`, when set, are a difference kept on purpose: what the
 // page does instead, and the reason. The run checks that it still holds.
 //
@@ -22,12 +25,12 @@ export const ROWS = [
   // ---- Bulleted lists
   { id: 'B1', area: 'Bullets', does: 'Type "- " on an empty line', start: '‸', keys: ['t:- '], expect: '- ‸', shows: ['bullet::0'] },
   { id: 'B2', area: 'Bullets', does: 'Type "* " on an empty line', start: '‸', keys: ['t:* '], expect: '* ‸', shows: ['bullet::0'] },
-  { id: 'B3', area: 'Bullets', does: 'Type "- " on the line under a paragraph', start: 'Text\n‸', keys: ['t:- ', 't:a'], expect: 'Text\n- a‸', shows: ['bullet::0'] },
+  { id: 'B3', area: 'Bullets', does: 'Type "- " on the line under a paragraph', start: 'Text\n‸', keys: ['t:- ', 't:a'], expect: 'Text\n\n- a‸', shows: ['bullet::0'], rows: 2 },
   { id: 'B4', area: 'Bullets', does: 'Type "- " in front of text already on the line', start: '‸milk', keys: ['t:- '], expect: '- ‸milk', shows: ['bullet::0'] },
   { id: 'B5', area: 'Bullets', does: 'Enter at the end of an item', start: '- one‸', keys: ['Enter', 't:two'], expect: '- one\n- two‸', shows: ['bullet::0', 'bullet::0'] },
   { id: 'B6', area: 'Bullets', does: 'Enter in the middle of an item', start: '- on‸e', keys: ['Enter'], expect: '- on\n- ‸e' },
   { id: 'B7', area: 'Bullets', does: 'Enter at the start of an item', start: '- one\n- ‸two', keys: ['Enter'], expect: '- one\n- \n- ‸two' },
-  { id: 'B8', area: 'Bullets', does: 'Enter on an empty item at the top level ends the list', start: '- one\n- ‸', keys: ['Enter', 't:after'], expect: '- one\n\nafter‸' },
+  { id: 'B8', area: 'Bullets', does: 'Enter on an empty item at the top level ends the list', start: '- one\n- ‸', keys: ['Enter', 't:after'], expect: '- one\n\nafter‸', rows: 2 },
   { id: 'B9', area: 'Bullets', does: 'Enter on an empty nested item steps out one level', start: '- one\n  - two\n  - ‸', keys: ['Enter'], expect: '- one\n  - two\n- ‸' },
   { id: 'B10', area: 'Bullets', does: 'Enter on an empty item in the middle of a list', start: '- one\n- ‸\n- three', keys: ['Enter'], expect: '- one\n\n‸\n- three' },
   { id: 'B11', area: 'Bullets', does: 'Tab at the start of an item nests it', start: '- one\n- ‸two', keys: ['Tab'], expect: '- one\n  - ‸two', shows: ['bullet::0', 'bullet::1'] },
@@ -37,23 +40,26 @@ export const ROWS = [
   { id: 'B15', area: 'Bullets', does: 'Shift+Tab moves a nested item out', start: '- one\n  - ‸two', keys: ['Shift+Tab'], expect: '- one\n- ‸two' },
   { id: 'B16', area: 'Bullets', does: 'Shift+Tab at the top level does nothing', start: '- one\n- ‸two', keys: ['Shift+Tab'], expect: '- one\n- ‸two' },
   { id: 'B17', area: 'Bullets', does: 'Backspace at the start of an item takes its bullet off and keeps the text in place', start: '- one\n- ‸two', keys: ['Backspace'], expect: '- one\n  ‸two' },
-  { id: 'B18', area: 'Bullets', does: 'A second Backspace moves the text out to the margin', start: '- one\n- ‸two', keys: ['Backspace', 'Backspace'], expect: '- one\n\n‸two' },
+  { id: 'B18', area: 'Bullets', does: 'A second Backspace moves the text out to the margin, with no empty row', start: '- one\n- ‸two', keys: ['Backspace', 'Backspace'], expect: '- one\n\n‸two', rows: 2 },
   { id: 'B18b', area: 'Bullets', does: 'A third Backspace joins the text to the item above', start: '- one\n- ‸two', keys: ['Backspace', 'Backspace', 'Backspace'], expect: '- one‸two' },
   { id: 'B18c', area: 'Bullets', does: 'With an item below, the three Backspaces leave no empty row in the list', start: '- one\n- ‸two\n- three', keys: ['Backspace', 'Backspace', 'Backspace'], expect: '- one‸two\n- three' },
-  { id: 'B19', area: 'Bullets', does: 'Backspace on an empty item takes its bullet off', start: '- one\n- ‸', keys: ['Backspace'], expect: '- one\n  ‸' },
-  { id: 'B19b', area: 'Bullets', does: 'Two more Backspaces on it go to the margin, then back to the end of the item above', start: '- one\n- ‸', keys: ['Backspace', 'Backspace', 'Backspace'], expect: '- one‸' },
+  { id: 'B19', area: 'Bullets', does: 'Backspace on an empty item takes its bullet off and leaves the caret on its own line (a word processor keeps it indented for one more press)', start: '- one\n- ‸', keys: ['Backspace'], expect: '- one\n\n‸', rows: 2 },
+  { id: 'B19b', area: 'Bullets', does: 'One more Backspace goes back to the end of the item above', start: '- one\n- ‸', keys: ['Backspace', 'Backspace'], expect: '- one‸' },
   { id: 'B20', area: 'Bullets', does: 'Backspace at the start of the first item makes it a paragraph (a word processor keeps its indent for one more press)', start: '- ‸one\n- two', keys: ['Backspace'], expect: '‸one\n\n- two', alt: ['‸one\n- two'] },
   { id: 'B21', area: 'Bullets', does: 'Delete at the end of an item pulls the next item\'s text up', start: '- one‸\n- two', keys: ['Delete'], expect: '- one‸two' },
   { id: 'B22', area: 'Bullets', does: 'Typing over a selection across two items joins them', start: '- o«ne\n- tw»o', keys: ['t:x'], expect: '- ox‸o' },
   { id: 'B23', area: 'Bullets', does: 'Enter, Tab, text, Enter, Enter, Enter walks in and back out', start: '- one‸', keys: ['Enter', 'Tab', 't:two', 'Enter', 'Enter', 'Enter', 't:end'], expect: '- one\n  - two\n\nend‸' },
 
-  { id: 'B24', area: 'Bullets', does: 'Type "- " in front of a line with text right under it: only that line becomes a bullet', start: 'Alpha\n‸Beta\nGamma', keys: ['t:- '], expect: 'Alpha\n- ‸Beta\n\nGamma', shows: ['bullet::0'] },
+  { id: 'B24', area: 'Bullets', does: 'Type "- " in front of a line with text right under it: only that line becomes a bullet', start: 'Alpha\n‸Beta\nGamma', keys: ['t:- '], expect: 'Alpha\n\n- ‸Beta\n\nGamma', shows: ['bullet::0'], rows: 3 },
   { id: 'B25', area: 'Bullets', does: 'Delete at the end of a list pulls the paragraph under it up', start: '- one‸\n\nPara', keys: ['Delete'], expect: '- one‸Para' },
   { id: 'B26', area: 'Bullets', does: 'After Backspace took a bullet off, Enter at the end of that line goes on without a bullet', start: '- one\n- ‸two', keys: ['Backspace', 'Meta+ArrowRight', 'Enter', 't:x'], expect: '- one\n  two\n  x‸', shows: ['bullet::0'] },
   { id: 'B27', area: 'Bullets', does: 'A word typed on the empty line right under a list starts a paragraph, not more of the last item', start: '- one\n- two\n‸', keys: ['t:after'], expect: '- one\n- two\n\nafter‸', shows: ['bullet::0', 'bullet::0'] },
   { id: 'B28', area: 'Bullets', does: 'After a list is ended, typing "- " carries it on with no empty row', start: '- one‸', keys: ['Enter', 'Enter', 't:- x'], expect: '- one\n- x‸', shows: ['bullet::0', 'bullet::0'] },
-  { id: 'B29', area: 'Bullets', does: 'End a list that has text under it: the caret gets a line of its own, and what is typed there is a paragraph', start: 'Top\n- a\n- ‸\n\nBottom', keys: ['Enter', 't:mid'], expect: 'Top\n- a\n\nmid‸\nBottom', shows: ['bullet::0'] },
+  { id: 'B29', area: 'Bullets', does: 'End a list that has text under it: the caret gets a line of its own, and what is typed there is a paragraph', start: 'Top\n- a\n- ‸\n\nBottom', keys: ['Enter', 't:mid'], expect: 'Top\n- a\n\nmid‸\nBottom', shows: ['bullet::0'], rows: 4 },
   { id: 'B30', area: 'Bullets', does: 'Text that starts with a digit, typed under a list, is a paragraph too', start: '- one\n‸', keys: ['t:2 apples'], expect: '- one\n\n2 apples‸', shows: ['bullet::0'] },
+  { id: 'B31', area: 'Bullets', does: 'Empty the first item of a list that sits under text: it stays an empty bullet with the caret in it', start: 'Groceries:\n- m‸\n- eggs', keys: ['Backspace', 't:tea'], expect: 'Groceries:\n\n- tea‸\n- eggs', shows: ['bullet::0', 'bullet::0'], rows: 3 },
+  { id: 'B32', area: 'Bullets', does: 'Cmd+Shift+8 on an empty line between two lines of text, then typing: the text lands in the bullet', start: 'Top\n‸\nBottom', keys: ['Meta+Shift+8', 't:a'], expect: 'Top\n\n- a‸\n\nBottom', shows: ['bullet::0'], rows: 3 },
+  { id: 'B33', area: 'Bullets', does: 'Backspace joins a paragraph to the list above it, and the line under it stays a paragraph', start: '- a\n- b\n\n‸mid\nBottom', keys: ['Backspace'], expect: '- a\n- b‸mid\n\nBottom', rows: 3 },
 
   // ---- Numbered lists
   { id: 'N1', area: 'Numbers', does: 'Type "1. " on an empty line', start: '‸', keys: ['t:1. '], expect: '1. ‸', shows: ['number:1.:0'] },
@@ -74,8 +80,9 @@ export const ROWS = [
 
   { id: 'N16', area: 'Numbers', does: 'A list that grows from 9 to 10 keeps the nested item under item 10', start: '1. a‸\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n9. i\n   - kid', keys: ['Enter'], expect: '1. a\n2. ‸\n3. b\n4. c\n5. d\n6. e\n7. f\n8. g\n9. h\n10. i\n    - kid', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0', 'number:4.:0', 'number:5.:0', 'number:6.:0', 'number:7.:0', 'number:8.:0', 'number:9.:0', 'number:10.:0', 'bullet::1'] },
   { id: 'N17', area: 'Numbers', does: 'Typing next to a list written 1., 1., 1. leaves its numbers as written', start: '1. a\n1. b\n\n‸', keys: ['t:- x'], expect: '1. a\n1. b\n- x‸' },
-  { id: 'N18', area: 'Numbers', does: 'Delete the first item of a numbered list that sits under a line of text: the list counts from 1 again', start: 'Steps:\n«1. one\n»2. two\n3. three', keys: ['Backspace'], expect: 'Steps:\n‸1. two\n2. three', alt: ['Steps:\n1. ‸two\n2. three'], shows: ['number:1.:0', 'number:2.:0'] },
-  { id: 'N19', area: 'Numbers', does: 'Ctrl+Shift+Up on the second item of such a list keeps it a list', start: 'Steps:\n1. one\n2. tw‸o\n3. three', keys: ['Control+Shift+ArrowUp'], expect: 'Steps:\n1. tw‸o\n2. one\n3. three', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0'] },
+  { id: 'N18', area: 'Numbers', does: 'Delete the first item of a numbered list that sits under a line of text: the list counts from 1 again', start: 'Steps:\n«1. one\n»2. two\n3. three', keys: ['Backspace'], expect: 'Steps:\n\n‸1. two\n2. three', alt: ['Steps:\n\n1. ‸two\n2. three'], shows: ['number:1.:0', 'number:2.:0'] },
+  { id: 'N19', area: 'Numbers', does: 'Ctrl+Shift+Up on the second item of such a list keeps it a list', start: 'Steps:\n1. one\n2. tw‸o\n3. three', keys: ['Control+Shift+ArrowUp'], expect: 'Steps:\n\n1. tw‸o\n2. one\n3. three', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0'] },
+  { id: 'N20', area: 'Numbers', does: 'Enter at the start of the first item of a numbered list under text: an empty item 1 above it', start: 'Steps:\n1. ‸one\n2. two', keys: ['Enter'], expect: 'Steps:\n\n1. \n2. ‸one\n3. two', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0'] },
 
   // ---- Checklists
   { id: 'C1', area: 'Checklists', does: 'Type "[] " on an empty line', start: '‸', keys: ['t:[] '], expect: '- [ ] ‸', shows: ['task::0'] },
@@ -123,8 +130,9 @@ export const ROWS = [
 
   { id: 'X11', area: 'Paste', does: 'Paste a list in the middle of an item: the first joins the text, the next is its own item', start: '- on‸e', keys: ['paste:- two\n- three'], expect: '- ontwo\n- three‸e' },
   { id: 'X12', area: 'Paste', does: 'Paste code copied from a code editor: its text, with no stars from its colouring', start: '‸', keys: ['pasteHtml:<div style="font-family: Menlo, monospace; white-space: pre;"><div><span style="font-weight: bold;">const</span> a = 1;</div></div>||const a = 1;'], expect: 'const a = 1;‸' },
-  { id: 'X13', area: 'Paste', does: 'Paste a list on an empty line over text: the text under it stays a paragraph', start: 'Top\n‸\nBottom', keys: ['paste:- a\n- b'], expect: 'Top\n- a\n- b‸\n\nBottom', shows: ['bullet::0', 'bullet::0'] },
-  { id: 'X14', area: 'Paste', does: 'Paste a web page\'s list in the middle of a paragraph: the list gets lines of its own', start: 'Par‸a', keys: ['pasteHtml:<ul><li>two</li><li>three</li></ul>||two\nthree'], expect: 'Par\n- two\n- three‸\n\na', shows: ['bullet::0', 'bullet::0'] },
+  { id: 'X13', area: 'Paste', does: 'Paste a list on an empty line over text: the text under it stays a paragraph', start: 'Top\n‸\nBottom', keys: ['paste:- a\n- b'], expect: 'Top\n\n- a\n- b‸\n\nBottom', rows: 4, shows: ['bullet::0', 'bullet::0'] },
+  { id: 'X14', area: 'Paste', does: 'Paste a web page\'s list in the middle of a paragraph: the list gets lines of its own', start: 'Par‸a', keys: ['pasteHtml:<ul><li>two</li><li>three</li></ul>||two\nthree'], expect: 'Par\n\n- two\n- three‸\n\na', shows: ['bullet::0', 'bullet::0'] },
+  { id: 'X15', area: 'Paste', does: 'Paste a list over a selection that runs across two items', start: '- o«ne\n- tw»o\n- three', keys: ['paste:- X\n- Y'], expect: '- oX\n- Y‸o\n- three' },
 
   // ---- Undo
   { id: 'U1', area: 'Undo', does: 'Undo right after "- " shows the typed characters again', start: '‸', keys: ['t:- ', 'Meta+z'], expect: '\\- ‸', alt: ['- ‸'], undoShowsText: '- ' },
