@@ -88,8 +88,9 @@ test("Enter on an empty todo moves it out a level, then ends the list, and the f
   await page.keyboard.press("Enter");
   await page.keyboard.type("Done for today.");
   await page.keyboard.press("Meta+s");
+  // The empty row under the heading stays a row, so the list's own blank line goes in under it.
   await expect.poll(() => readFile(note, "utf8")).toBe(
-    "# Today\n\n- [ ] Email Tom\n- [ ] Book flights\n  - [ ] Check dates\n- [ ] Pack\n\nDone for today.",
+    "# Today\n\n\n- [ ] Email Tom\n- [ ] Book flights\n  - [ ] Check dates\n- [ ] Pack\n\nDone for today.",
   );
 });
 
