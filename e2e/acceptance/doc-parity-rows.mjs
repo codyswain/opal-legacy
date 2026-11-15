@@ -79,7 +79,7 @@ export const ROWS = [
   { id: 'N15', area: 'Numbers', does: 'A list that reaches 10 keeps its text in line', start: '8. eight\n9. nine‸', keys: ['Enter', 't:ten'], expect: '8. eight\n9. nine\n10. ten‸', shows: ['number:8.:0', 'number:9.:0', 'number:10.:0'] },
 
   { id: 'N16', area: 'Numbers', does: 'A list that grows from 9 to 10 keeps the nested item under item 10', start: '1. a‸\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n9. i\n   - kid', keys: ['Enter'], expect: '1. a\n2. ‸\n3. b\n4. c\n5. d\n6. e\n7. f\n8. g\n9. h\n10. i\n    - kid', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0', 'number:4.:0', 'number:5.:0', 'number:6.:0', 'number:7.:0', 'number:8.:0', 'number:9.:0', 'number:10.:0', 'bullet::1'] },
-  { id: 'N17', area: 'Numbers', does: 'Typing next to a list written 1., 1., 1. leaves its numbers as written', start: '1. a\n1. b\n\n‸', keys: ['t:- x'], expect: '1. a\n1. b\n- x‸' },
+  { id: 'N17', area: 'Numbers', does: 'Typing next to a list written 1., 1., 1. leaves its numbers as written', start: '1. a\n1. b\n\n‸', keys: ['t:- x'], expect: '1. a\n1. b\n\n- x‸', rows: 3 },
   { id: 'N18', area: 'Numbers', does: 'Delete the first item of a numbered list that sits under a line of text: the list counts from 1 again', start: 'Steps:\n«1. one\n»2. two\n3. three', keys: ['Backspace'], expect: 'Steps:\n\n‸1. two\n2. three', alt: ['Steps:\n\n1. ‸two\n2. three'], shows: ['number:1.:0', 'number:2.:0'] },
   { id: 'N19', area: 'Numbers', does: 'Ctrl+Shift+Up on the second item of such a list keeps it a list', start: 'Steps:\n1. one\n2. tw‸o\n3. three', keys: ['Control+Shift+ArrowUp'], expect: 'Steps:\n\n1. tw‸o\n2. one\n3. three', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0'] },
   { id: 'N20', area: 'Numbers', does: 'Enter at the start of the first item of a numbered list under text: an empty item 1 above it', start: 'Steps:\n1. ‸one\n2. two', keys: ['Enter'], expect: 'Steps:\n\n1. \n2. ‸one\n3. two', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0'] },
@@ -105,6 +105,22 @@ export const ROWS = [
   { id: 'M5', area: 'Mixed', does: 'Enter in a bullet under a number keeps the kinds apart', start: '1. one\n   - two‸\n2. three', keys: ['Enter', 't:x'], expect: '1. one\n   - two\n   - x‸\n2. three' },
   { id: 'M6', area: 'Mixed', does: 'Cmd+Shift+7 on three paragraphs numbers them 1, 2, 3', start: '«one\ntwo\nthree»', keys: ['Meta+Shift+7'], expect: '«1. one\n2. two\n3. three»', alt: ['1. «one\n2. two\n3. three»'] },
   { id: 'M9', area: 'Mixed', does: 'Cmd+Shift+7 on a selection across two levels numbers each level from 1', start: '«- a\n- b\n  - kid\n  - kid2\n- c»', keys: ['Meta+Shift+7'], expect: '«1. a\n2. b\n   1. kid\n   2. kid2\n3. c»', alt: ['1. «a\n2. b\n   1. kid\n   2. kid2\n3. c»'], shows: ['number:1.:0', 'number:2.:0', 'number:a.:1', 'number:b.:1', 'number:3.:0'] },
+
+  // ---- Where a list meets text: keys that change no row of the page
+  { id: 'E1', area: 'List edges', does: 'Backspace on an only, empty bullet under a paragraph leaves one empty line', start: 'Text\n\n- ‸', keys: ['Backspace'], expect: 'Text\n‸', rows: 2 },
+  { id: 'E2', area: 'List edges', does: 'Enter on an only, empty bullet under a paragraph leaves one empty line', start: 'Text\n\n- ‸', keys: ['Enter'], expect: 'Text\n‸', rows: 2 },
+  { id: 'E3', area: 'List edges', does: 'Type a bullet under a paragraph, then Backspace it away: the rows stay as they were', start: 'Text\n‸\nBelow', keys: ['t:- ', 'Backspace', 'Backspace', 'Backspace'], expect: 'Text\n‸\nBelow', rows: 3 },
+  { id: 'E4', area: 'List edges', does: 'Backspace on an empty first bullet with the list still under it, then typing', start: 'Text\n\n- ‸\n- b', keys: ['Backspace', 't:w'], expect: 'Text\nw‸\n\n- b', shows: ['bullet::0'], rows: 3 },
+  { id: 'E5', area: 'List edges', does: 'Backspace at the start of a list\'s first item under text takes the bullet off and opens no row', start: 'Text\n\n- ‸a\n- b', keys: ['Backspace'], expect: 'Text\n‸a\n\n- b', shows: ['bullet::0'], rows: 3 },
+  { id: 'E6', area: 'List edges', does: 'Cmd+Shift+8 on the only item of a list between two paragraphs opens no row', start: 'Top\n\n- a‸\n\nMore', keys: ['Meta+Shift+8'], expect: 'Top\na‸\nMore', rows: 3 },
+  { id: 'E7', area: 'List edges', does: 'Enter at the end of the text above a list adds one row', start: 'Text‸\n\n- a\n- b', keys: ['Enter'], expect: 'Text\n‸\n\n- a\n- b', rows: 4 },
+  { id: 'E8', area: 'List edges', does: 'Enter at the end of the text above a list, then typing: still one row more', start: 'Text‸\n\n- a\n- b', keys: ['Enter', 't:w'], expect: 'Text\nw‸\n\n- a\n- b', rows: 4 },
+  { id: 'E9', area: 'List edges', does: 'Enter on an empty item in the middle of a numbered list: one empty row, and the list below counts on', start: '1. one\n2. ‸\n3. three', keys: ['Enter'], expect: '1. one\n\n‸\n\n2. three', rows: 3 },
+  { id: 'E10', area: 'List edges', does: 'Type "1. " right after a bulleted list was ended: a numbered list starts under it', start: '- one\n- two‸', keys: ['Enter', 'Enter', 't:1. ', 't:x'], expect: '- one\n- two\n\n1. x‸', shows: ['bullet::0', 'bullet::0', 'number:1.:0'], rows: 3 },
+  { id: 'E11', area: 'List edges', does: 'Type "- " right after a numbered list was ended: a bulleted list starts under it', start: '1. a\n2. b‸', keys: ['Enter', 'Enter', 't:- '], expect: '1. a\n2. b\n\n- ‸', shows: ['number:1.:0', 'number:2.:0', 'bullet::0'], rows: 3 },
+  { id: 'E12', area: 'List edges', does: 'Type "[] " right after a bulleted list was ended: a box under the list', start: '- one\n- two‸', keys: ['Enter', 'Enter', 't:[] '], expect: '- one\n- two\n- [ ] ‸', rows: 3 },
+  { id: 'E13', area: 'List edges', does: 'Type "[x] done" on the line right under a list: a paragraph at the margin', start: '- one\n- two\n‸', keys: ['t:[x] done'], expect: '- one\n- two\n\n[x] done‸', shows: ['bullet::0', 'bullet::0'], rows: 3 },
+  { id: 'E14', area: 'List edges', does: 'Delete at the end of the text above a list pulls the first item\'s text up', start: 'Text‸\n\n- a\n- b', keys: ['Delete'], expect: 'Text‸a\n\n- b', shows: ['bullet::0'], rows: 2 },
 
   // ---- Caret and selection across items
   { id: 'S1', area: 'Caret', does: 'Left at the start of an item goes to the end of the item above', start: '- one\n- ‸two', keys: ['ArrowLeft'], expect: '- one‸\n- two' },

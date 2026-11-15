@@ -15,6 +15,7 @@ import type { SyntaxNode } from '@lezer/common';
 import { calloutMarker } from './blockGuards';
 import { toast } from 'sonner';
 import { latestTree, protectedIn, treeFor } from './extensionPoints';
+import { keepsRows } from './listEdges';
 import { nestListItems } from './listKeys';
 import { docMode, linkTarget } from './livePreview';
 import { closesAt, fitMarks, keepsVisibleText, opensAt, provisionalBlank } from './typing';
@@ -789,7 +790,9 @@ export function toggleList(kind: ListKind): StateCommand {
     // After the marker, and before a blank line written under it at the same place.
     const selection = marked ? { anchor: changeSet.mapPos(head, -1) + (blank && blank.from === head ? blank.insert.length : 0) + marked.insert.length } : blank ? { anchor: changeSet.mapPos(head, 1) } : undefined;
     const effects = blank ? [provisionalBlank(changeSet.mapPos(blank.from, -1), blank.insert.length)] : [];
-    dispatch(state.update({ changes: changeSet, selection, effects, scrollIntoView: true, userEvent: 'input' }));
+    // A list turned on, off or into another kind changes no row of the page (listEdges.ts): a paragraph made a
+    // bullet right under a bulleted list joins it. An empty item's blank line is tracked by its place, and stays.
+    dispatch(state.update({ changes: changeSet, selection, effects, annotations: blank ? undefined : keepsRows.of(true), scrollIntoView: true, userEvent: 'input' }));
     return true;
   };
 }
