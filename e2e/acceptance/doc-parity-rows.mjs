@@ -29,7 +29,7 @@ export const ROWS = [
   { id: 'B7', area: 'Bullets', does: 'Enter at the start of an item', start: '- one\n- ‸two', keys: ['Enter'], expect: '- one\n- \n- ‸two' },
   { id: 'B8', area: 'Bullets', does: 'Enter on an empty item at the top level ends the list', start: '- one\n- ‸', keys: ['Enter', 't:after'], expect: '- one\n\nafter‸' },
   { id: 'B9', area: 'Bullets', does: 'Enter on an empty nested item steps out one level', start: '- one\n  - two\n  - ‸', keys: ['Enter'], expect: '- one\n  - two\n- ‸' },
-  { id: 'B10', area: 'Bullets', does: 'Enter on an empty item in the middle of a list', start: '- one\n- ‸\n- three', keys: ['Enter'], expect: '- one\n\n‸\n\n- three' },
+  { id: 'B10', area: 'Bullets', does: 'Enter on an empty item in the middle of a list', start: '- one\n- ‸\n- three', keys: ['Enter'], expect: '- one\n\n‸\n- three' },
   { id: 'B11', area: 'Bullets', does: 'Tab at the start of an item nests it', start: '- one\n- ‸two', keys: ['Tab'], expect: '- one\n  - ‸two', shows: ['bullet::0', 'bullet::1'] },
   { id: 'B12', area: 'Bullets', does: 'Tab with the caret inside an item\'s text types a tab', start: '- one\n- tw‸o', keys: ['Tab'], expect: '- one\n- tw\t‸o', opal: '- one\n  - tw‸o', why: 'Tab nests the item wherever the caret is in it. A word processor nests only from the start of the item and types a tab elsewhere, which Markdown shows as a space.' },
   { id: 'B13', area: 'Bullets', does: 'Tab on two selected items nests both', start: '- one\n- «two\n- thr»ee', keys: ['Tab'], expect: '- one\n  - «two\n  - thr»ee' },
