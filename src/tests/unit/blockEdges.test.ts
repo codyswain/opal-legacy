@@ -174,8 +174,14 @@ describe('the blank line above a setext heading', () => {
 });
 
 describe('the blank line under a list or quote', () => {
+  it('joins a paragraph to the list\'s last item on Backspace at its start, as a word processor does, never as a loose line of the item', () => {
+    const view = mount('- one\n- two\n\n‸After\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('- one\n- two‸After\n');
+  });
+
   it('moves the caret on Backspace or Delete instead of making the paragraph a line of the item or the quote', () => {
-    for (const doc of ['- one\n- two\n\n‸After\n', '> [!note] Title\n> Body\n\n‸After\n', '- one\n- two\n‸\nAfter\n']) {
+    for (const doc of ['> [!note] Title\n> Body\n\n‸After\n', '- one\n- two\n‸\nAfter\n']) {
       const view = mount(doc);
       press(view, 'Backspace');
       expect(text(view)).toBe(doc.replace('‸', ''));

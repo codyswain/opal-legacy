@@ -142,12 +142,39 @@ describe('Enter and Backspace at an item\'s start', () => {
     expect(after('1. one\n2. ‸two\n', 'Enter')).toBe('1. one\n2. \n3. two\n');
   });
 
-  it('takes the marker off and keeps the text in place, then joins it to the line above', () => {
+  it('takes the marker off and keeps the text in place, then moves it to the margin, then joins it to the item', () => {
     const view = mount('- one\n- ‸two\n');
     press(view, 'Backspace');
     expect(marked(view)).toBe('- one\n  ‸two\n');
     press(view, 'Backspace');
+    expect(marked(view)).toBe('- one\n\n‸two\n');
+    press(view, 'Backspace');
     expect(marked(view)).toBe('- one‸two\n');
+  });
+
+  it('takes an empty item away in the same three steps', () => {
+    const view = mount('- one\n- ‸\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('- one\n  ‸\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('- one\n\n‸\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('- one‸\n');
+  });
+
+  it('keeps the list below a list, and counting on, when a numbered item goes out to the margin', () => {
+    const view = mount('1. one\n2. ‸two\n3. three\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('1. one\n   ‸two\n2. three\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('1. one\n\n‸two\n\n2. three\n');
+    press(view, 'Backspace');
+    expect(marked(view)).toBe('1. one‸two\n\n2. three\n');
+  });
+
+  it('joins a paragraph one blank line under a list to the list\'s last item, and leaves other paragraphs alone', () => {
+    expect(after('- one\n\n‸after\n', 'Backspace')).toBe('- oneafter\n');
+    expect(after('para\n\n‸after\n', 'Backspace')).toBe('para\nafter\n');
   });
 
   it('does the same for numbers, which renumber, for boxes, and in a note', () => {

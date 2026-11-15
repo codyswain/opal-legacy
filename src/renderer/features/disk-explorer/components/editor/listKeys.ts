@@ -275,12 +275,18 @@ function lastLineOf(state: EditorState, line: Line, node: SyntaxNode): boolean {
   return inner !== null && inner.from === node.from && inner.to === node.to;
 }
 
+const hasText = (line: Line) => /[^\s>]/.test(line.text);
+// A list item's line: quote marks and indent, then a bullet or a number.
+const ITEM_LINE = /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]|$)/;
+
 /**
- * Backspace at the start of a list item's text, as in a word processor. The
- * marker goes and the text stays, as one more line of the item above it. A
- * second Backspace, at the start of such a line, joins it to the line above.
- * The first item of a top-level list is left to the commands that turn it
- * into a paragraph.
+ * Backspace at the start of a list item's text, in a word processor's three
+ * steps. First the marker goes and the text stays where it is, as one more
+ * line of the item above. Then the text moves out to the margin, as a
+ * paragraph of its own, which in Markdown is a blank line above it. Then it
+ * joins the end of the item above (`listJoin`). An empty item goes the same
+ * way. The first item of a top-level list is left to the commands that turn it into
+ * a paragraph.
  */
 const listBackspace = deleteHandlers.of({
   priority: 11,
@@ -315,12 +321,49 @@ const listBackspace = deleteHandlers.of({
       });
       return true;
     }
-    // A later line of an item, at its text's start: it joins the line above.
     const lead = state.doc.sliceString(line.from, main.head);
-    if (!/^(?:[ \t]*>[ \t]?)*[ \t]+$/.test(lead) || !/[^\s>]/.test(line.text) || !/[^\s>]/.test(above.text)) return false;
-    const node = itemAround(state, line.to);
-    if (!node || state.doc.lineAt(node.from).number >= line.number || blockAt(state, line.to)?.name !== 'Paragraph') return false;
-    view.dispatch({ changes: { from: above.to, to: main.head }, selection: { anchor: above.to }, scrollIntoView: true, userEvent: 'delete.backward' });
+    const quote = quoteOf(line.text);
+    const gap = quote.replace(/[ \t]+$/, '');
+    // The second step: a later line of an item, at its text's start or empty, moves out to the margin.
+    if (lead.length > quote.length && !/\S/.test(lead.slice(quote.length)) && hasText(above) && itemAround(state, above.to)) {
+      const empty = !hasText(line);
+      const inItem = empty ? main.head === line.to : (itemAround(state, line.to) !== null && blockAt(state, line.to)?.name === 'Paragraph');
+      if (!inItem) return false;
+      const next = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
+      // A list item below stays a list only after a blank line.
+      const below = !empty && next && ITEM_LINE.test(next.text) ? [{ from: line.to, insert: `\n${gap}` }] : [];
+      const insert = `${gap}\n${quote}`;
+      view.dispatch({
+        changes: [{ from: line.from, to: main.head, insert }, ...below],
+        selection: { anchor: line.from + insert.length },
+        scrollIntoView: true,
+        userEvent: 'delete.backward',
+      });
+      return true;
+    }
+    return false;
+  },
+});
+
+/**
+ * The third step: Backspace at the start of a paragraph at the margin, one
+ * blank line under a list, joins it to the end of the list's last line. It
+ * runs before the rule that only moves the caret over that blank line
+ * (blockObjects.ts), which still holds under a quote.
+ */
+const listJoin = deleteHandlers.of({
+  priority: 21,
+  run: (view, dir) => {
+    const { state } = view;
+    const { main } = state.selection;
+    if (dir > 0 || !state.facet(docMode) || state.readOnly || !main.empty || state.selection.ranges.length > 1) return false;
+    const line = state.doc.lineAt(main.head);
+    if (line.number < 3 || state.doc.sliceString(line.from, main.head) !== quoteOf(line.text)) return false;
+    if (hasText(state.doc.line(line.number - 1))) return false;
+    if (hasText(line) && (itemOn(state, line) || blockAt(state, line.to)?.name !== 'Paragraph')) return false;
+    const last = state.doc.line(line.number - 2);
+    if (!hasText(last) || !itemAround(state, last.to)) return false;
+    view.dispatch({ changes: { from: last.to, to: main.head }, selection: { anchor: last.to }, scrollIntoView: true, userEvent: 'delete.backward' });
     return true;
   },
 });
@@ -328,6 +371,7 @@ const listBackspace = deleteHandlers.of({
 export const docListKeys: Extension = [
   leaveNumberedList,
   listBackspace,
+  listJoin,
   Prec.high(keymap.of([
     { key: 'Tab', run: docTab(true), shift: docTab(false) },
     { key: 'Enter', run: enterAfterParagraph },

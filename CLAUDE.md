@@ -85,10 +85,26 @@ not exist.
   never writes LFS files into the working tree. In the editor,
   `imageInsert.ts` takes files dropped or pasted on any page and
   `imageFrame.ts` selects and resizes a document's images
-- **Documents:** a `.mdo` opens in doc mode (`docMode.ts` in the editor
-  folder): the page editor with its Markdown always hidden, the caret kept
-  out of hidden marks, and a toolbar (`DocToolbar.tsx`). The formatting
-  commands are in `formatCommands.ts`; each writes only the marks it needs
+- **Documents:** every page that takes edits is edited in doc mode
+  (`docMode.ts` in the editor folder): the page editor with its Markdown
+  always hidden and the caret kept out of hidden marks, typing as in a word
+  processor. `editingSetup(path)` in `editorSetup.ts` names the three
+  setups: a `.mdo` is a `document`, with the toolbar (`DocToolbar.tsx`) and
+  a click on a link editing it; a `.md` is a `note`, the same editing with
+  no toolbar and a click on a link following it (`followLinkClicks`); the
+  read-only log pages are `plain`. The formatting commands are in
+  `formatCommands.ts`; each writes only the marks it needs
+- **Lists:** `listKeys.ts` has Tab, Shift+Tab, Enter and Backspace in
+  lists. `listNumbers.ts` is a transaction filter that runs last: an edit of
+  the person's own that changes a list's items (a line break, or the marks
+  that open an item) rewrites the numbers of the lists it touched, in the
+  same transaction, so one undo takes both back; a list keeps its first
+  number, and text from the disk, undo and redo keep their bytes. Nested
+  levels are drawn 1, a, i (`levelNumeral`) while the file keeps digits.
+  Paste reads the clipboard's HTML into Markdown (`pasteHtml.ts`), and
+  pasted lines become items (`clipboard.ts`). The rows a word processor is
+  compared on, with the differences kept on purpose and why, are in
+  `e2e/acceptance/doc-parity-rows.mjs`
 - **Feature-based structure:** Self-contained modules under `src/renderer/features/`
   (`disk-explorer` is the Files feature; `shell` is the workspace frame;
   `day-sidebar` is the right sidebar, one vault day beside the page)
