@@ -117,13 +117,50 @@ function refuseMove(dir: -1 | 1): Command {
   };
 }
 
+// A list item's line: its quote marks and indent, then a bullet or a number.
+const ITEM_LINE = /^([\s>]*)(?:[-+*]|\d+[.)])(?:[ \t]|$)/;
+
+/**
+ * Up (-1) or down (1) in a list written with a blank line between its items:
+ * the caret's item changes places with the item on the other side of the
+ * blank line, which stays between them. Only items of one line each, at the
+ * same indent; anything else is left to the rules below.
+ */
+function swapAcrossBlank(dir: -1 | 1): Command {
+  return (view) => {
+    const { state } = view;
+    const { main } = state.selection;
+    const line = state.doc.lineAt(main.head);
+    const other = line.number + 2 * dir;
+    if (state.readOnly || !main.empty || other < 1 || other > state.doc.lines) return false;
+    const gap = state.doc.line(line.number + dir);
+    const item = state.doc.line(other);
+    const own = ITEM_LINE.exec(line.text);
+    const theirs = ITEM_LINE.exec(item.text);
+    if (!own || !theirs || own[1] !== theirs[1] || /[^\s>]/.test(gap.text) || blockOf(state, line) || blockOf(state, item)) return false;
+    // Neither item goes on past its own line: the lower one is followed by a blank line, another item or the end.
+    const lower = dir > 0 ? item : line;
+    const after = lower.number < state.doc.lines ? state.doc.line(lower.number + 1) : null;
+    if (after && /[^\s>]/.test(after.text) && !(ITEM_LINE.exec(after.text)?.[1].length === own[1].length)) return false;
+    const offset = main.head - line.from;
+    const anchor = dir > 0 ? item.from + (item.length - line.length) + offset : item.from + offset;
+    view.dispatch({
+      changes: [{ from: line.from, to: line.to, insert: item.text }, { from: item.from, to: item.to, insert: line.text }],
+      selection: { anchor },
+      scrollIntoView: true,
+      userEvent: 'move.line',
+    });
+    return true;
+  };
+}
+
 /** Line moves that keep blocks and lists whole, for every page. */
 export const guardedLineMoves: Extension = Prec.high(keymap.of([
-  { key: 'Alt-ArrowUp', run: refuseMove(-1) },
-  { key: 'Alt-ArrowDown', run: refuseMove(1) },
+  { key: 'Alt-ArrowUp', run: (view) => swapAcrossBlank(-1)(view) || refuseMove(-1)(view) },
+  { key: 'Alt-ArrowDown', run: (view) => swapAcrossBlank(1)(view) || refuseMove(1)(view) },
   // A word processor's keys for the same move.
-  { key: 'Ctrl-Shift-ArrowUp', run: (view) => refuseMove(-1)(view) || moveLineUp(view) },
-  { key: 'Ctrl-Shift-ArrowDown', run: (view) => refuseMove(1)(view) || moveLineDown(view) },
+  { key: 'Ctrl-Shift-ArrowUp', run: (view) => swapAcrossBlank(-1)(view) || refuseMove(-1)(view) || moveLineUp(view) },
+  { key: 'Ctrl-Shift-ArrowDown', run: (view) => swapAcrossBlank(1)(view) || refuseMove(1)(view) || moveLineDown(view) },
 ]));
 
 /** A document's first-line rule. */

@@ -1,4 +1,4 @@
-import { EditorState, Prec, Transaction, type ChangeSpec, type Extension, type Line, type TransactionSpec } from '@codemirror/state';
+import { EditorState, Prec, Text, Transaction, type ChangeSpec, type Extension, type Line, type TransactionSpec } from '@codemirror/state';
 import { Decoration, EditorView, keymap, type Command } from '@codemirror/view';
 import { ensureSyntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { calloutMarker } from './blockGuards';
 import { headingOf, rewriteSetext } from './formatCommands';
 import { deleteHandlers, latestTree, objectAt, objectKinds, objectOf, objectKind, type ObjectAction, type ObjectKind, type PageObject } from './extensionPoints';
+import { listGaps, ownRow } from './listEdges';
 import { docMode, drawnBlockAt, setOpenBlock } from './livePreview';
 import { objectFrame, removeObject, setFrame } from './objectFrame';
 import './blocks.css';
@@ -341,6 +342,17 @@ const deleteBesideBlocks = deleteHandlers.of({
     if (!atEnd || node || line.number === state.doc.lines) return false;
     const next = state.doc.line(line.number + 1);
     if (empty) {
+      // Over a list's gap, the blank line the page gives no room, the caret goes on to the item's text, so the
+      // next letter lands there. Where the gap would show once the caret's line is gone, it goes too.
+      const own = state.field(ownRow, false) ?? null;
+      if (blank(next.text) && listGaps(state.doc, next.number, next.number, own).length > 0) {
+        const without = state.doc.replace(line.from, next.from, Text.empty);
+        const stays = listGaps(without, line.number, line.number).length > 0;
+        const to = stays ? next.from : Math.min(next.to + 1, state.doc.length);
+        const anchor = stays ? line.from + next.length + 1 : line.from;
+        view.dispatch({ changes: { from: line.from, to }, selection: { anchor }, scrollIntoView: true, userEvent: 'delete.forward' });
+        return true;
+      }
       view.dispatch({ changes: { from: line.from, to: next.from }, selection: { anchor: line.from }, scrollIntoView: true, userEvent: 'delete.forward' });
       return true;
     }

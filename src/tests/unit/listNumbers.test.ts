@@ -291,12 +291,14 @@ describe('what the fresh review found', () => {
       undo(view);
       expect(text(view).endsWith('Beta\nGamma\n')).toBe(true);
     }
-    // A box started on an empty line over text: the text typed into it later never takes that line in.
+    // A box started on an empty line over text: the text typed into it later never takes that line in. The empty
+    // row over it stays a row, with the list's own blank line under it (listEdges.ts).
     const box = mount('Alpha\n\n‸\nGamma\n');
     type(box, '[] x');
-    expect(text(box)).toBe('Alpha\n\n- [ ] x\n\nGamma\n');
-    // Nothing is added over a blank line or another item. A heading under it is text too, and gets its blank line.
-    for (const [below, written] of [['', ''], ['- next', '- next'], ['## Head', '\n## Head']]) {
+    expect(text(box)).toBe('Alpha\n\n\n- [ ] x\n\nGamma\n');
+    // Nothing is added over another item. A heading under it is text too, and gets its blank line. An empty row
+    // under it stays a row, so the list's own blank line goes in over that row (listEdges.ts).
+    for (const [below, written] of [['', '\n'], ['- next', '- next'], ['## Head', '\n## Head']]) {
       const view = mount(`‸Beta\n${below}\n`);
       type(view, '- ');
       expect(text(view)).toBe(`- Beta\n${written}\n`);
@@ -361,8 +363,8 @@ describe('what the fresh review found', () => {
     const view = mount('- one‸\n\nPara\n');
     press(view, 'Delete');
     expect(marked(view)).toBe('- one‸Para\n');
-    // A list with a blank line between its items is left to the usual Delete.
-    expect(after('- one‸\n\n- two\n', 'Delete')).toContain('- two');
+    // In a list with a blank line between its items, which the page gives no room, the next item's text comes up.
+    expect(after('- one‸\n\n- two\n', 'Delete')).toBe('- onetwo\n');
   });
 
   it('goes on without a marker on Enter after Backspace took the marker off', () => {
@@ -379,12 +381,13 @@ describe('what the fresh review found', () => {
     view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('After') }, userEvent: 'select' });
     press(view, 'ArrowLeft');
     expect(marked(view)).toBe('Intro\n\n- one\n- two‸\n\nAfter\n');
-    // A second blank line is a row the person made, and the blank lines between a list's own items show.
+    // A second blank line is a row the person made. The blank line between a list's own items, or over an item's
+    // later paragraph, gets no room either.
     expect(mount('- one\n\n\nAfter‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
-    expect(mount('- one\n\n- two‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
-    // Nor a blank line inside code, or between an item and its own later paragraph.
+    expect(mount('- one\n\n- two‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+    expect(mount('- one\n\n  more‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+    // A blank line inside code is the code's own.
     expect(mount('```\n- a\n\nb\n```\n‸').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
-    expect(mount('- one\n\n  more‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
   });
 
   it('writes a blank line where an edit leaves a list touching text, and leaves lines that already touched', () => {

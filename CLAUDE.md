@@ -109,9 +109,34 @@ not exist.
   person's own leaves a list line touching a line of text, and
   `livePreview.ts` gives a single blank line between a list and text no
   room, on either side (`listGaps`), the caret stepping over it. Lines that
-  already touched before the edit stay as written. Backspace at an
+  already touched before the edit stay as written. Of several blank lines
+  beside a list one is that gap and the rest are rows; the blank line
+  right under a list line is always the gap, so a list written with a
+  blank line between its items, and two lists one blank line apart, are
+  drawn tight. The gap rule holds only within one quote depth, so the
+  blank line between a quote and a list under it is a row. A key that
+  takes an item out of its list or ends a list
+  changes no row of the page: it dispatches with the `keepsRows`
+  annotation, and the same filter takes out the blank lines it left
+  showing and keeps the caret on a line that shows. The blank line that
+  keeps text from standing right over a `---` or `===` line is never taken
+  out, even where it shows as a row. Making a line a list
+  item changes no row either, by a list key, a typed marker (the autoformat
+  step carries `keepsRows`) or a paste: an empty row beside the line would
+  become the new list's gap, so a second blank line goes in beside it and
+  the row stays, and taking the item out again takes that line back. A
+  blank line over a marker still being typed, "-" or "1.", is that marker's
+  gap when the editor wrote it and a row when the person left it there; the
+  text cannot tell the two apart, so the `ownRow` field remembers the row
+  until the marker makes an item. A deletion that runs
+  across a list's edge takes the blank line that only parted the list from
+  its neighbour with it. A line under a list line that holds only an indent
+  is a later line being started (Enter at the end of one, or Shift+Enter)
+  and keeps its row. Backspace at an
   item's start takes three steps: marker off, text to the margin, text
-  joined to the item above. Paste reads the clipboard's HTML into Markdown
+  joined to the item above. Across the blank line that gets no room, one
+  press of Backspace or Delete joins what stands on its two sides, a
+  paragraph, a heading or the next item (`listJoin`). Paste reads the clipboard's HTML into Markdown
   (`pasteHtml.ts`), and pasted lines become items (`clipboard.ts`). The
   rows a word processor is compared on, with the differences kept on
   purpose and why, are in `e2e/acceptance/doc-parity-rows.mjs`

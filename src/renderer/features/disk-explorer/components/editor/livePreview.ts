@@ -9,7 +9,7 @@ import { normalizeFsPath, parentFsPath } from '@/common/fsPaths';
 import { toOpalFileUrl } from '@/common/opalFileUrl';
 import { activityLogSection } from './activityLog';
 import { followLink } from './linkSchemes';
-import { listGaps } from './listEdges';
+import { lineKind, listGaps, ownRow } from './listEdges';
 import { levelNumeral } from './listNumbers';
 import { mathSpan } from './math';
 import { blockRenderers, nodeDecorators, type DecorateContext, type Reveal, type TextRange } from './extensionPoints';
@@ -736,8 +736,8 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
           const checked = task ? /x/i.test(doc.sliceString(task.from, task.to)) : false;
           const ordered = item.parent?.name === 'OrderedList';
           const docs = state.facet(docMode);
-          // A document shows a lone "-" or "*" as typed until a space makes it a bullet.
-          if (docs && !ordered && ref.to === line.to) return true;
+          // A document shows a lone "-", "*" or "1." as typed until a space makes it a bullet or a number.
+          if (docs && ref.to === line.to) return true;
           lineClass(line.from, 'cm-md-list', `--list-indent: ${indent}em`);
           markerLines.add(line.number);
           // The marker shows as written only while the caret is in it.
@@ -795,7 +795,7 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
   // sits right against its neighbours, as in a word processor, and the caret steps over the line (listEdges.ts).
   if (state.facet(docMode)) {
     const tree = syntaxTree(state);
-    for (const number of listGaps(doc, doc.lineAt(top).number, doc.lineAt(bottom).number)) {
+    for (const number of listGaps(doc, doc.lineAt(top).number, doc.lineAt(bottom).number, state.field(ownRow, false) ?? null)) {
       const gap = doc.line(number);
       // Never inside code or HTML, whose blank lines are their own, nor next to a drawn block, which needs a line for the caret.
       let raw = false;
@@ -810,6 +810,9 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
   for (const [number, { indent, quoted }] of continued) {
     const line = doc.line(number);
     if (markerLines.has(number) || !line.text.trim() || covered(line.from)) continue;
+    // A marker still being typed at the margin under a list, "1.", "[" or "[x] ", is not yet more of the item above
+    // it: a document draws it where it is typed, as the paragraph or the item it is about to be.
+    if (state.facet(docMode) && !quoted && !/^[ \t]/.test(line.text) && (lineKind(line.text) === 'pending' || /^(?:\d{1,9}[.)]|\[[ xX]?\]) $/.test(line.text))) continue;
     lineClass(line.from, 'cm-md-list-cont', `--list-indent: ${indent}em`);
     const start = line.from + (quoted ? quotePrefix(line.text) : 0);
     const textFrom = skipSpaces(doc, start, line.to);

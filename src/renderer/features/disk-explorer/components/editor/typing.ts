@@ -5,7 +5,7 @@ import { EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/vie
 import type { SyntaxNode } from '@lezer/common';
 import { latestTree, nodeDecorators, protectedIn } from './extensionPoints';
 import { inlineSpans, typingStyle } from './formatCommands';
-import { withListEdges } from './listEdges';
+import { itemKind, keepsRows, siblingKind, withListEdges } from './listEdges';
 import { withListNumbers } from './listNumbers';
 import { docMode, hiddenRanges } from './livePreview';
 import { OBJECT as OBJECT_CHARACTER, visibleLine, visibleOffset, visibleSlice } from './visibleText';
@@ -162,7 +162,8 @@ function format(view: EditorView, doc: Text, removals: readonly { from: number; 
   const spec: TransactionSpec = {
     changes,
     selection: { anchor: changes.mapPos(view.state.selection.main.head, 1) },
-    annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.autoformat')],
+    // Formatting changes no row of the page: an empty row left over a typed marker stays when the marker makes a list (listEdges.ts).
+    annotations: [isolateHistory.of('full'), Transaction.userEvent.of('input.autoformat'), keepsRows.of(true)],
     filter: false,
   };
   // The formatting is what makes a typed "1. " an item, so the list it starts or joins gets its blank lines and its
@@ -192,20 +193,23 @@ function inTable(node: SyntaxNode): boolean {
 }
 
 /**
- * The blank line over a list item typed on `line`, when the line above that
- * blank line is a list item too: that one blank line is the gap the page
- * gives no room, so an item typed right after a list was ended carries the
- * list on, and the gap goes rather than show as a row between its items.
+ * The blank line over a list item typed on `line`, when a list of the same
+ * kind ends right above that blank line: that one blank line is the gap the
+ * page gives no room, so an item typed right after a list was ended carries
+ * the list on, and the gap goes rather than show as a row between its items.
+ * Under a list of another kind, a number under bullets, the blank line
+ * stays: the two are two lists, an empty item cannot follow another list's
+ * text without it, and the page gives it no room either (listEdges.ts).
  * With two blank lines there, the second is a row the person made, and the
- * item starts under it. Null when there is none.
+ * item starts under it. Null when there is none to take out.
  */
-function gapOver(state: EditorState, line: { number: number; from: number; text: string }): { from: number; to: number } | null {
+function gapOver(state: EditorState, line: { number: number; from: number; text: string }, typed = itemKind(line.text)): { from: number; to: number } | null {
   if (line.number < 3) return null;
   const gap = state.doc.line(line.number - 1);
-  const above = state.doc.line(line.number - 2);
   const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '';
-  if (/[^\s>]/.test(gap.text) || !/^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(above.text.slice(quote.length))) return null;
-  return { from: gap.from, to: line.from };
+  if (/[^\s>]/.test(gap.text) || !typed) return null;
+  const beside = siblingKind(state.doc, line.number - 2, typed.indent, quote.split('>').length - 1);
+  return beside === typed.kind ? { from: gap.from, to: line.from } : null;
 }
 
 /** Typed text that finishes a shortcut is written, then formatted, in two dispatches straight away. */
@@ -313,6 +317,23 @@ const provisional = StateField.define<{ number: number | null; blank: { from: nu
   },
 });
 
+/**
+ * Deleting the last of what was typed under a blank line written for it
+ * takes that blank line too: Backspace over a bullet just typed under a
+ * paragraph leaves the empty line the bullet was typed on, not two.
+ */
+const blankGoesWithItsLine = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !tr.isUserEvent('delete')) return tr;
+  const blank = tr.startState.field(provisional, false)?.blank;
+  if (!blank || !/[^\s>]/.test(tr.startState.doc.lineAt(blank.to).text)) return tr;
+  const from = tr.changes.mapPos(blank.from, 1, MapMode.TrackDel);
+  const to = tr.changes.mapPos(blank.to, -1, MapMode.TrackDel);
+  if (from === null || to === null || to - from !== blank.to - blank.from) return tr;
+  const line = tr.newDoc.lineAt(to);
+  if (line.from !== to || /[^\s>]/.test(line.text)) return tr;
+  return [tr, { changes: { from, to }, sequential: true }];
+});
+
 // A line that is a rule or a heading's underline.
 const RULE_LINE = /^(?:-+|=+)[ \t]*$/;
 // What comes before a line's own text when it carries on a quote or a list item: quote marks and the indent.
@@ -334,6 +355,20 @@ function finishesFormula(state: EditorState, at: number): boolean {
     if (node.name === 'InlineMath' || node.name === 'DisplayMath') return node.to === at + 1;
   }
   return false;
+}
+
+/**
+ * Whether the space at `at` ends a bullet or number marker, alone at the
+ * margin of `line`, that would start an empty item were a blank line over it:
+ * right under a paragraph Markdown reads it as more of the paragraph.
+ */
+function emptyItemUnderText(state: EditorState, line: { from: number; to: number; number: number }, prefix: string, lead: string, at: number): boolean {
+  if (prefix !== '' || line.number < 2 || !/^(?:[-+*]|\d{1,9}[.)])$/.test(lead) || /\S/.test(state.sliceDoc(at + 1, line.to))) return false;
+  if (!/\S/.test(state.doc.line(line.number - 1).text)) return false;
+  const trial = state.update({ changes: { from: line.from, insert: '\n' }, filter: false }).state;
+  const tree = ensureSyntaxTree(trial, at + 1, 50);
+  const mark = tree?.resolveInner(at + 1, -1);
+  return mark?.name === 'ListMark' && mark.from === line.from + 1 && mark.to === at + 1;
 }
 
 /** An extra change that keeps a typed character as typed, or null when it shows as typed already. */
@@ -391,22 +426,29 @@ function escapeTyped(tr: Transaction): TransactionSpec | null {
     if (text !== ' ') return null;
   }
 
-  // "[]" or "[ ]" alone on a line, then a space, starts a task, as in Notion: one autoformat step, like the others.
-  if (text === ' ' && /^\[ ?\]$/.test(lead) && !/\S/.test(after.sliceDoc(at + 1, line.to)) && QUOTE_ONLY.test(prefix)) {
+  // "[]" or "[ ]" at a line's start, then a space, starts a task, as in Notion: one autoformat step, like the
+  // others. In front of text already on the line, that text is the task's, as "- " makes it a bullet's.
+  if (text === ' ' && /^\[ ?\]$/.test(lead) && QUOTE_ONLY.test(prefix)) {
     const from = line.from + prefix.length;
     const gap = gapUnder(after, line);
-    return { effects: formatAfter.of([{ from, to: at + 1, insert: '- [ ] ' }, ...(gap ? [{ from: gap.at, to: gap.at, insert: gap.insert }] : [])]), sequential: true };
+    // A box typed right after a bulleted list was ended carries that list on, as a typed bullet does.
+    const over = gapOver(after, line, { indent: 0, kind: '-' });
+    return { effects: formatAfter.of([...(over ? [{ from: over.from, to: over.to }] : []), { from, to: at + 1, insert: '- [ ] ' }, ...(gap ? [{ from: gap.at, to: gap.at, insert: gap.insert }] : [])]), sequential: true };
   }
 
   // A space that turns "#", "-", "1." or "[ ]" at the line's text start into formatting is an autoformat.
   if (text === ' ') {
     const mark = latestTree(after).resolveInner(at, -1);
-    if (!LINE_FORMATS.has(mark.name) || mark.to !== at || mark.from !== line.from + prefix.length) return null;
-    const numbered = mark.name === 'ListMark' && /\d/.test(after.sliceDoc(mark.from, mark.from + 1));
+    const formats = LINE_FORMATS.has(mark.name) && mark.to === at && mark.from === line.from + prefix.length;
+    // "1. " or "* " right under a paragraph reads as more of it until the list's blank line goes in, which the
+    // formatting step writes (listEdges.ts): it is an autoformat all the same, so Backspace shows it as typed again.
+    if (!formats && !emptyItemUnderText(after, line, prefix, lead, at)) return null;
+    const numbered = /\d/.test(after.sliceDoc(line.from + prefix.length, line.from + prefix.length + 1));
     // A list item typed right over a line of text: that line stays a paragraph. The backslash moves the line's end by one.
-    const gap = mark.name === 'ListMark' ? gapUnder(after, line) : null;
-    const over = mark.name === 'ListMark' ? gapOver(after, line) : null;
-    return autoformatSpec(at, text.length, [numbered ? mark.to - 1 : mark.from], [], [
+    const listed = !formats || mark.name === 'ListMark';
+    const gap = listed ? gapUnder(after, line) : null;
+    const over = listed ? gapOver(after, line) : null;
+    return autoformatSpec(at, text.length, [numbered ? at - 1 : line.from + prefix.length], [], [
       ...(over ? [{ from: over.from, to: over.to }] : []),
       ...(gap ? [{ from: gap.at + 1, to: gap.at + 1, insert: gap.insert }] : []),
     ]);
@@ -888,5 +930,5 @@ function compositionHooks(replace: (state: EditorState, from: number, to: number
 
 /** Doc mode's typing: the session's typed marks, the escapes, Enter in formatting, hidden hard breaks and input methods. */
 export function typingExtension(replace: (state: EditorState, from: number, to: number, insert: string) => { changes: ChangeSpec[] }): Extension {
-  return [typedMarks, provisional, justFormatted, typeThenFormat, applyFormatting, Prec.high(undoFormatting), Prec.high(typingFilter), hardBreaks, compositionHooks(replace)];
+  return [typedMarks, provisional, blankGoesWithItsLine, justFormatted, typeThenFormat, applyFormatting, Prec.high(undoFormatting), Prec.high(typingFilter), hardBreaks, compositionHooks(replace)];
 }
