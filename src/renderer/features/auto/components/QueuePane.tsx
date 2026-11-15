@@ -69,12 +69,14 @@ function NoteField({ entry }: { entry: AutoDigestEntry }) {
     useDigestStore.setState({ noteWanted: null });
   }, [wanted]);
   const changed = typed.trim() !== entry.note;
-  const save = () => {
+  const save = (fromButton = false) => {
     if (!changed || saving) return;
     setSaving(true);
     void useDigestStore.getState().setNote(entry.id, typed).then((took) => {
       setSaving(false);
       if (took) setTyped(typed.trim());
+      // The button goes once the note is saved: the keyboard goes to the entry it belongs to.
+      if (took && fromButton) entryElement(entry.id)?.focus();
     });
   };
   return (
@@ -100,7 +102,7 @@ function NoteField({ entry }: { entry: AutoDigestEntry }) {
         />
       </div>
       {changed ? (
-        <Button size="compact" variant="outline" disabled={saving} onClick={save}>
+        <Button size="compact" variant="outline" disabled={saving} onClick={() => save(true)}>
           {typed.trim() ? 'Save the note' : 'Remove the note'}
           <span aria-hidden className="ml-1 font-mono text-metadata text-foreground-tertiary">⌘↩</span>
         </Button>
@@ -155,6 +157,12 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   };
   return (
     <div>
+      {/* Enter was taken: his words leave the box and show on their way, until the thread opens. */}
+      {sending ? (
+        <div data-testid="auto-entry-pending" className="mb-2 ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-card bg-surface-active px-3 py-2 text-reply text-foreground opacity-60">
+          {words.trim()}
+        </div>
+      ) : null}
       {notSent ? (
         <p role="status" data-testid="auto-entry-not-sent" className="mb-1 flex items-center gap-1 text-control font-medium text-foreground">
           Not sent
@@ -176,7 +184,8 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           aria-label="What to do with it"
           data-testid="auto-entry-box"
           placeholder="Say what to do with it"
-          value={words}
+          value={sending ? '' : words}
+          readOnly={sending}
           onChange={(event) => useDigestStore.getState().setWords(entry.id, event.target.value)}
           onKeyDown={(event) => {
             if (backToRow(event, entry.id)) return;
@@ -262,17 +271,25 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
       {became ? null : <Act label="Thread" hint="T" onClick={() => void makeThread(entry.id)} />}
     </>
   );
+  // An entry that opens is brought into view whole, its box included: the last one would open under the fold.
+  const item = React.useRef<HTMLLIElement>(null);
+  React.useLayoutEffect(() => {
+    if (open) item.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [open]);
+
   // Shown while the pointer or the keyboard is on the row, or the entry is open; not left up by a click once the pointer has gone.
   const shows = open ? '' : 'group-hover:opacity-100 group-has-[[data-auto-entry]:focus-visible]:opacity-100';
 
   return (
     <li
+      ref={item}
       data-testid={`auto-entry-${entry.id}`}
       data-state={entry.state}
       data-open={open || undefined}
       className={cn(
         // The keyboard's ring goes round the whole row, its actions included.
-        'group relative -mx-3 rounded-row transition-hover has-[[data-auto-entry]:focus-visible]:ring-2 has-[[data-auto-entry]:focus-visible]:ring-inset has-[[data-auto-entry]:focus-visible]:ring-focus',
+        // Brought into view, it keeps a little air from the pane's edge.
+        'group relative -mx-3 scroll-my-3 rounded-row transition-hover has-[[data-auto-entry]:focus-visible]:ring-2 has-[[data-auto-entry]:focus-visible]:ring-inset has-[[data-auto-entry]:focus-visible]:ring-focus',
         open ? 'bg-surface-sunken' : 'hover:bg-surface-hover'
       )}
     >
@@ -298,7 +315,8 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
                 {entry.priority ? <span className="font-normal text-foreground-tertiary">{entry.priority} </span> : null}
                 {title}
               </span>
-              {row.time && !open ? <span className="shrink-0 text-metadata font-normal tabular-nums text-foreground-tertiary">{row.time}</span> : null}
+              {/* Too narrow for the column at the right: the time ends the title line. */}
+              {row.time && !open && !roomy ? <span className="shrink-0 text-metadata font-normal tabular-nums text-foreground-tertiary">{row.time}</span> : null}
             </p>
           ) : null}
           {open ? (
@@ -322,11 +340,20 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
           {resolved ? (
             <p className={cn(quiet, 'mt-1')}>Resolved</p>
           ) : became ? (
-            thread ? <ThreadLine thread={thread} className="mt-1" /> : <p className={cn(quiet, 'mt-1')}>A thread</p>
+            // Its words are above already: the thread's line is said bare, "Not started" for one nobody has started.
+            thread ? <ThreadLine thread={thread} bare className="mt-1" /> : <p className={cn(quiet, 'mt-1')}>A thread</p>
           ) : null}
         </div>
         {/* A column of its own at the row's right, so the actions never sit on the words. */}
-        {roomy ? <div className={cn('flex w-36 shrink-0 items-center justify-end gap-0.5 py-1.5 pr-1.5 opacity-0', shows, open && 'opacity-100')}>{actions}</div> : null}
+        {roomy ? (
+          <div className="relative flex w-36 shrink-0 justify-end py-1.5 pr-1.5">
+            {/* A meeting's time ends at the row's right edge, where "Resolve all" ends; the actions take its place while they show. */}
+            {row.time && !open ? (
+              <span data-testid="auto-entry-time" className={cn('absolute right-3 top-2.5 text-metadata tabular-nums text-foreground-tertiary', 'group-hover:invisible group-has-[[data-auto-entry]:focus-visible]:invisible')}>{row.time}</span>
+            ) : null}
+            <div className={cn('flex items-center gap-0.5 opacity-0', shows, open && 'opacity-100')}>{actions}</div>
+          </div>
+        ) : null}
       </div>
 
       {/* Too narrow for the column: a line under the words of the entry the pointer or the keyboard is on, or that is open. */}
@@ -352,7 +379,7 @@ function SectionRows({ section, date, opened, tabStop, roomy }: { section: Queue
       <div className="flex min-h-control items-center gap-2 pt-3">
         <h2 className="min-w-0 flex-1 truncate text-label text-foreground-tertiary">{section.title || 'Digest'}</h2>
         {section.resolveAll.length > 0 ? (
-          <Button size="compact" variant="ghost" className="-mr-1.5 text-control text-foreground-tertiary" onClick={() => void resolve(section.resolveAll, true, section.title)}>
+          <Button size="compact" variant="ghost" className="-mr-2 text-control text-foreground-tertiary" onClick={() => void resolve(section.resolveAll, true, section.title)}>
             Resolve all
           </Button>
         ) : null}
@@ -437,6 +464,16 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
   const pane = React.useRef<HTMLElement>(null);
   const scroller = React.useRef<HTMLDivElement>(null);
   const { step } = useDigestStore.getState();
+  const earlier = React.useRef<HTMLButtonElement>(null);
+  const later = React.useRef<HTMLButtonElement>(null);
+  /** Steps a day. At the last day that way its arrow goes dead, so the keyboard moves to the other one. */
+  const stepTo = (back: boolean) => {
+    const held = document.activeElement === (back ? earlier : later).current;
+    void step(back).then(() => {
+      const shown = selectDay(useDigestStore.getState());
+      if (held && shown && stepDay(shown.date, useDigestStore.getState().days, back) === null) (back ? later : earlier).current?.focus();
+    });
+  };
   const older = day ? stepDay(day.date, days, true) : null;
   const newer = day ? stepDay(day.date, days, false) : null;
   const counts = day ? queueCounts(day) : null;
@@ -511,25 +548,28 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
                 <ChevronLeft aria-hidden className="h-4 w-4" />
               </IconButton>
             ) : null}
-            <h1 data-testid="auto-queue-day" className="mr-1 min-w-0 truncate text-ui font-medium text-foreground">{day ? dayTitle(day.date) : 'Digest'}</h1>
+            <h1 data-testid="auto-queue-day" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{day ? dayTitle(day.date) : 'Digest'}</h1>
+            {/* At the far right, as on the phone: they stay put whatever the day is called, and sit away from the back arrow. */}
             {day ? (
-              <>
-                <IconButton label="Earlier day" disabled={!older} onClick={() => void step(true)}>
+              <div className="-mr-1.5 flex shrink-0 items-center">
+                <IconButton ref={earlier} label="Earlier day" disabled={!older} onClick={() => stepTo(true)}>
                   <ChevronLeft aria-hidden className="h-4 w-4" />
                 </IconButton>
-                <IconButton label="Later day" disabled={!newer} onClick={() => void step(false)}>
+                <IconButton ref={later} label="Later day" disabled={!newer} onClick={() => stepTo(false)}>
                   <ChevronRight aria-hidden className="h-4 w-4" />
                 </IconButton>
-                <Button size="compact" variant="ghost" className="-mr-2 ml-auto font-normal text-foreground-tertiary" onClick={() => openVault(day.path, false)}>
-                  Open the digest
-                </Button>
-              </>
+              </div>
             ) : null}
           </div>
-          {counts ? (
-            <div className="-ml-2 flex items-center gap-1 pb-1">
-              <FilterWord label="Left" count={counts.left} filter="left" on={filter === 'left'} />
-              <FilterWord label="All" count={counts.all} filter="all" on={filter === 'all'} />
+          {counts && day ? (
+            <div className="flex items-center gap-1 pb-1">
+              <div className="-ml-2 flex items-center gap-1">
+                <FilterWord label="Left" count={counts.left} filter="left" on={filter === 'left'} />
+                <FilterWord label="All" count={counts.all} filter="all" on={filter === 'all'} />
+              </div>
+              <Button size="compact" variant="ghost" className="-mr-2 ml-auto font-normal text-foreground-tertiary" onClick={() => openVault(day.path, false)}>
+                Open the digest
+              </Button>
             </div>
           ) : null}
         </div>

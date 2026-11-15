@@ -39,7 +39,7 @@ const ENTRY = {
 
 describe("reading the service's answers", () => {
   it('keeps a list entry as the service gives it', () => {
-    expect(toThread(ENTRY)).toEqual({ ...ENTRY, waits: false, desk: null });
+    expect(toThread(ENTRY)).toEqual({ ...ENTRY, waits: false, desk: null, yours: '' });
     expect(toThread({ ...ENTRY, waits: true })?.waits).toBe(true);
   });
 
@@ -49,6 +49,13 @@ describe("reading the service's answers", () => {
     expect(toThread({ ...ENTRY, desk: null })?.desk).toBeNull();
     expect(toThread({ ...ENTRY, desk: 'yes' })?.desk).toBeNull();
     expect(toThread({ ...ENTRY, desk: true })?.desk).toBeNull();
+  });
+
+  it('reads what is his to do in a thread as a few words, and nothing from anything else', () => {
+    expect(toThread({ ...ENTRY, yours: 'Read and send the draft to the club' })?.yours).toBe('Read and send the draft to the club');
+    expect(toThread({ ...ENTRY, yours: '  Call the supplier  ' })?.yours).toBe('Call the supplier');
+    expect(toThread({ ...ENTRY, yours: 'x'.repeat(200) })?.yours).toHaveLength(80);
+    for (const other of [null, 7, true, ['Call'], { text: 'Call' }]) expect(toThread({ ...ENTRY, yours: other })?.yours).toBe('');
   });
 
   it('drops an entry whose id could not go into a path', () => {
@@ -61,7 +68,7 @@ describe("reading the service's answers", () => {
     const strange = toThread({ id: 'ok', title: ['x'], status: 'dancing', last: 7, ask: 'yes', unread: 'true', model: 'Not A Key', created: 'soon', snoozed: -1, woke: NaN, digest: 'item', queued: 2.9, error: '' });
     expect(strange).toEqual({
       id: 'ok', title: '', status: 'idle', last: '', activity: '', ask: null, unread: false, model: '', created: 0, updated: 0,
-      error: null, queued: 2, archived: false, snoozed: null, woke: null, digest: null, waits: false, desk: null,
+      error: null, queued: 2, archived: false, snoozed: null, woke: null, digest: null, waits: false, desk: null, yours: '',
     });
     expect(toThread({ id: 'ok', title: 'x'.repeat(5_000) })?.title.length).toBe(300);
   });
@@ -98,6 +105,34 @@ describe("reading the service's answers", () => {
       id: '0b7d3e1a9c22', kind: 'permission', tool: 'Bash', title: 'Run a command', detail: 'rm -rf build', reason: '',
     });
     expect(toQuestion({ id: 'q', kind: 'ask', questions: [] })).toBeNull();
+  });
+
+  it('reads a send he is asked to allow up front, in the service’s shape', () => {
+    const grant = {
+      id: '0c5e2f7a1b33', kind: 'grant', title: 'Send one Slack message to Robin', detail: 'Once, within two hours.',
+      grant: { id: 'g1', thread_id: '82a494f21dd8', channel: 'slack', to: [{ name: 'Robin', id: 'U01' }, { name: 'Sam', id: 'U02' }], about: 'the seed swap', expires: 1794637200, text: 'I will bring the seedlings.' },
+    };
+    expect(toQuestion(grant)).toEqual({
+      id: '0c5e2f7a1b33', kind: 'grant', title: 'Send one Slack message to Robin', detail: 'Once, within two hours.',
+      channel: 'slack', to: ['Robin', 'Sam'], about: 'the seed swap', text: 'I will bring the seedlings.',
+    });
+    // Without its words, with a channel it does not know, and with people it cannot read: still a card he can say no to.
+    expect(toQuestion({ ...grant, grant: { channel: 'pigeon', to: [{ id: 'U01' }, 7, 'Robin', { name: '' }], about: 7 } })).toEqual({
+      id: '0c5e2f7a1b33', kind: 'grant', title: 'Send one Slack message to Robin', detail: 'Once, within two hours.',
+      channel: '', to: ['Robin'], about: '', text: null,
+    });
+    expect(toQuestion({ id: '0c5e2f7a1b33', kind: 'grant' })).toEqual({ id: '0c5e2f7a1b33', kind: 'grant', title: '', detail: '', channel: '', to: [], about: '', text: null });
+    for (const channel of ['slack', 'email', 'text']) expect(toQuestion({ ...grant, grant: { ...grant.grant, channel } })).toMatchObject({ channel });
+    // Nothing of a signature is ever read, and a bad id is no question at all.
+    expect(JSON.stringify(toQuestion({ ...grant, signature: 'abc', grant: { ...grant.grant, signature: 'abc' } }))).not.toContain('signature');
+    expect(toQuestion({ ...grant, id: '../x' })).toBeNull();
+  });
+
+  it('reads a row’s question: a send to allow and a permission never get answer buttons', () => {
+    const ask = { id: 'q0', text: 'Send one Slack message to Robin', options: ['Yes', 'No'], question: 'Send it?' };
+    expect(toThread({ ...ENTRY, ask: { ...ask, kind: 'grant' } })?.ask).toEqual({ id: 'q0', kind: 'grant', text: 'Send one Slack message to Robin', options: [], question: null });
+    expect(toThread({ ...ENTRY, ask: { ...ask, kind: 'permission' } })?.ask).toMatchObject({ kind: 'permission', options: [], question: null });
+    expect(toThread({ ...ENTRY, ask: { ...ask, kind: 'ask' } })?.ask).toMatchObject({ kind: 'ask', options: ['Yes', 'No'], question: 'Send it?' });
     expect(toQuestion({ id: 'q', kind: 'poll' })).toBeNull();
     expect(toQuestion(null)).toBeNull();
   });
@@ -149,7 +184,7 @@ describe("reading the service's answers", () => {
   });
 
   it('reads each list event, and nothing of a kind it does not know', () => {
-    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, waits: false, desk: null } });
+    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, waits: false, desk: null, yours: '' } });
     expect(toListEvent('order', { ids: ['a1', '../b', 7, 'c3'] })).toEqual({ kind: 'order', ids: ['a1', 'c3'] });
     expect(toListEvent('status', { auth: {} })?.kind).toBe('status');
     expect(toListEvent('reset', {})).toEqual({ kind: 'reset' });

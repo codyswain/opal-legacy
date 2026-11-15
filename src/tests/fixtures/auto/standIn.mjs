@@ -218,6 +218,8 @@ export async function startStandIn(options = {}) {
     holds: new Map(),
   };
   const requests = [];
+  /** Tries to allow a send with no signature from a phone. */
+  const unsigned = [];
   const ticks = [];
   const digests = fixtureDigests(options.digests ?? 'default');
   const threads = new Map();
@@ -259,6 +261,8 @@ export async function startStandIn(options = {}) {
     const question = thread.live?.question;
     if (!question) return null;
     if (question.kind === 'permission') return { id: question.id, kind: 'permission', text: question.title };
+    // A send to allow up front: its title, and nothing to answer it with from a row.
+    if (question.kind === 'grant') return { id: question.id, kind: 'grant', text: question.title };
     const [part] = question.questions;
     const line = part.question.split('\n')[0];
     const mark = line.indexOf('?');
@@ -272,7 +276,7 @@ export async function startStandIn(options = {}) {
       id: thread.id, title: thread.title, status: thread.status, last: thread.last, activity: thread.live ? thread.activity : '',
       ask: askOf(thread), unread: thread.unread, model: thread.model, created: thread.created, updated: thread.updated,
       error: thread.status === 'failed' ? thread.error : null, queued: thread.queue.length, archived: thread.archived,
-      snoozed: thread.snoozed, woke: thread.woke, desk: thread.desk ?? null, digest: thread.digest, ...(thread.waits ? { waits: true } : {}),
+      snoozed: thread.snoozed, woke: thread.woke, desk: thread.desk ?? null, yours: thread.yours ?? '', digest: thread.digest, ...(thread.waits ? { waits: true } : {}),
     };
   }
 
@@ -340,7 +344,6 @@ export async function startStandIn(options = {}) {
     waiting.archived = resolved;
     if (resolved) {
       waiting.desk = null;
-      order = order.filter((id) => id !== waiting.id);
       emitList('thread', entry(waiting));
     } else {
       emitList('thread', entry(waiting));
@@ -373,9 +376,12 @@ export async function startStandIn(options = {}) {
     emitThread(thread, 'thread', entry(thread));
   }
 
+  /** His order, as clients get it. An archived thread keeps its place in `order` and is left out here. */
+  const shown = () => order.filter((id) => !threads.get(id)?.archived);
+
   function toTop(thread) {
     order = [thread.id, ...order.filter((id) => id !== thread.id)];
-    emitList('order', { ids: order });
+    emitList('order', { ids: shown() });
   }
 
   function status() {
@@ -461,8 +467,10 @@ export async function startStandIn(options = {}) {
         thread.status = 'working';
         emitThread(thread, 'question', { question: null });
         if (run.stopped) throw new Stopped();
-        const title = question.kind === 'permission' ? question.title : question.questions[0].question.split('\n')[0];
-        const said = question.kind === 'permission'
+        // A permission request and a send to allow fold the same way: the title, and what he said to it.
+        const yesOrNo = question.kind === 'permission' || question.kind === 'grant';
+        const title = yesOrNo ? question.title : question.questions[0].question.split('\n')[0];
+        const said = yesOrNo
           ? (answer.allow ? 'Allowed' : answer.message || 'Denied')
           : Object.values(answer.answers).map((value) => (Array.isArray(value) ? value.join(', ') : value)).join('; ');
         const item = { role: 'asked', text: title, answer: said };
@@ -541,6 +549,27 @@ export async function startStandIn(options = {}) {
       await ctx.say(WIDE_REPLY, { piece: 80 });
       return [];
     }
+    if (said.includes('send robin')) {
+      ctx.activity('Looking Robin up');
+      await ctx.wait(pace * 2);
+      // A send he is asked to allow up front. Only a phone can say yes, with a signature; a page can only say no.
+      const answer = await ctx.ask({
+        kind: 'grant',
+        title: 'Send one Slack message to Robin',
+        detail: 'Auto will send it once, from this thread, within two hours.',
+        grant: { id: hex(6), thread_id: 'here', channel: 'slack', to: [{ name: 'Robin', id: 'U01' }], about: 'the seed swap', expires: Math.floor(Date.now() / 1000) + 7200, text: 'I will bring the bean seedlings on Saturday.' },
+      });
+      ctx.activity('Writing');
+      await ctx.say(answer.allow === false ? (answer.message ? `Nothing was sent. You said: ${answer.message}` : 'Nothing was sent.') : 'Sent.');
+      return [];
+    }
+    if (said.includes('note for the club')) {
+      ctx.activity('Writing the note');
+      await ctx.wait(pace * 2);
+      await ctx.say('The note for the garden club is drafted in Ideas. It is three lines.');
+      // The next move is his: words on the row, never a button.
+      return ['you: Read the note and send it to the club', 'Make it shorter'];
+    }
     if (said.includes('drafts')) {
       ctx.activity('Listing the old drafts');
       await ctx.wait(pace * 2);
@@ -586,6 +615,8 @@ export async function startStandIn(options = {}) {
     thread.run = run;
     thread.status = 'working';
     thread.next = [];
+    // His move goes when he sends from the thread, or when the next turn ends without one.
+    thread.yours = '';
     thread.unsent = null;
     thread.waits = false;
     thread.seed = null;
@@ -620,7 +651,11 @@ export async function startStandIn(options = {}) {
     thread.unread = thread.clients.size === 0 && outcome !== 'stopped';
     thread.updated = now();
     const waiting = thread.queue.length > 0;
-    thread.next = outcome === 'done' && !waiting ? next : [];
+    // One follow-up may open "you:": it is his move, kept as words on the thread and never a button.
+    const lines = outcome === 'done' && !waiting ? next : [];
+    const his = lines.find((line) => /^you:/i.test(line));
+    thread.yours = his ? his.replace(/^you:\s*/i, '').slice(0, 80) : '';
+    thread.next = lines.filter((line) => line !== his);
     emitThread(thread, 'end', { outcome, error: thread.error, next: thread.next });
     changed(thread);
     if (waiting && outcome !== 'stopped') {
@@ -741,7 +776,7 @@ export async function startStandIn(options = {}) {
     if (path === '/api/status/check' && isWrite) return answer(response, 200, status());
     if (path === '/api/events' && !isWrite) return stream(request, response, list);
     if (path === '/api/threads' && !isWrite) {
-      return answer(response, 200, { threads: order.map((id) => entry(threads.get(id))), cursor: `${boot}.${list.n}` });
+      return answer(response, 200, { threads: shown().map((id) => entry(threads.get(id))), cursor: `${boot}.${list.n}` });
     }
     if (path === '/api/threads' && isWrite) {
       if (typeof data.text !== 'string' || !data.text.trim() || data.text.length > 100_000) return refuse(response, 400, 'bad_request', 'Say something first.');
@@ -875,7 +910,14 @@ export async function startStandIn(options = {}) {
       case 'answer': {
         const question = thread.live?.question;
         if (!question || question.id !== data.id || !thread.answer) return refuse(response, 409, 'conflict', 'That question is no longer open.');
-        if (question.kind === 'permission' ? typeof data.allow !== 'boolean' : !data.answers || typeof data.answers !== 'object') {
+        if (question.kind === 'grant') {
+          // The yes is signed on his phone. Anything else that says yes is refused, and counted.
+          if (data.allow === true && typeof data.signature !== 'string') {
+            unsigned.push({ thread: thread.id, client });
+            return refuse(response, 403, 'unsigned', 'Only your phone can allow a send.');
+          }
+          if (typeof data.allow !== 'boolean') return refuse(response, 400, 'bad_request', 'That is not an answer to this question.');
+        } else if (question.kind === 'permission' ? typeof data.allow !== 'boolean' : !data.answers || typeof data.answers !== 'object') {
           return refuse(response, 400, 'bad_request', 'That is not an answer to this question.');
         }
         pickedUp(thread, client);
@@ -901,7 +943,6 @@ export async function startStandIn(options = {}) {
         thread.archived = data.archived !== false;
         if (thread.archived) {
           thread.desk = null;
-          order = order.filter((id) => id !== thread.id);
           // Done also marks the entry the thread came from.
           if (data.done === true && thread.digest) {
             ticks.push({ ...thread.digest });
@@ -915,18 +956,19 @@ export async function startStandIn(options = {}) {
           }
           changed(thread);
         } else {
+          // Restored, it is back where it was in his order.
           changed(thread);
-          toTop(thread);
+          emitList('order', { ids: shown() });
         }
         return answer(response, 200, { thread: entry(thread) });
       case 'move': {
-        if (data.before !== null && (!threads.has(data.before) || data.before === thread.id || !order.includes(data.before))) {
+        if (data.before !== null && (!threads.has(data.before) || data.before === thread.id || !shown().includes(data.before))) {
           return refuse(response, 400, 'bad_request', 'Move it before another thread, or to the end.');
         }
         order = order.filter((id) => id !== thread.id);
         if (data.before === null) order.push(thread.id); else order.splice(order.indexOf(data.before), 0, thread.id);
-        emitList('order', { ids: order });
-        return answer(response, 200, { ids: order });
+        emitList('order', { ids: shown() });
+        return answer(response, 200, { ids: shown() });
       }
       case 'snooze':
         if (data.until === null) {
@@ -968,7 +1010,9 @@ export async function startStandIn(options = {}) {
     /** Digest boxes ticked by a Done. */
     ticks,
     thread: (id) => threads.get(id),
-    entries: () => order.map((id) => entry(threads.get(id))),
+    /** Every try to allow a send without the phone's signature. A page must never make one. */
+    unsigned,
+    entries: () => shown().map((id) => entry(threads.get(id))),
     /** A day's digest as the service answers it; the latest with no date. */
     digest: (date) => digestOf(date ?? days()[0]),
     /** Signs the service out of, or back into, its agent: the list stream says so. */

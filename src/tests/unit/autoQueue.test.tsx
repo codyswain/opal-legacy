@@ -7,6 +7,7 @@ import type { AutoRoute } from '@/types/auto';
 import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
 import { forgetPlaces } from '@/renderer/features/auto/model/places';
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
+import { HOLD_MS, hold } from '@/renderer/features/auto/store/actions';
 import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { browseAuto } from '@/renderer/features/disk-explorer/navigation/filesLocation';
@@ -111,6 +112,7 @@ const openEntry = (id: string) => fireEvent.click(entry(id).querySelector('[data
 beforeEach(() => {
   window.localStorage.clear();
   useSaidStore.getState().clear();
+  hold.ms = HOLD_MS;
   forgetPlaces();
   forgetViews();
   useAutoStore.setState(useAutoStore.getInitialState(), true);
@@ -150,6 +152,7 @@ describe('the mark for the Mac', () => {
     expect(rowIds()).toEqual(['beds', 'bread', 'seeds']);
     const group = within(screen.getByTestId('auto-group-desk'));
     expect(group.getByText('Which wood for the frames?')).toBeInTheDocument();
+    hold.ms = 40;
     fireEvent.click(group.getByRole('button', { name: 'Larch' }));
     await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'beds', answer: { id: 'q0', answers: { 'Which wood for the frames?': 'Larch' } } }));
   });
@@ -246,7 +249,8 @@ describe('the queue', () => {
     expect(words.className).toContain('line-clamp-2');
     expect(words.className).toContain('text-foreground-tertiary');
     // A meeting's words open with its name in bold: it is said once, and its time is at the row's right.
-    expect(entry('meeting-committee').querySelector('p')?.textContent).toBe('Committee10:00');
+    expect(entry('meeting-committee').querySelector('p')?.textContent).toBe('Committee');
+    expect(within(entry('meeting-committee')).getByTestId('auto-entry-time').textContent).toBe('10:00');
     expect(within(entry('meeting-committee')).getByTestId('auto-entry-words').textContent).toBe('(in the hall)\nThe water butts');
     // A table is named by its section, so it has no title of its own: its rows are its words, and no table is drawn until it is open.
     expect(within(entry('text-plots')).queryByText('Plots')).toBeNull();
@@ -267,7 +271,8 @@ describe('the queue', () => {
     // The row leaves before the service has answered.
     expect(entryIds()).not.toContain('text-b');
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b'], resolved: true }));
-    await waitFor(() => expect(saidText()).toBe('Resolved Sowed the beans.Undo'));
+    // The line is there the moment the row leaves, before the service has answered.
+    expect(saidText()).toBe('Sowed the beans., resolvedUndo');
     expect(digestWord()).toBe('Digest4 left');
     expect(screen.getByTestId('auto-queue-left').textContent).toBe('Left4');
     // The line is in the list's column, not in the app's corner.
@@ -279,13 +284,86 @@ describe('the queue', () => {
     expect(said()).toBeNull();
   });
 
+  it('takes two resolves back before the service has answered either, each after its own post', async () => {
+    await openQueue();
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    press('text-b', 'Resolve');
+    press('text-c', 'Resolve');
+    expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots']);
+    expect(saidText()).toBe('Mended the hose., resolvedUndo1 more');
+    // Both come back at once, the newest first, while the service still has neither.
+    pressSaid('Undo');
+    expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-c']);
+    expect(saidText()).toBe('Sowed the beans., resolvedUndo');
+    pressSaid('Undo');
+    expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']);
+    expect(said()).toBeNull();
+    expect(auto.asked('digest-resolve').map((route) => route.resolved)).toEqual([true, true]);
+    release();
+    // The service hears each resolve before its undoing, and ends with both open.
+    await waitFor(() => expect(auto.asked('digest-resolve')).toHaveLength(4));
+    const heard = auto.asked('digest-resolve').map((route) => `${route.ids[0]} ${route.resolved}`);
+    expect(heard.indexOf('text-b true')).toBeLessThan(heard.indexOf('text-b false'));
+    expect(heard.indexOf('text-c true')).toBeLessThan(heard.indexOf('text-c false'));
+    await waitFor(() => expect(service('text-b')?.state).toBe('open'));
+    await waitFor(() => expect(service('text-c')?.state).toBe('open'));
+    expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']);
+    expect(digestWord()).toBe('Digest5 left');
+  });
+
+  it('keeps an entry he brought back while the service still says it is resolved', async () => {
+    await openQueue();
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    press('text-b', 'Resolve');
+    pressSaid('Undo');
+    expect(entryIds()).toContain('text-b');
+    // The resolve lands; its undoing is still on the way.
+    let releaseSecond: () => void = () => undefined;
+    release();
+    auto.state.gate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    await waitFor(() => expect(service('text-b')?.state).toBe('resolved'));
+    // The service says the day changed, and it is read again: resolved there, and still open here.
+    act(() => auto.list({ kind: 'digest', date: DAY }));
+    await waitFor(() => expect(auto.asked('digest').length).toBeGreaterThan(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(entryIds()).toContain('text-b');
+    expect(digestWord()).toBe('Digest5 left');
+    releaseSecond();
+    await waitFor(() => expect(service('text-b')?.state).toBe('open'));
+    expect(entryIds()).toContain('text-b');
+  });
+
+  it('keeps a second resolve when the answer to the first one arrives without it', async () => {
+    await openQueue();
+    // The first answer comes back before the second post has landed: it still shows the second entry open.
+    const request = auto.api.request as unknown as ReturnType<typeof vi.fn>;
+    const answer = request.getMockImplementation() as (route: AutoRoute) => Promise<unknown>;
+    let releaseSecond: () => void = () => undefined;
+    const second = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    request.mockImplementation(async (route: AutoRoute) => {
+      if (route.kind === 'digest-resolve' && route.ids[0] === 'text-c') await second;
+      return answer(route);
+    });
+    press('text-b', 'Resolve');
+    press('text-c', 'Resolve');
+    await waitFor(() => expect(service('text-b')?.state).toBe('resolved'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots']);
+    expect(digestWord()).toBe('Digest3 left');
+    releaseSecond();
+    await waitFor(() => expect(service('text-c')?.state).toBe('resolved'));
+    expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots']);
+  });
+
   it('resolves a section’s open entries in one post, and Undo reopens them all', async () => {
     await openQueue();
     fireEvent.click(within(screen.getByRole('region', { name: 'Yesterday' })).getByRole('button', { name: 'Resolve all' }));
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b', 'text-c'], resolved: true }));
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Yesterday' })).toBeNull());
     expect(auto.asked('digest-resolve')).toHaveLength(1);
-    await waitFor(() => expect(saidText()).toBe('Resolved 2 in YesterdayUndo'));
+    expect(saidText()).toBe('Yesterday, 2 resolvedUndo');
     pressSaid('Undo');
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b', 'text-c'], resolved: false }));
     await waitFor(() => expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']));
@@ -327,7 +405,7 @@ describe('the queue', () => {
     expect(screen.getByTestId('auto-queue-pane')).toBeInTheDocument();
     expect(auto.followed.thread).toBeNull();
     expect(digestWord()).toBe('Digest4 left');
-    await waitFor(() => expect(saidText()).toBe('Made a thread CommitteeOpenUndo'));
+    expect(saidText()).toBe('Committee, made a threadOpenUndo');
     // Undo archives the thread nobody has started, and the entry is open again.
     auto.state.digests[DAY] = day();
     pressSaid('Undo');
@@ -339,7 +417,7 @@ describe('the queue', () => {
   it('opens the thread it made from the line at the foot of the list', async () => {
     await openQueue();
     press('meeting-committee', 'Thread');
-    await waitFor(() => expect(saidText()).toBe('Made a thread CommitteeOpenUndo'));
+    expect(saidText()).toBe('Committee, made a threadOpenUndo');
     pressSaid('Open');
     await waitFor(() => expect(auto.followed.thread?.id).toBe('from-meeting-committee'));
     expect(screen.queryByTestId('auto-queue-pane')).toBeNull();
@@ -417,6 +495,23 @@ describe('an entry opened in place', () => {
     expect(screen.queryByTestId('auto-queue-pane')).toBeNull();
     expect(rowIds()).toEqual(['beds', 'from-item-1', 'bread', 'seeds', 'inspect']);
     expect(useDigestStore.getState().words).toEqual({});
+  });
+
+  it('shows his words on their way the moment Enter is taken, before the thread exists', async () => {
+    await openQueue();
+    openEntry('item-1');
+    let release: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    const box = within(entry('item-1')).getByTestId('auto-entry-box') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'Ask for collection on Saturday' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(within(entry('item-1')).getByTestId('auto-entry-pending').textContent).toBe('Ask for collection on Saturday');
+    expect(box.value).toBe('');
+    // A second Enter while it is on its way starts nothing more.
+    fireEvent.keyDown(box, { key: 'Enter' });
+    release();
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('from-item-1'));
+    expect(auto.asked('digest-thread')).toHaveLength(1);
   });
 
   it('keeps his words in the box under Not sent when the post fails, and sends them again under the same id', async () => {

@@ -54,22 +54,32 @@ function useWatching(): void {
 
 /**
  * The tab's own keys, while it is in front and the keyboard is in it (or
- * nowhere): Cmd+. stops the open thread's running turn, and Cmd+Z undoes
- * when an Undo is on offer and the caret is not in a field, where it undoes
- * typing. Neither acts in the palette, a dialog or another part of the app.
+ * nowhere). Cmd+. stops the open thread's running turn. Cmd+Z takes back
+ * his last action, newest first, while one is on offer; in a field that
+ * holds text it is the field's own undo, and in an empty one it undoes the
+ * action. O opens what the last action made, from a row or an entry. None
+ * acts in the palette, a dialog or another part of the app.
  */
 function useTabKeys(frame: React.RefObject<HTMLElement>): void {
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      const target = event.target as Node | null;
+      if (event.defaultPrevented || event.altKey || event.shiftKey) return;
+      const target = event.target as HTMLElement | null;
       if (target !== document.body && !(target && frame.current?.contains(target))) return;
+      if (!(event.metaKey || event.ctrlKey)) {
+        // A single key, so only from a row or an entry, never from a field.
+        const onRow = !!target && (target.hasAttribute('data-auto-row') || target.hasAttribute('data-auto-entry'));
+        if (event.key.toLowerCase() === 'o' && onRow && useSaidStore.getState().open()) event.preventDefault();
+        return;
+      }
       if (event.key === '.') {
         const { view, stop } = useThreadStore.getState();
         if (!turnRuns(view)) return;
         event.preventDefault();
         void stop();
-      } else if (event.key.toLowerCase() === 'z' && !inField(event.target)) {
+      } else if (event.key.toLowerCase() === 'z') {
+        // With text in the field Cmd+Z is the field's own; with none there is nothing of the field's to undo.
+        if (inField(target) && (target as HTMLInputElement | HTMLTextAreaElement).value !== '') return;
         if (useSaidStore.getState().undo()) event.preventDefault();
       }
     };
@@ -250,7 +260,8 @@ export function AutoView() {
     );
   }
   return (
-    <div ref={frame} data-testid="auto" data-narrow={narrow || undefined} className="flex h-full min-w-0 flex-col">
+    // The palette, closed with Escape, hands the keyboard back to where it was opened from in here.
+    <div ref={frame} data-testid="auto" data-palette-return data-narrow={narrow || undefined} className="flex h-full min-w-0 flex-col">
       {body}
     </div>
   );

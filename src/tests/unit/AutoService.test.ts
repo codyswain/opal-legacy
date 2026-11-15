@@ -367,6 +367,56 @@ describe('streams', () => {
   });
 });
 
+describe('what is his', () => {
+  const listed = (id: string) => events('list').flatMap((message) => (message.event.kind === 'thread' && message.event.thread.id === id ? [message.event.thread] : []));
+
+  it('reads a send he is asked to allow, and takes his no back to the service', async () => {
+    const auto = await connected();
+    const snapshot = await auto.request({ kind: 'thread', id: BREAD });
+    await auto.follow({ stream: 'list', cursor: null });
+    await auto.follow({ stream: 'thread', id: BREAD, cursor: snapshot.success ? (snapshot.data as AutoSnapshot).cursor : null });
+    await until(() => count('open') === 2, 'both streams');
+    await auto.request({ kind: 'message', id: BREAD, text: 'Send Robin a word about the swap', cid: 'a1b2c3' });
+    await until(() => kinds('thread').includes('question'), 'the question');
+    const asked = events('thread').find((message) => message.event.kind === 'question')?.event;
+    const question = asked?.kind === 'question' ? asked.question : null;
+    expect(question).toEqual({
+      id: expect.any(String), kind: 'grant', title: 'Send one Slack message to Robin', detail: 'Auto will send it once, from this thread, within two hours.',
+      channel: 'slack', to: ['Robin'], about: 'the seed swap', text: 'I will bring the bean seedlings on Saturday.',
+    });
+    // Its row waits on him, with the title as its line and nothing to pick.
+    await until(() => listed(BREAD).some((thread) => thread.status === 'waiting'), 'the waiting row');
+    expect(listed(BREAD).find((thread) => thread.status === 'waiting')?.ask).toEqual({ id: question?.id, kind: 'grant', text: 'Send one Slack message to Robin', options: [], question: null });
+    // A yes with no signature from a phone is refused by the service, whoever posts it. Opal never does.
+    const yes = await fetch(`${standIn.url}/api/threads/${BREAD}/answer`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Auto-Client': 'elsewhere' }, body: JSON.stringify({ id: question?.id, allow: true }),
+    });
+    expect(yes.status).toBe(403);
+    expect(standIn.unsigned).toEqual([{ thread: BREAD, client: 'elsewhere' }]);
+    const no = await auto.request({ kind: 'answer', id: BREAD, answer: { id: question?.id ?? '', allow: false, message: 'Not this week' } });
+    expect(no.success).toBe(true);
+    expect(standIn.requests.at(-1)).toMatchObject({ path: `/api/threads/${BREAD}/answer`, body: { id: question?.id, allow: false, message: 'Not this week' } });
+    await until(() => kinds('thread').includes('end'), 'the end of the turn');
+    const written = events('thread').flatMap((message) => (message.event.kind === 'append' ? [message.event.text] : [])).join('');
+    expect(written).toBe('Nothing was sent. You said: Not this week');
+    // Nothing Opal posted said yes.
+    expect(standIn.requests.filter((request) => request.headers['x-auto-client'] !== 'elsewhere').some((request) => JSON.stringify(request.body ?? {}).includes('"allow":true'))).toBe(false);
+  });
+
+  it('reads the move that is his from the list, and its end when the thread moves on', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    await auto.request({ kind: 'message', id: BREAD, text: 'Write a note for the club', cid: 'a1b2c3' });
+    await until(() => listed(BREAD).some((thread) => thread.yours !== ''), 'his move');
+    expect(listed(BREAD).at(-1)).toMatchObject({ status: 'idle', yours: 'Read the note and send it to the club' });
+    const list = await auto.request({ kind: 'threads' });
+    expect(list.success && (list.data as { threads: AutoThread[] }).threads.find((thread) => thread.id === BREAD)?.yours).toBe('Read the note and send it to the club');
+    await auto.request({ kind: 'message', id: BREAD, text: 'Thanks', cid: 'a1b2c4' });
+    await until(() => listed(BREAD).at(-1)?.yours === '', 'the move to end');
+  });
+});
+
 describe('the mark for the Mac', () => {
   const TRELLIS = '5a0000000005';
   const mark = (thread: unknown) => (thread as { thread: AutoThread }).thread.desk;

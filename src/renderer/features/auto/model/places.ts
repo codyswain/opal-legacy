@@ -36,6 +36,11 @@ export function forgetPlaces(): void {
   places.clear();
 }
 
+/** Forgets one place: a tab opened fresh starts its list at the top. */
+export function forgetPlace(key: string): void {
+  places.delete(key);
+}
+
 /** How near the end counts as at the end, in px. */
 export const END_SLACK = 80;
 

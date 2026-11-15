@@ -25,6 +25,8 @@ export interface StandIn {
   /** `http://127.0.0.1:<port>/agent`. */
   url: string;
   requests: StandInRequest[];
+  /** Every try to allow a send without a phone's signature. */
+  unsigned: Array<{ thread: string; client: string }>;
   /** Digest boxes ticked by a Done. */
   ticks: Array<{ date: string; id: string }>;
   thread: (id: string) => Record<string, unknown> | undefined;

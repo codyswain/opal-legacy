@@ -61,6 +61,16 @@ export const CommandPalette: React.FC = () => {
   const [contentError, setContentError] = useState(false);
   const [searchRevision, setSearchRevision] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  // The dialog has no trigger to return to, so Escape would leave the keyboard nowhere. A part of the app that
+  // asks for it (`data-palette-return`) gets it back: what held it is noted as the palette opens, before its
+  // field takes the focus.
+  const opener = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  if (open && !wasOpen.current) {
+    const from = typeof document === 'undefined' ? null : document.activeElement;
+    opener.current = from instanceof HTMLElement && from.closest('[data-palette-return]') ? from : null;
+  }
+  wasOpen.current = open;
   const request = useRef(0);
 
   const commandMode = query.trimStart().startsWith('>');
@@ -167,6 +177,15 @@ export const CommandPalette: React.FC = () => {
           aria-label="Search files and commands"
           data-testid="command-palette"
           onKeyDown={onKeyDown}
+          onCloseAutoFocus={(event) => {
+            const from = opener.current;
+            opener.current = null;
+            // Only when nothing else has taken the keyboard meanwhile, as a command that moves it does.
+            const active = document.activeElement;
+            if (!from || !from.isConnected || (active && active !== document.body && !(event.currentTarget as HTMLElement).contains(active))) return;
+            event.preventDefault();
+            from.focus();
+          }}
           className="fixed left-1/2 top-[14vh] z-50 w-[640px] max-w-[92vw] -translate-x-1/2 overflow-hidden rounded-dialog border border-border-overlay bg-surface-raised text-foreground shadow-overlay outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
         >
           <DialogPrimitive.Title className="sr-only">Search files and commands</DialogPrimitive.Title>

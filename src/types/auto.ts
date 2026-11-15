@@ -9,8 +9,9 @@ export type AutoThreadStatus = 'idle' | 'queued' | 'working' | 'waiting' | 'stop
 /** What a waiting thread asks, as its list entry carries it. */
 export interface AutoAsk {
   id: string;
-  kind: 'ask' | 'permission';
-  /** The question's first sentence, or the permission's title. */
+  /** A question, a permission request, or a send he is asked to allow up front. */
+  kind: 'ask' | 'permission' | 'grant';
+  /** The question's first sentence, or the permission's or the grant's title. */
   text: string;
   /** Labels for one single-choice question with nothing under it; empty otherwise. */
   options: string[];
@@ -47,6 +48,11 @@ export interface AutoThread {
   waits: boolean;
   /** Set while he has marked the thread as one he wants on the Mac; the service ends the mark. */
   desk: { at: number; by: string } | null;
+  /**
+   * What is now his to do in this thread, in a few words, as Auto named it
+   * in a reply; '' for nothing. Words on the row, never a button.
+   */
+  yours: string;
 }
 
 export type AutoDigestKind = 'item' | 'meeting' | 'person' | 'draft' | 'text';
@@ -125,7 +131,28 @@ export interface AutoQuestionPart {
 
 export type AutoQuestion =
   | { id: string; kind: 'ask'; questions: AutoQuestionPart[] }
-  | { id: string; kind: 'permission'; tool: string; title: string; detail: string; reason: string };
+  | { id: string; kind: 'permission'; tool: string; title: string; detail: string; reason: string }
+  | AutoGrant;
+
+/**
+ * A send Auto asks him to allow up front: one message to named people by one
+ * channel. Only his phone can say yes, with a signature Opal cannot make.
+ * Opal shows it and can only say no.
+ */
+export interface AutoGrant {
+  id: string;
+  kind: 'grant';
+  title: string;
+  detail: string;
+  /** `slack`, `email` or `text`; '' when the service names another. */
+  channel: 'slack' | 'email' | 'text' | '';
+  /** The names of the people it would go to. */
+  to: string[];
+  /** What it is about, in the service's words. */
+  about: string;
+  /** The exact words that would go, when the grant carries them. */
+  text: string | null;
+}
 
 export interface AutoQueued {
   cid: string;

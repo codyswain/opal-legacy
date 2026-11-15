@@ -247,6 +247,20 @@
   padding-right: 10px;
 }
 
+/*
+ * The list keeps its scrollbar's gutter at all times too, and the rows
+ * pinned above it and the line under it leave the same 10px, so every row
+ * is one width whether or not the list scrolls. With no scrollbar the
+ * gutter is the list's right-hand padding, 2px short of the left's.
+ */
+.auto-list-rows {
+  scrollbar-gutter: stable;
+}
+
+.auto-beside-list {
+  padding-right: 10px;
+}
+
 .auto-column {
   box-sizing: border-box;
   width: 100%;

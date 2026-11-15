@@ -16,9 +16,10 @@ import {
 } from '../model/outbox';
 import { DIGEST_QUEUE, paneThread } from '../model/pane';
 import { forgetPlaces } from '../model/places';
-import { answerTyped, type Picks } from '../model/questionModel';
+import { answerTyped, mayAnswer, type Picks } from '../model/questionModel';
 import { applyEvent, fromSnapshot, unconfirmed, type PendingMessage, type ThreadView } from '../model/threadModel';
-import { autoApi, useAutoStore } from './autoStore';
+import { autoApi, unconfirmedThreads, useAutoStore } from './autoStore';
+import { useSaidStore } from './saidStore';
 
 /*
  * The open thread and the box. A snapshot sets the thread, its stream keeps
@@ -40,9 +41,17 @@ export interface ThreadStore {
    */
   openId: string | null;
   view: ThreadView | null;
+  /**
+   * What was in the pane before a thread never seen was opened. It stays
+   * until that thread arrives or 300 ms pass, whichever is first, so a
+   * first open does not blank the pane for the round trip.
+   */
+  ghost: ThreadView | null;
   loading: boolean;
   /** The wait for a thread with nothing kept has passed 300 ms: say so. */
   slow: boolean;
+  /** The open thread's title is being changed, asked for from its row's menu or its own. */
+  renaming: boolean;
   /** Why the thread could not be read. */
   problem: string | null;
   /** The last read failed, so what shows may be old: it is read again once Auto answers. */
@@ -75,6 +84,9 @@ export interface ThreadStore {
   /** Reads the open thread again if its last read failed or never happened. */
   recover: () => void;
   focusBox: () => void;
+  setRenaming: (renaming: boolean) => void;
+  /** Opens a thread with its title ready to be changed. */
+  startRename: (id: string) => void;
   setWatching: (watching: boolean) => void;
   handle: (message: AutoStreamMessage) => void;
   setDraft: (text: string) => void;
@@ -174,8 +186,10 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
   return {
     openId: null,
     view: null,
+    ghost: null,
     loading: false,
     slow: false,
+    renaming: false,
     problem: null,
     stale: false,
     openedUnread: false,
@@ -201,12 +215,16 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       unfollow();
       const thread = paneThread(id);
       const entry = thread ? useAutoStore.getState().threads.find((candidate) => candidate.id === thread) : undefined;
+      const seen = (thread && kept.get(thread)) || null;
       set({
         openId: id,
         // What was last seen of it shows at once; the fresh snapshot takes its place.
-        view: (thread && kept.get(thread)) || null,
+        view: seen,
+        // Never seen: what the pane held stays for a moment, in place of nothing.
+        ghost: thread && !seen ? get().view ?? get().ghost : null,
         loading: false,
         slow: false,
+        renaming: false,
         problem: null,
         stale: false,
         openedUnread: entry?.unread === true,
@@ -219,6 +237,13 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     },
 
     focusBox: () => set({ boxFocus: get().boxFocus + 1 }),
+
+    setRenaming: (renaming) => set({ renaming }),
+
+    startRename: (id) => {
+      get().open(id, { focus: false });
+      set({ renaming: true });
+    },
 
     recover: () => {
       const { view, problem, stale, loading } = get();
@@ -233,7 +258,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       set({ loading: true, slow: false });
       if (slowTimer) clearTimeout(slowTimer);
       slowTimer = setTimeout(() => {
-        if (get().openId === id && get().loading && get().view === null) set({ slow: true });
+        if (get().openId === id && get().loading && get().view === null) set({ slow: true, ghost: null });
       }, SLOW_MS);
       const result = await api.request({ kind: 'thread', id }).catch((): null => null);
       if (get().openId !== id) return;
@@ -244,6 +269,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         set({
           loading: false,
           slow: false,
+          ghost: null,
           stale: !refused,
           view: refused ? null : get().view,
           problem: refused ? result.error.message : get().view ? null : "Can't reach Auto.",
@@ -252,7 +278,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       }
       const view = fromSnapshot(result.data);
       remember(view);
-      set({ view, loading: false, slow: false, problem: null, stale: false, pending: unconfirmed(get().pending, view) });
+      set({ view, ghost: null, loading: false, slow: false, problem: null, stale: false, pending: unconfirmed(get().pending, view) });
       // A message the service could not hand to the agent goes back into an empty box.
       if (view.unsent && !(get().box.drafts[id] ?? '').trim()) {
         keep(setDraft(get().box, id, view.unsent));
@@ -337,7 +363,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (went && !thread && get().openId === openId) {
         // The new thread opens with the message it was started by.
         unfollow();
-        set({ openId: went, view: null, problem: null, stale: false, openedUnread: false, picks: {}, cardProblem: null });
+        set({ openId: went, view: null, ghost: null, problem: null, stale: false, openedUnread: false, picks: {}, cardProblem: null });
         void get().load();
       }
       return went !== null;
@@ -363,6 +389,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     answer: async (answer) => {
       const id = paneThread(get().openId);
       if (!id) return false;
+      // A send he is asked to allow takes only a "no" from this app, whatever built the answer.
+      if (!mayAnswer(get().view?.question ?? null, answer)) return false;
       const result = await autoApi()?.request({ kind: 'answer', id, answer }).catch((): null => null);
       if (result?.success) {
         set({ picks: {}, cardProblem: null });
@@ -424,6 +452,9 @@ useAutoStore.subscribe((state, before) => {
   if (state.address !== before.address) {
     forgetViews();
     forgetPlaces();
+    // An Undo on offer would take back something the other service did.
+    useSaidStore.getState().clear();
+    unconfirmedThreads.clear();
   }
   if ((state.reachable && !before.reachable) || (state.reachable && state.refreshedAt !== before.refreshedAt)) useThreadStore.getState().recover();
   if (state.threads === before.threads) return;

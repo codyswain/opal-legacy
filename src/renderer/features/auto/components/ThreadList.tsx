@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, Check, ChevronRight, Monitor, MoreHorizontal, Newspaper, SquarePen } from 'lucide-react';
+import { Archive, Check, ChevronRight, Monitor, MoreHorizontal, Newspaper, SquarePen, Undo2 } from 'lucide-react';
 import type { AutoThread } from '@/types/auto';
 import {
   Button,
@@ -17,11 +17,11 @@ import {
   MenuTrigger,
 } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
-import { emptyList, fromDigest, listView, moveBy, moveTarget, rowOptions, rowTime, snoozedUntil, type ListGroup } from '../model/listModel';
+import { emptyList, fromDigest, isMarked, isYours, listSummary, listView, moveBy, moveTarget, rowOptions, rowTime, snoozedUntil, type ListGroup } from '../model/listModel';
 import { homeLine, leftWord } from '../model/digestModel';
 import { DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { LIST_PLACE, keepPlace, placeIn, placeOf } from '../model/places';
-import { archiveThread, snoozeThread } from '../store/actions';
+import { answerFromRow, archiveThread, snoozeThread } from '../store/actions';
 import { useAutoStore } from '../store/autoStore';
 import { useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
@@ -71,11 +71,17 @@ const timeHides =
 function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null, dragging = false, drag }: RowProps) {
   const [snoozing, setSnoozing] = React.useState(false);
   const container = React.useRef<HTMLDivElement>(null);
-  // The row of the open thread shows its question without the buttons: the card beside it has them.
-  const options = snoozed || current ? [] : rowOptions(thread);
+  // An answer picked here is held a few seconds before it is posted: the row shows the pick meanwhile.
+  const held = useAutoStore((state) => state.held[thread.id]);
+  const options = snoozed ? [] : rowOptions(thread);
   const digestEntry = fromDigest(thread);
+  // The icons that take the time's place: the slot is at least as wide as they are, so they never sit on the title.
+  const icons = 2 + (digestEntry ? 1 : 0) + (snoozed ? 1 : 0);
   const time = snoozed && thread.snoozed ? snoozedUntil(thread.snoozed, now) : rowTime(thread, now);
-  const unread = thread.unread && !current;
+  // The dot before the title, as on the phone: a reply he has not read, or a thread back from snooze. Not on the one he is reading.
+  const dot = isMarked(thread) && !current;
+  // The rows that are his carry a heavier title.
+  const heavy = dot || thread.status === 'waiting' || thread.waits || isYours(thread);
   const title = thread.title || 'Untitled';
   const marked = thread.desk !== null;
 
@@ -103,7 +109,10 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
     }
     if (event.altKey || event.shiftKey) return;
     const key = event.key.toLowerCase();
-    if (key === 'e') void archiveThread(thread);
+    // 1 to 3 pick an option of a waiting row, held with Undo as a click is.
+    const picked = options[Number(key) - 1];
+    if (picked && Number(key) <= 3) answerFromRow(thread, picked);
+    else if (key === 'e') void archiveThread(thread);
     else if (key === 'd' && digestEntry) void archiveThread(thread, { done: true });
     else if (key === 's') setSnoozing(true);
     else if (key === 'm') mark();
@@ -137,14 +146,14 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
               data-row-id={thread.id}
               tabIndex={tabStop ? 0 : -1}
               aria-current={current || undefined}
-              aria-keyshortcuts={`E S M${digestEntry ? ' D' : ''}`}
+              aria-keyshortcuts={`E S M${digestEntry ? ' D' : ''}${options.slice(0, 3).map((_label, at) => ` ${at + 1}`).join('')}`}
               onClick={() => useThreadStore.getState().open(thread.id)}
               onKeyDown={onKeyDown}
               className={cn(rowButton, 'flex w-full min-w-0 flex-col px-2 py-1.5')}
             >
               <span className="flex w-full min-w-0 items-center gap-1.5">
-                {unread ? <span role="img" aria-label="Unread" className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" /> : null}
-                <span className={cn('min-w-0 flex-1 truncate text-ui text-foreground', unread || thread.status === 'waiting' ? 'font-semibold' : 'font-medium')}>
+                {dot ? <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" /> : null}
+                <span className={cn('min-w-0 flex-1 truncate text-ui text-foreground', heavy ? 'font-semibold' : 'font-medium')}>
                   {title}
                 </span>
                 {marked ? (
@@ -152,14 +161,24 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
                     <Monitor aria-hidden className="h-3 w-3" />
                   </span>
                 ) : null}
-                {time ? <span className={cn('shrink-0 text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{time}</span> : null}
+                <span style={{ minWidth: `${icons * 1.75 - 0.25}rem` }} className={cn('shrink-0 text-right text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{time}</span>
               </span>
               <ThreadLine thread={thread} className="mt-0.5" />
             </button>
-            {options.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5 px-2 pb-2 pt-0.5">
+            {held !== undefined ? (
+              // As tall as the buttons it stands in for, so the rows under it stay where they are.
+              <div className="px-2 pb-2 pt-0.5">
+                <p data-testid="auto-row-held" className="flex h-control-compact items-center gap-1.5 text-control font-medium text-foreground">
+                  <Check aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 truncate">{held}</span>
+                </p>
+              </div>
+            ) : options.length > 0 ? (
+              // No option is filled: a filled button reads as already chosen. The open thread's row keeps their
+              // room, so the rows under it do not jump when it is opened and left, but the card beside it has them.
+              <div aria-hidden={current || undefined} className={cn('flex flex-wrap gap-1.5 px-2 pb-2 pt-0.5', current && 'invisible')}>
                 {options.map((label, at) => (
-                  <Button key={label} size="compact" tabIndex={-1} variant={at === 0 ? 'default' : 'outline'} onClick={() => void useAutoStore.getState().answer(thread, label)}>
+                  <Button key={label} size="compact" tabIndex={-1} variant="outline" title={at < 3 ? `${label} (${at + 1})` : undefined} onClick={() => answerFromRow(thread, label)}>
                     {label}
                   </Button>
                 ))}
@@ -168,9 +187,9 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
             {/* The row's actions take the time's place while the pointer is on the row, the keyboard is, or their menu is open. */}
             <div className={rowActions}>
               {snoozed ? (
-                <Button size="compact" variant="ghost" tabIndex={-1} className="text-control" onClick={() => void snoozeThread(thread, null)}>
-                  Bring back
-                </Button>
+                <IconButton label="Bring back" tabIndex={-1} data-testid={`auto-back-${thread.id}`} onClick={() => void snoozeThread(thread, null)}>
+                  <Undo2 aria-hidden className="h-3.5 w-3.5" />
+                </IconButton>
               ) : null}
               <SnoozeButton thread={thread} now={now} from="row" open={snoozing} onOpenChange={setSnoozing} tabIndex={-1} />
               {digestEntry ? (
@@ -184,7 +203,14 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent data-testid={`auto-row-menu-${thread.id}`} onCloseAutoFocus={(event) => focusRowAfterClose(event, thread.id)}>
+        <ContextMenuContent
+          data-testid={`auto-row-menu-${thread.id}`}
+          onCloseAutoFocus={(event) => {
+            // Rename moves the keyboard to the title; anything else returns it to a row.
+            if (useThreadStore.getState().renaming) event.preventDefault();
+            else focusRowAfterClose(event, thread.id);
+          }}
+        >
           {snoozed ? <ContextMenuItem onSelect={() => void snoozeThread(thread, null)}>Bring back</ContextMenuItem> : null}
           <ContextMenuLabel className="flex items-center">
             {snoozed ? 'Snooze until another time' : 'Snooze'}
@@ -197,6 +223,8 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
             {marked ? 'Take off the Mac mark' : 'Mark for the Mac'}
             <ContextMenuShortcut aria-hidden>M</ContextMenuShortcut>
           </ContextMenuItem>
+          {/* Radix runs onSelect while the menu still holds focus, so the title's field opens once it has closed. */}
+          <ContextMenuItem onSelect={() => window.setTimeout(() => useThreadStore.getState().startRename(thread.id), 0)}>Rename</ContextMenuItem>
           <ContextMenuSeparator />
           {digestEntry ? (
             <ContextMenuItem onSelect={() => void archiveThread(thread, { done: true })}>
@@ -308,6 +336,8 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
   const empty = emptyList(view, now);
   const nav = React.useRef<HTMLElement>(null);
   const scroller = React.useRef<HTMLDivElement>(null);
+  const [scrolled, setScrolled] = React.useState(false);
+  const summary = React.useMemo(() => listSummary(threads), [threads]);
   // Beside the thread, with no thread open, the empty thread is the one in view.
   const onNew = openId === NEW_THREAD || (openId === null && !narrow);
 
@@ -360,8 +390,8 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
       }}
       className={cn('flex min-h-0 shrink-0 flex-col', narrow ? 'w-full' : 'w-auto-list border-r border-border-subtle')}
     >
-      {/* New thread and Digest stay put above the list. */}
-      <div className="shrink-0 px-2 pt-2">
+      {/* New thread and Digest stay put above the list. Once it has scrolled, a hairline parts them from the row that passes under. */}
+      <div className={cn('auto-beside-list shrink-0 border-b pl-2 pt-2', scrolled ? 'border-border-subtle' : 'border-transparent')}>
         <div className={cn('group relative mb-0.5 rounded-row transition-hover', onNew ? 'bg-surface-selected' : 'hover:bg-surface-hover')}>
           <button
             type="button"
@@ -412,13 +442,18 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
             </span>
           </button>
         </div>
+        {/* What the list holds, so a glance is enough. Left out when there is nothing to count. */}
+        {summary ? <p data-testid="auto-summary" className="truncate px-2 pb-1 pt-2 text-metadata text-foreground-tertiary">{summary}</p> : <div className="h-0.5" />}
       </div>
 
       <div
         ref={scroller}
         data-testid="auto-list-rows"
-        className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-0.5"
-        onScroll={(event) => keepPlace(LIST_PLACE, placeIn(event.currentTarget))}
+        className="auto-list-rows min-h-0 flex-1 overflow-y-auto pb-2 pl-2 pt-0.5"
+        onScroll={(event) => {
+          keepPlace(LIST_PLACE, placeIn(event.currentTarget));
+          setScrolled(event.currentTarget.scrollTop > 0);
+        }}
       >
         {empty ? (
           <div data-testid="auto-empty" className="px-2 py-6">
@@ -468,7 +503,9 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
       </div>
 
       {/* What the last action did, and the way back. */}
-      <SaidBar className="mx-2 mb-2" />
+      <div className="auto-beside-list shrink-0 pl-2">
+        <SaidBar className="mb-2" />
+      </div>
     </nav>
   );
 }

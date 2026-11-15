@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { AutoAPI, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
 import { applyOrder, moved, upsertThread } from '../model/listModel';
+import { LIST_PLACE, forgetPlace } from '../model/places';
+import { unconfirmed } from '../model/unconfirmed';
 import { useSaidStore } from './saidStore';
 
 /*
@@ -39,6 +41,8 @@ export interface AutoStore {
   focusRow: string | null;
   /** The thread whose snooze is being given a day and a time of his own, and where the action came from. */
   picking: { thread: AutoThread; from: 'row' | 'pane' } | null;
+  /** Answers picked on a row and held a few seconds before they are posted, by thread. The row shows the pick. */
+  held: Record<string, string>;
 
   /** Reads the address, and the list when there is one. */
   start: () => Promise<void>;
@@ -57,8 +61,6 @@ export interface AutoStore {
   checkStatus: () => Promise<void>;
 
   move: (id: string, before: string | null) => Promise<void>;
-  /** An option of a waiting row, clicked. */
-  answer: (thread: AutoThread, label: string) => Promise<void>;
   /** Marks a thread for the Mac, or takes the mark off. The service ends the mark by itself. */
   desk: (thread: AutoThread, on: boolean) => Promise<void>;
 }
@@ -68,6 +70,14 @@ export const autoApi = (): AutoAPI | undefined => (typeof window !== 'undefined'
 const UNREACHABLE = "Can't reach Auto.";
 
 let refreshing: Promise<boolean> | null = null;
+
+/**
+ * What he has just done to a thread (archived it, snoozed it, taken either
+ * back) and the service has yet to confirm. It is laid over every copy of
+ * the thread that arrives meanwhile.
+ */
+export const unconfirmedThreads = unconfirmed<AutoThread>();
+const laid = (thread: AutoThread): AutoThread => unconfirmedThreads.lay(thread.id, thread);
 
 /** The row last asked to take the focus, and when. */
 let wanted: { row: string; at: number } | null = null;
@@ -110,7 +120,11 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       loaded: true,
       reachable: true,
       problem: null,
-      threads: list.data.threads,
+      // A thread he brought back a moment ago, which the service still has as archived, is not in its list yet.
+      threads: [
+        ...get().threads.filter((thread) => unconfirmedThreads.has(thread.id) && !laid(thread).archived && !list.data.threads.some((listed) => listed.id === thread.id)),
+        ...list.data.threads.map(laid).filter((thread) => !thread.archived),
+      ],
       status: status?.success ? status.data : get().status,
       refreshedAt: Date.now(),
     });
@@ -134,6 +148,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
     snoozedOpen: false,
     focusRow: null,
     picking: null,
+    held: {},
 
     start: async () => {
       const api = autoApi();
@@ -149,6 +164,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       const result = await api.setAddress(typed).catch((): null => null);
       if (!result?.success) return result?.error.message ?? 'Opal could not save the address.';
       // Another address is another service: nothing of the old one stays.
+      unconfirmedThreads.clear();
       set({ address: result.data.url, editing: false, loaded: false, reachable: false, problem: null, threads: [], status: null, listToken: null });
       if (!result.data.url) void api.unfollow('list').catch(() => undefined);
       if (result.data.url) await get().refresh();
@@ -167,6 +183,8 @@ export const useAutoStore = create<AutoStore>((set, get) => {
     setTabOpen: (open) => {
       if (get().tabOpen === open) return;
       set({ tabOpen: open });
+      // A tab opened fresh starts its list at the top; one only switched away from keeps its place.
+      if (!open) forgetPlace(LIST_PLACE);
       // A tab opened on a service that did not answer asks again at once.
       if (open && get().address && !get().reachable) void get().refresh();
     },
@@ -186,7 +204,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
         set({ reachable: false, problem: UNREACHABLE });
       } else if (message.type === 'event' && message.stream === 'list') {
         const event = message.event;
-        if (event.kind === 'thread') set({ threads: upsertThread(get().threads, event.thread) });
+        if (event.kind === 'thread') set({ threads: upsertThread(get().threads, laid(event.thread)) });
         else if (event.kind === 'order') set({ threads: applyOrder(get().threads, event.ids) });
         else if (event.kind === 'status') set({ status: event.status });
         // The service can no longer say what was missed: read everything again.
@@ -194,7 +212,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       }
     },
 
-    upsert: (thread) => set({ threads: upsertThread(get().threads, thread) }),
+    upsert: (thread) => set({ threads: upsertThread(get().threads, laid(thread)) }),
 
     toggleSnoozed: () => set({ snoozedOpen: !get().snoozedOpen }),
 
@@ -214,13 +232,6 @@ export const useAutoStore = create<AutoStore>((set, get) => {
         set({ threads: earlier });
         if (result) said(result.error.message);
       }
-    },
-
-    answer: async (thread, label) => {
-      const ask = thread.ask;
-      if (!ask?.question) return;
-      const result = await autoApi()?.request({ kind: 'answer', id: thread.id, answer: { id: ask.id, answers: { [ask.question]: label } } }).catch((): null => null);
-      if (result && !result.success) said(result.error.message);
     },
 
     desk: async (thread, on) => {
