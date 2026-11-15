@@ -139,6 +139,8 @@ async function tour() {
   /** The state on screen now, in light and in dark. `hover` keeps the pointer where the state needs it. */
   async function shot(name, hover = null) {
     shots += 1;
+    // A toast from the step before, such as "Archived", has gone first.
+    await until(async () => (await page.locator('[data-sonner-toast]').count()) === 0, 12_000);
     for (const theme of ['light', 'dark']) {
       await setTheme(theme);
       if (hover) await hover();
