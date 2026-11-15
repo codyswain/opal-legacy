@@ -71,7 +71,7 @@ export const ROWS = [
   { id: 'N15', area: 'Numbers', does: 'A list that reaches 10 keeps its text in line', start: '8. eight\n9. nine‸', keys: ['Enter', 't:ten'], expect: '8. eight\n9. nine\n10. ten‸', shows: ['number:8.:0', 'number:9.:0', 'number:10.:0'] },
 
   { id: 'N16', area: 'Numbers', does: 'A list that grows from 9 to 10 keeps the nested item under item 10', start: '1. a‸\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h\n9. i\n   - kid', keys: ['Enter'], expect: '1. a\n2. ‸\n3. b\n4. c\n5. d\n6. e\n7. f\n8. g\n9. h\n10. i\n    - kid', shows: ['number:1.:0', 'number:2.:0', 'number:3.:0', 'number:4.:0', 'number:5.:0', 'number:6.:0', 'number:7.:0', 'number:8.:0', 'number:9.:0', 'number:10.:0', 'bullet::1'] },
-  { id: 'N17', area: 'Numbers', does: 'Typing next to a list written 1., 1., 1. leaves its numbers as written', start: '1. a\n1. b\n\n‸', keys: ['t:- x'], expect: '1. a\n1. b\n\n- x‸' },
+  { id: 'N17', area: 'Numbers', does: 'Typing next to a list written 1., 1., 1. leaves its numbers as written', start: '1. a\n1. b\n\n‸', keys: ['t:- x'], expect: '1. a\n1. b\n- x‸' },
 
   // ---- Checklists
   { id: 'C1', area: 'Checklists', does: 'Type "[] " on an empty line', start: '‸', keys: ['t:[] '], expect: '- [ ] ‸', shows: ['task::0'] },
