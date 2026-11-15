@@ -177,11 +177,10 @@ function ThreadRow({ thread, now, current, snoozed = false, drop = null, draggin
                 <IconButton label="Done" data-testid={`auto-done-${thread.id}`} onClick={() => void archive(thread, true)}>
                   <Check aria-hidden className="h-3.5 w-3.5" />
                 </IconButton>
-              ) : (
-                <IconButton label="Archive" data-testid={`auto-archive-${thread.id}`} onClick={() => void archive(thread)}>
-                  <Archive aria-hidden className="h-3.5 w-3.5" />
-                </IconButton>
-              )}
+              ) : null}
+              <IconButton label="Archive" data-testid={`auto-archive-${thread.id}`} onClick={() => void archive(thread)}>
+                <Archive aria-hidden className="h-3.5 w-3.5" />
+              </IconButton>
             </div>
           </div>
         </ContextMenuTrigger>

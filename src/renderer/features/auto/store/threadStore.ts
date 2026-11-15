@@ -303,12 +303,14 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
 });
 
 // The list hears of a thread's changes too; the open thread keeps the newer entry.
+// A thread that leaves the list, as an archived one does, is no longer open.
 useAutoStore.subscribe((state, before) => {
   if (state.threads === before.threads) return;
-  const { view } = useThreadStore.getState();
-  if (!view) return;
-  const entry = state.threads.find((thread) => thread.id === view.thread.id);
+  const { view, openId, open } = useThreadStore.getState();
+  if (!view || view.thread.id !== openId) return;
+  const entry = state.threads.find((thread) => thread.id === openId);
   if (entry && entry !== view.thread) useThreadStore.setState({ view: { ...view, thread: entry } });
+  else if (!entry && before.threads.some((thread) => thread.id === openId)) open(null);
 });
 
 /** Every stream message from the main process, handed to the store that follows that stream. */

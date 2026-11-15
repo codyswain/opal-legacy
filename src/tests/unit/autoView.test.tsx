@@ -277,6 +277,16 @@ describe('the list', () => {
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
   });
 
+  it('offers the same on hover: Snooze and Archive, and Done as well for a thread from the digest', async () => {
+    await open();
+    expect(within(row('bread')).getAllByRole('button').map((button) => button.getAttribute('aria-label')).filter(Boolean)).toEqual(['Snooze', 'Archive']);
+    expect(within(row('inspect')).getAllByRole('button').map((button) => button.getAttribute('aria-label')).filter(Boolean)).toEqual(['Snooze', 'Done', 'Archive']);
+    fireEvent.click(within(row('inspect')).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
+    fireEvent.click(within(row('seeds')).getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'seeds', archived: true }));
+  });
+
   it('drags a row to a new place among the rest', async () => {
     await open();
     const data = { store: {} as Record<string, string>, types: [] as string[], effectAllowed: '', dropEffect: '' };
@@ -467,6 +477,21 @@ describe('a thread', () => {
     await userEvent.setup().click(screen.getByTestId('auto-model'));
     fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Small' }));
     await waitFor(() => expect(last('model')).toEqual({ kind: 'model', id: 'bread', model: 'small' }));
+  });
+
+  it('closes a thread that is archived while it is open', async () => {
+    await open();
+    await openThread('bread');
+    fireEvent.click(within(row('bread')).getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(screen.queryByTestId('auto-row-bread')).toBeNull());
+    expect(auto.followed.thread).toBeNull();
+    expect(screen.queryByTestId('auto-title')).toBeNull();
+    expect(within(screen.getByTestId('auto-thread')).getByText('New thread')).toBeInTheDocument();
+    // Archived somewhere else, the same.
+    await openThread('inspect');
+    act(() => auto.list({ kind: 'thread', thread: { ...INSPECTION, archived: true } }));
+    expect(auto.followed.thread).toBeNull();
+    expect(screen.queryByTestId('auto-entry')).toBeNull();
   });
 
   it('says a thread is gone', async () => {
