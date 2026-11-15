@@ -157,9 +157,13 @@ describe('headings and lists on headings and tasks', () => {
   });
 
   it('puts the caret after the marker of a list made on an empty line', () => {
+    // The empty row over the line stays a row: the list's own blank line goes in under it (listEdges.ts).
     const view = mount('Text\n\n‸\n');
     act(() => { toggleList('number')(view); });
-    expect(marked(view)).toBe('Text\n\n1. ‸\n');
+    expect(marked(view)).toBe('Text\n\n\n1. ‸\n');
+    const first = mount('‸\n');
+    act(() => { toggleList('number')(first); });
+    expect(marked(first)).toBe('1. ‸\n');
   });
 });
 

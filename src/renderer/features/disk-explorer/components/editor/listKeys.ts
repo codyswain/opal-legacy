@@ -3,7 +3,7 @@ import { keymap } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
 import { deleteHandlers, latestTree, protectedIn } from './extensionPoints';
 import { listItemOf, selectedLines } from './formatCommands';
-import { keepsRows } from './listEdges';
+import { keepsRows, lineKind } from './listEdges';
 import { docMode } from './livePreview';
 
 /*
@@ -341,7 +341,8 @@ const listBackspace = deleteHandlers.of({
         }
         const gap = quote.replace(/[ \t]+$/, '');
         const next = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
-        const reuse = next !== null && !hasText(next);
+        // A blank line under the item, in the item's own quote, is the caret's new line.
+        const reuse = next !== null && !hasText(next) && quoteOf(next.text).split('>').length === quote.split('>').length;
         view.dispatch(reuse
           ? { changes: { from: line.from, to: line.to, insert: gap }, selection: { anchor: next.to - (line.length - gap.length) }, annotations: keepsRows.of(true), scrollIntoView: true, userEvent: 'delete.backward' }
           : { changes: { from: line.from, to: line.to, insert: `${gap}\n${quote}` }, selection: { anchor: line.from + gap.length + 1 + quote.length }, annotations: keepsRows.of(true), scrollIntoView: true, userEvent: 'delete.backward' });
@@ -408,13 +409,41 @@ function joinable(state: EditorState, line: Line): boolean {
 }
 
 /**
+ * The heading whose text `line` holds, at the line's start past its quote
+ * marks: where its text starts, and its last line, which for a heading
+ * written as text over "===" or "---" is that underline. Null for any other
+ * line, a heading inside a list item among them.
+ */
+function headingOn(state: EditorState, line: Line): { textFrom: number; last: Line } | null {
+  const start = line.from + quoteOf(line.text).length;
+  for (let node: SyntaxNode | null = latestTree(state).resolveInner(line.to, -1); node; node = node.parent) {
+    if (!/^(?:ATX|Setext)Heading\d$/.test(node.name)) continue;
+    const mark = node.getChild('HeaderMark');
+    if (!mark || node.from !== start) return null;
+    if (node.name.startsWith('ATX')) {
+      let textFrom = mark.to;
+      while (textFrom < line.to && /[ \t]/.test(state.sliceDoc(textFrom, textFrom + 1))) textFrom += 1;
+      return { textFrom, last: line };
+    }
+    const underline = state.doc.lineAt(mark.from);
+    return underline.number === line.number + 1 ? { textFrom: start, last: underline } : null;
+  }
+  return null;
+}
+
+/**
  * The third step: Backspace at the start of a paragraph at the margin, one
  * blank line under a list, joins it to the end of the list's last line, and
  * the blank line that kept it apart from an item below goes with it. Delete
  * at the end of a list's last line pulls such a paragraph up the same way.
- * Both run before the rule that only moves the caret over that blank line
- * (blockObjects.ts), which still holds under a quote, and next to a table,
- * code, a formula or HTML, which no text joins.
+ * The page gives that blank line no room, so a heading under a list joins
+ * it in the same one press, as its text, and so does the next item of a
+ * list written with blank lines between its items, or the first item of
+ * another list. Delete at the end of a paragraph or a heading over a list
+ * pulls the first item's text up. All run before the rule that only moves
+ * the caret over that blank line (blockObjects.ts), which still holds under
+ * a quote, and next to a table, code, a formula or HTML, which no text
+ * joins.
  */
 const listJoin = deleteHandlers.of({
   priority: 21,
@@ -423,41 +452,56 @@ const listJoin = deleteHandlers.of({
     const { main } = state.selection;
     if (!state.facet(docMode) || state.readOnly || !main.empty || state.selection.ranges.length > 1) return false;
     const line = state.doc.lineAt(main.head);
+    const heading = headingOn(state, line);
+    // The line a blank line under this one stands under: a heading's underline is part of the heading.
+    const end = heading?.last ?? line;
     if (dir > 0) {
-      if (main.head !== line.to || line.number + 2 > state.doc.lines || !hasText(line) || !joinable(state, line)) return false;
+      if (main.head !== line.to || end.number + 2 > state.doc.lines || !hasText(line) || !(heading || joinable(state, line))) return false;
+      const gap = state.doc.line(end.number + 1);
+      const next = state.doc.line(end.number + 2);
+      if (hasText(gap) || !hasText(next) || quoteOf(next.text) !== quoteOf(line.text)) return false;
+      const item = itemOn(state, next);
+      const found = item && listItemOf(state, next);
+      // The numbered item after one that goes takes its number, so the list still counts from where it did.
+      const counted = (): ChangeSpec[] => {
+        if (!item || !ordered(item.node)) return [];
+        let after = item.node.nextSibling;
+        while (after && after.name !== 'ListItem') after = after.nextSibling;
+        const mark = after?.getChild('ListMark');
+        return mark ? renumber(state, mark, number(state, item.mark)) : [];
+      };
       if (!itemAround(state, line.to)) {
         // Delete at the end of the text over a list, one blank line above it, pulls the first item's text up,
         // as it does with no blank line between. An item that holds more than its own line stays where it is.
-        const gap = state.doc.line(line.number + 1);
-        const first = state.doc.line(line.number + 2);
-        const item = itemOn(state, first);
-        const found = item && listItemOf(state, first);
-        if (hasText(gap) || !item || !found || blockAt(state, line.to)?.name !== 'Paragraph' || quoteOf(first.text) !== quoteOf(line.text)) return false;
-        if (item.node.parent?.parent?.name === 'ListItem' || state.doc.lineAt(Math.max(item.node.from, item.node.to - 1)).number !== first.number) return false;
-        let next = item.node.nextSibling;
-        while (next && next.name !== 'ListItem') next = next.nextSibling;
-        const nextMark = next?.getChild('ListMark');
-        const changes: ChangeSpec[] = [{ from: main.head, to: found.textFrom }];
-        // The next numbered item takes the number that went, so the list still counts from where it did.
-        if (nextMark && ordered(item.node)) changes.push(...renumber(state, nextMark, number(state, item.mark)));
-        view.dispatch({ changes, scrollIntoView: true, userEvent: 'delete.forward' });
+        if (!item || !found || !(heading || blockAt(state, line.to)?.name === 'Paragraph')) return false;
+        if (item.node.parent?.parent?.name === 'ListItem' || state.doc.lineAt(Math.max(item.node.from, item.node.to - 1)).number !== next.number) return false;
+        // Under an underline the item's text goes up to the heading's own line, and its line goes.
+        const changes: ChangeSpec[] = end.number === line.number
+          ? [{ from: main.head, to: found.textFrom }]
+          : [{ from: main.head, insert: state.sliceDoc(found.textFrom, next.to) }, { from: end.to, to: next.to }];
+        view.dispatch({ changes: [...changes, ...counted()], selection: { anchor: main.head }, scrollIntoView: true, userEvent: 'delete.forward' });
         return true;
       }
-      const gap = state.doc.line(line.number + 1);
-      const next = state.doc.line(line.number + 2);
-      if (hasText(gap) || !hasText(next) || itemAround(state, next.to) || blockAt(state, next.to)?.name !== 'Paragraph' || quoteOf(next.text) !== quoteOf(line.text)) return false;
-      view.dispatch({ changes: { from: main.head, to: next.from + quoteOf(next.text).length }, scrollIntoView: true, userEvent: 'delete.forward' });
+      // Delete at the end of a list's last line: the text one blank line under it comes up, whatever it is.
+      const under = headingOn(state, next);
+      const changes: ChangeSpec[] = [];
+      if (item && found) changes.push({ from: main.head, to: found.textFrom }, ...counted());
+      else if (under) changes.push({ from: main.head, to: under.textFrom }, ...(under.last.number === next.number ? [] : [{ from: next.to, to: under.last.to }]));
+      else if (!itemAround(state, next.to) && blockAt(state, next.to)?.name === 'Paragraph') changes.push({ from: main.head, to: next.from + quoteOf(next.text).length });
+      else return false;
+      view.dispatch({ changes, scrollIntoView: true, userEvent: 'delete.forward' });
       return true;
     }
-    if (line.number < 3 || state.doc.sliceString(line.from, main.head) !== quoteOf(line.text)) return false;
+    if (line.number < 3 || main.head !== (heading ? heading.textFrom : line.from + quoteOf(line.text).length)) return false;
     if (hasText(state.doc.line(line.number - 1))) return false;
-    if (hasText(line) && (itemOn(state, line) || blockAt(state, line.to)?.name !== 'Paragraph')) return false;
+    if (hasText(line) && !heading && (itemOn(state, line) || blockAt(state, line.to)?.name !== 'Paragraph')) return false;
     const last = state.doc.line(line.number - 2);
     if (!hasText(last) || !itemAround(state, last.to) || !joinable(state, last)) return false;
     const changes: ChangeSpec[] = [{ from: last.to, to: main.head }];
-    if (line.number + 2 <= state.doc.lines) {
-      const gap = state.doc.line(line.number + 1);
-      if (!hasText(gap) && ITEM_LINE.test(state.doc.line(line.number + 2).text)) changes.push({ from: line.to, to: gap.to });
+    if (end.number !== line.number) changes.push({ from: line.to, to: end.to });
+    if (end.number + 2 <= state.doc.lines) {
+      const gap = state.doc.line(end.number + 1);
+      if (!hasText(gap) && ITEM_LINE.test(state.doc.line(end.number + 2).text)) changes.push({ from: end.to, to: gap.to });
     }
     view.dispatch({ changes, selection: { anchor: last.to }, scrollIntoView: true, userEvent: 'delete.backward' });
     return true;
@@ -489,7 +533,8 @@ const paragraphUnderList = EditorState.transactionFilter.of((tr) => {
   const waiting = MARKER_SO_FAR.test(body) || (MARKER_TYPED.test(body) && !itemOn(state, line));
   if (line.number === 1 || main.head !== line.to || !waiting) return tr;
   const above = state.doc.line(line.number - 1);
-  if (!hasText(above) || !ITEM_LINE.test(above.text) && !itemAround(state, above.to)) return tr;
+  // A marker alone with no space after it, "-" or "1.", is typed text and no item, though Markdown parses one.
+  if (!hasText(above) || lineKind(above.text) === 'pending' || !ITEM_LINE.test(above.text) && !itemAround(state, above.to)) return tr;
   // A quote opened under a list is a block of its own, and needs no blank line.
   if (quote.split('>').length !== quoteOf(above.text).split('>').length) return tr;
   // A blank line inside code, a table or HTML that the item holds is theirs.
@@ -500,8 +545,10 @@ const paragraphUnderList = EditorState.transactionFilter.of((tr) => {
     edits += 1;
     if (fromA === main.head && toA === fromA) typed = inserted.toString();
   });
-  const now = body + typed;
-  if (edits !== 1 || !typed || /\n/.test(typed) || !/\S/.test(now) || MARKER_SO_FAR.test(now) || MARKER_TYPED.test(now)) return tr;
+  // Over a table or a rule the typed text comes with the blank line it needs under it (blockObjects.ts).
+  const [word, ...under] = typed.split('\n');
+  const now = body + word;
+  if (edits !== 1 || !word || under.some((more) => /[^\s>]/.test(more)) || !/\S/.test(now) || MARKER_SO_FAR.test(now) || MARKER_TYPED.test(now)) return tr;
   return [tr, { changes: { from: line.from, insert: `${quote.replace(/[ \t]+$/, '')}\n` }, sequential: true }];
 });
 

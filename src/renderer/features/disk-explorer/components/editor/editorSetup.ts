@@ -86,6 +86,8 @@ const ITEM_LINE = /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]|$)/;
 const hasText = (line: Line) => /[^\s>]/.test(line.text);
 // A numbered item's line, which reads as a list under text only when it starts at 1.
 const NUMBERED_LINE = /^[\s>]*\d+[.)](?:[ \t]|$)/;
+// How many quotes a line is in.
+const quoteDepth = (text: string) => (/^(?:[ \t]*>[ \t]?)*/.exec(text)?.[0] ?? '').split('>').length - 1;
 
 /**
  * `tr` with a blank line between a list and each caret that `tr` left on an
@@ -114,7 +116,8 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
     const after = next && next.number < newDoc.lines ? newDoc.line(next.number + 1) : null;
     // A blank line is already under the item: its own line becomes the gap, and the caret takes the blank one, so
     // no row is added. A numbered item straight after that would stop being a list, so it gets the usual gap.
-    if (next && !hasText(next) && !(after && NUMBERED_LINE.test(after.text))) {
+    // A blank line outside the item's quote is a row of the page under the quote, and the caret stays in the quote.
+    if (next && !hasText(next) && quoteDepth(next.text) === quoteDepth(line.text) && !(after && NUMBERED_LINE.test(after.text))) {
       moved.set(index, next.to);
       return;
     }
@@ -141,6 +144,9 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
     userEvent: 'input',
   });
 }
+
+// A number marker alone at the margin, with no space after it.
+const LONE_NUMBER = /^\d{1,9}[.)]$/;
 
 // A list item's line that ends at its marker or box, with no space after it.
 const BARE_MARKER = /^[\s>]*(?:[-+*]|\d+[.)])(?:[ \t]+\[[ xX]\])?$/;
@@ -174,6 +180,11 @@ function withMarkerSpaces(tr: Transaction): Transaction {
  * newline runs.
  */
 export const insertNewlineInList: StateCommand = ({ state, dispatch }) => {
+  // A number marker with no space after it, "1." alone on a line, is typed text, as a lone "-" is: Enter starts a
+  // new line under it and keeps it, rather than end an empty item.
+  const { main } = state.selection;
+  const line = state.doc.lineAt(main.head);
+  if (state.selection.ranges.length === 1 && main.empty && main.head === line.to && LONE_NUMBER.test(line.text)) return false;
   let unchanged = false;
   const handled = continueMarkup({
     state,

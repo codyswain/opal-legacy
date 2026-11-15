@@ -526,6 +526,8 @@ describe('undo', () => {
   });
 
   it('undoes a snooze, gives a thread snoozed again the time it had, and clears its line on Bring back', async () => {
+    // The choices follow the clock: on a Sunday, Tomorrow and Next week are one choice.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2031, 2, 8, 19, 0) });
     await open();
     fireEvent.click(screen.getByTestId('auto-snoozed-line'));
     await userEvent.setup().click(screen.getByTestId('auto-snooze-labels'));

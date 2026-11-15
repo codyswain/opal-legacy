@@ -41,7 +41,7 @@ import { blockPosition, docMode, drawnBlockAt, hiddenRanges, setCellCaret, setOp
 import { objectAt } from './extensionPoints';
 import { currentKeyEvent, deleteObject, focusObjectBar, objectFrameExtension, setFrame } from './objectFrame';
 import { headingKeys } from './headingKeys';
-import { withListEdges } from './listEdges';
+import { lineKind, listGaps, ownRow, withListEdges } from './listEdges';
 import { docListKeys } from './listKeys';
 import { quoteKeys } from './quoteKeys';
 import { insertTableItem } from './tableInsert';
@@ -265,8 +265,13 @@ function closedByTyping(tr: Transaction): number | null {
   return closed.length > 0 ? Math.min(...closed.map((span) => span.to)) : null;
 }
 
-/** Where one key press moves the caret from `at`: over hidden marks and one character, or over a picture or block as a whole. */
-function step(state: EditorState, at: number, forward: boolean): number {
+/**
+ * Where one key press moves the caret from `at`: over hidden marks and one
+ * character, or over a picture or block as a whole. With `intoText`, as for
+ * Right and Shift+Right, a step forward over the blank line the page gives
+ * no room beside a list ends at the next line's text, after its hidden marker.
+ */
+function step(state: EditorState, at: number, forward: boolean, intoText = false): number {
   const { doc } = state;
   const hidden = hiddenNear(state, at);
   const marks = hidden.filter((range) => !range.unit);
@@ -275,7 +280,9 @@ function step(state: EditorState, at: number, forward: boolean): number {
     for (let mark = marks.find((r) => r.from <= from && r.to > from); mark; mark = marks.find((r) => r.from <= from && r.to > from)) from = mark.to;
     if (from >= doc.length) return at;
     const unit = hidden.find((range) => range.unit && range.from === from);
-    if (unit) return unit.to;
+    // Past the blank line the page gives no room beside a list, the caret starts the next line's text, after a
+    // hidden marker there, as it does past a line break. Delete leaves that marker to the rules for lists.
+    if (unit) return intoText && /^[\s>]*$/.test(state.sliceDoc(unit.from, unit.to)) ? caretPosition(state, unit.to) : unit.to;
     const line = doc.lineAt(from);
     // Past a line break the caret starts the next line's text.
     return from === line.to ? caretPosition(state, from + 1) : line.from + findClusterBreak(line.text, from - line.from, true);
@@ -288,13 +295,32 @@ function step(state: EditorState, at: number, forward: boolean): number {
   return from === line.from ? from - 1 : line.from + findClusterBreak(line.text, from - line.from, false);
 }
 
+/**
+ * A caret that undo or redo left on a blank line the page gives no room
+ * beside a list, moved to the empty row right under it, or else right above
+ * it, where the edit it repeats left the caret. Null when there is none.
+ */
+function besideGap(state: EditorState): EditorSelection | null {
+  const { main } = state.selection;
+  const { doc } = state;
+  if (state.selection.ranges.length > 1 || !main.empty) return null;
+  const own = state.field(ownRow, false) ?? null;
+  const shows = (number: number) => listGaps(doc, number, number, own).length === 0;
+  const line = doc.lineAt(main.head);
+  if (lineKind(line.text) !== 'blank' || shows(line.number)) return null;
+  for (const number of [line.number + 1, line.number - 1]) {
+    if (number >= 1 && number <= doc.lines && lineKind(doc.line(number).text) === 'blank' && shows(number)) return EditorSelection.single(doc.line(number).to);
+  }
+  return null;
+}
+
 /** Left and Right, with Shift to extend the selection: one character as the page shows it. */
 function moveVisibly(forward: boolean, extend: boolean): Command {
   return (view) => {
     const { state } = view;
     const selection = EditorSelection.create(state.selection.ranges.map((range) => {
       if (!extend && !range.empty) return EditorSelection.cursor(forward ? range.to : range.from);
-      const head = step(state, range.head, forward);
+      const head = step(state, range.head, forward, true);
       return extend ? EditorSelection.range(range.anchor, head) : EditorSelection.cursor(head);
     }), state.selection.mainIndex);
     view.dispatch({ selection, scrollIntoView: true, userEvent: 'select' });
@@ -571,11 +597,12 @@ export function docModeExtensions({ followLinks = false }: { followLinks?: boole
     clearFormattingKey,
     // After every other filter and just before the numbering (editorSetup.ts), which then counts the lists as they will be read.
     Prec.highest(EditorState.transactionFilter.of(withListEdges)),
+    ownRow,
     // Undo and redo skip the filters, so a caret they leave inside what the page hides is moved out here.
     EditorView.updateListener.of((update) => {
       if (!update.transactions.some((tr) => tr.isUserEvent('undo') || tr.isUserEvent('redo'))) return;
       const { state } = update;
-      const selection = settle(state, state.selection);
+      const selection = besideGap(state) ?? settle(state, state.selection);
       if (selection === state.selection) return;
       queueMicrotask(() => { if (update.view.state === state) update.view.dispatch({ selection, userEvent: 'select' }); });
     }),

@@ -33,6 +33,11 @@ function codeAround(state: EditorState, from: number, to: number): SyntaxNode | 
 /** The Markdown of `from` to `to` with the marks of formatting it half covers added, so it pastes as it shows. */
 export function balancedText(state: EditorState, from: number, to: number): string {
   if (codeAround(state, from, to) && rawAt(state, from) && rawAt(state, to)) return state.sliceDoc(from, to);
+  // A selection from the start of an item's text, where a click puts the caret, past the end of its line takes
+  // the item's hidden marker and its indent along, so the first line pastes as an item at the level of the others.
+  const first = state.doc.lineAt(from);
+  const item = to > first.to ? listItemOf(state, first) : null;
+  if (item && item.textFrom === from) from = first.from + (/^(?:[ \t]*>[ \t]?)*/.exec(first.text)?.[0].length ?? 0);
   ({ from, to } = outsideProtected(state, from, to));
   ({ from, to } = withoutEdgeMarks(state, from, to));
   let before = '';
@@ -368,11 +373,12 @@ const clipboardEvents = EditorView.domEventHandlers({
     const rich = html && !MARKDOWN_SOURCE.test(plain) ? markdownFromHtml(html) : null;
     const text = rich ?? plain;
     if (!text) return false;
-    // A list pasted over a selection that runs across items: the selection goes first, as Backspace takes it, and
-    // the list is then pasted at the caret inside the item that is left.
+    // A list, or lines of any kind, pasted over a selection that runs across items: the selection goes first, as
+    // Backspace takes it, and the lines are then pasted at the caret inside the item that is left.
     const { main } = view.state.selection;
+    const lines = LIST_LINE.test(text.split('\n')[0]) || text.replace(/\n+$/, '').includes('\n');
     if (!main.empty && view.state.selection.ranges.length === 1 && view.state.doc.lineAt(main.from).number !== view.state.doc.lineAt(main.to).number
-      && LIST_LINE.test(text.split('\n')[0]) && listItemOf(view.state, view.state.doc.lineAt(main.from))) {
+      && lines && listItemOf(view.state, view.state.doc.lineAt(main.from))) {
       view.dispatch({ ...view.state.replaceSelection(''), userEvent: 'delete.selection' });
     }
     const spec = pasteSpec(view.state, text, false)
