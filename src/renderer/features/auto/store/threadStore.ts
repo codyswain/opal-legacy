@@ -16,7 +16,7 @@ import {
 } from '../model/outbox';
 import { DIGEST_QUEUE, paneThread } from '../model/pane';
 import { forgetPlaces } from '../model/places';
-import { answerTyped, mayAnswer, type Picks } from '../model/questionModel';
+import { answerNo, answerTyped, mayAnswer, type Picks } from '../model/questionModel';
 import { applyEvent, fromSnapshot, unconfirmed, type PendingMessage, type ThreadView } from '../model/threadModel';
 import { autoApi, unconfirmedThreads, useAutoStore } from './autoStore';
 import { useSaidStore } from './saidStore';
@@ -28,6 +28,9 @@ import { useSaidStore } from './saidStore';
  * kept in memory, so a thread seen before shows at once while the fresh
  * snapshot loads.
  */
+
+/** The sends to allow whose "no" from the box is on its way, so a second Enter does not say it twice. */
+const refusing = new Set<string>();
 
 /** How many threads' last views are kept. */
 const KEPT_LIMIT = 40;
@@ -340,9 +343,19 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       // While a question waits, the box is its answer field: his words answer it and are not queued behind it.
       const question = get().view?.question;
       if (question && typed) {
-        const took = await get().answer(answerTyped(question, words, get().picks));
-        if (took && get().openId === openId) keep(setDraft(get().box, key, ''));
-        return took;
+        if (question.kind !== 'grant') {
+          const took = await get().answer(answerTyped(question, words, get().picks));
+          if (took && get().openId === openId) keep(setDraft(get().box, key, ''));
+          return took;
+        }
+        // A send he is asked to allow reads only the no, never words sent with it. So the no goes alone, and
+        // once the service has taken it his words follow as an ordinary message. If the no is not taken,
+        // the words stay in the box and nothing is sent.
+        if (refusing.has(question.id)) return false;
+        refusing.add(question.id);
+        const took = await get().answer(answerNo(question));
+        refusing.delete(question.id);
+        if (!took || get().openId !== openId) return false;
       }
       // While the service is out of reach the box is left as it is.
       if (!useAutoStore.getState().reachable) {

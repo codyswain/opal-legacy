@@ -142,14 +142,10 @@ export type AutoQuestion =
 export interface AutoGrant {
   id: string;
   kind: 'grant';
+  /** The service's question, which names the channel and the people: "Send this Slack message to Robin?". */
   title: string;
+  /** What it is about and how it would go, in the service's words, on lines of their own. */
   detail: string;
-  /** `slack`, `email` or `text`; '' when the service names another. */
-  channel: 'slack' | 'email' | 'text' | '';
-  /** The names of the people it would go to. */
-  to: string[];
-  /** What it is about, in the service's words. */
-  about: string;
   /** The exact words that would go, when the grant carries them. */
   text: string | null;
 }

@@ -140,6 +140,8 @@ describe('the line over the list', () => {
     // One thread is one, however many reasons it has; a snoozed one is none.
     expect(attentionCount([thread('y', { yours: 'Send the draft', unread: true })])).toBe(1);
     expect(attentionCount([thread('y', { yours: 'Send the draft', snoozed: at(2026, 11, 20) })])).toBe(0);
+    // A thread back from snooze counts, as it does in the line over the list.
+    expect(attentionCount([thread('w', { woke: at(2026, 11, 14) }), thread('rest')])).toBe(1);
   });
 });
 

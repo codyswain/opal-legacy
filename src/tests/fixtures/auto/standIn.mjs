@@ -467,10 +467,13 @@ export async function startStandIn(options = {}) {
         thread.status = 'working';
         emitThread(thread, 'question', { question: null });
         if (run.stopped) throw new Stopped();
-        // A permission request and a send to allow fold the same way: the title, and what he said to it.
+        // A permission request folds to its title and what he said to it. A send to allow folds to its title
+        // and whether it was allowed: words sent with its answer are never read.
         const yesOrNo = question.kind === 'permission' || question.kind === 'grant';
         const title = yesOrNo ? question.title : question.questions[0].question.split('\n')[0];
-        const said = yesOrNo
+        const said = question.kind === 'grant'
+          ? (answer.allow ? 'Allowed' : 'Not allowed')
+          : yesOrNo
           ? (answer.allow ? 'Allowed' : answer.message || 'Denied')
           : Object.values(answer.answers).map((value) => (Array.isArray(value) ? value.join(', ') : value)).join('; ');
         const item = { role: 'asked', text: title, answer: said };
@@ -552,15 +555,18 @@ export async function startStandIn(options = {}) {
     if (said.includes('send robin')) {
       ctx.activity('Looking Robin up');
       await ctx.wait(pace * 2);
-      // A send he is asked to allow up front. Only a phone can say yes, with a signature; a page can only say no.
+      // A send he is asked to allow up front, in the service's own words: the title names the channel and the
+      // people, the detail is what it is about, a blank line, and how it would go. Only a phone can say yes,
+      // with a signature; a page can only say no.
       const answer = await ctx.ask({
         kind: 'grant',
-        title: 'Send one Slack message to Robin',
-        detail: 'Auto will send it once, from this thread, within two hours.',
+        title: 'Send this Slack message to Robin?',
+        detail: 'the seed swap\n\nThese exact words, once, from this thread.',
         grant: { id: hex(6), thread_id: 'here', channel: 'slack', to: [{ name: 'Robin', id: 'U01' }], about: 'the seed swap', expires: Math.floor(Date.now() / 1000) + 7200, text: 'I will bring the bean seedlings on Saturday.' },
       });
       ctx.activity('Writing');
-      await ctx.say(answer.allow === false ? (answer.message ? `Nothing was sent. You said: ${answer.message}` : 'Nothing was sent.') : 'Sent.');
+      // Whatever came with a no is not read: the turn hears only that it was not allowed.
+      await ctx.say(answer.allow === true ? 'Sent.' : 'Nothing was sent.');
       return [];
     }
     if (said.includes('note for the club')) {
@@ -921,7 +927,8 @@ export async function startStandIn(options = {}) {
           return refuse(response, 400, 'bad_request', 'That is not an answer to this question.');
         }
         pickedUp(thread, client);
-        thread.answer(data);
+        // An answer to a send to allow is read for its yes or no alone, as the service reads it.
+        thread.answer(question.kind === 'grant' ? { allow: data.allow === true } : data);
         return answer(response, 200, { ok: true });
       }
       case 'model':

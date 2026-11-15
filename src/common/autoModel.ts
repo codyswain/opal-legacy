@@ -201,32 +201,22 @@ function toPart(value: unknown): AutoQuestionPart | null {
   };
 }
 
-const CHANNELS = ['slack', 'email', 'text'] as const;
-/** How many people one send may name. */
-const GRANT_PEOPLE_LIMIT = 20;
-
 /**
- * A send he is asked to allow up front. Who it goes to, the channel, what it
- * is about and the words are in its `grant` part; a card with none of them
- * still shows, since he must be able to say no. The signature the service
- * wants for a yes is not Opal's to give and is never read.
+ * A send he is asked to allow up front. The service's title and detail say
+ * who it goes to, by which channel and what it is about; the exact words,
+ * when it carries them, are in its `grant` part. One with none of these
+ * still shows, since he must be able to say no. The rest of the `grant`
+ * part is for his phone, which signs the yes: Opal reads none of it, and
+ * never a signature.
  */
 function toGrant(question: Fields): AutoGrant | null {
   if (!validThreadId(question.id)) return null;
   const grant = fields(question.grant) ?? {};
-  const to = list(grant.to, GRANT_PEOPLE_LIMIT).flatMap((each) => {
-    const person = fields(each);
-    const name = person ? text(person.name, LINE_LIMIT).trim() : typeof each === 'string' ? each.slice(0, LINE_LIMIT).trim() : '';
-    return name ? [name] : [];
-  });
   return {
     id: question.id,
     kind: 'grant',
     title: text(question.title, LINE_LIMIT),
     detail: text(question.detail, TEXT_LIMIT),
-    channel: CHANNELS.find((name) => name === grant.channel) ?? '',
-    to,
-    about: text(grant.about, LINE_LIMIT),
     text: optional(grant.text, TEXT_LIMIT),
   };
 }

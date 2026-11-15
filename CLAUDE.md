@@ -178,9 +178,13 @@ not exist.
   API, and works through the day's digest as a queue (resolve, note, make a
   thread). No control in it starts or confirms a send to anyone; a drafted
   reply can only be copied. A send the service asks him to allow up front
-  (a `grant` question) shows as a card with one button, "No": the yes is
-  signed on his phone, and `mayAnswer` (`questionModel.ts`) keeps every
-  other answer to one from being posted, whatever built it.
+  (a `grant` question) shows as his phone draws it, the title, the exact
+  words and the detail, with one button, "No": the yes is signed on his
+  phone, and `mayAnswer` (`questionModel.ts`) keeps every answer to one but
+  the plain no from being posted, whatever built it. The service reads no
+  words with that no, so words typed while one waits post the no first and
+  then go to the thread as an ordinary message; if the no is not taken
+  they stay in the box.
   `AutoService` in `src/main/auto` makes every request, since the page's
   policy allows it no network. The address comes from `<userData>/auto.json`
   alone (`{ "version": 1, "url": "https://host.example/agent" }`; https, or

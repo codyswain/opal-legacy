@@ -173,8 +173,8 @@ async function tour() {
     return element?.getAttribute('data-row-id') ?? element?.getAttribute('data-entry-id') ?? element?.getAttribute('data-testid') ?? element?.getAttribute('aria-label') ?? element?.tagName ?? '';
   });
   const key = (name) => page.keyboard.press(name);
-  /** How many threads need him, as the service has it: waiting, unread or his move, and not snoozed. */
-  const needsHim = () => service.entries().filter((thread) => !thread.snoozed && (thread.status === 'waiting' || thread.unread || (thread.yours && thread.status === 'idle' && !thread.waits))).length;
+  /** How many threads need him, as the service has it: waiting, unread, back from snooze or his move, and not snoozed. */
+  const needsHim = () => service.entries().filter((thread) => !thread.snoozed && (thread.status === 'waiting' || thread.unread || thread.woke || (thread.yours && thread.status === 'idle' && !thread.waits))).length;
   /** What the line at the foot of the list says, as one string. */
   const saidText = async () => ((await said.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ');
   const sidebarSays = async (count) => ((await sidebarRow.textContent()) ?? '') === (count > 0 ? `Auto${count}` : 'Auto');
@@ -287,14 +287,14 @@ async function tour() {
     check('a thread back from snooze says Back and when', /Back \d/.test((await row(TRELLIS).textContent()) ?? ''));
     check('a failed row says so', ((await row(COMPOST).textContent()) ?? '').includes('Failed: The turn ended early'));
     check('snoozed threads are behind one line with their count', ((await page.getByTestId('auto-snoozed-line').textContent()) ?? '').replace(/\s+/g, ' ').includes('Snoozed2'));
-    check('the sidebar row counts the threads that wait on him and the ones with an unread reply', ((await sidebarRow.textContent()) ?? '') === 'Auto2');
+    check('the sidebar row counts the threads that wait on him, the ones with an unread reply and the ones back from snooze', (await sidebarSays(needsHim())) && needsHim() === 3, await sidebarRow.textContent());
 
     // --- The mark for the Mac: set from a row's menu, first under its own heading, ended by the service.
     const marked = page.getByTestId('auto-group-desk');
     await fromMenu(BEDS, 'Mark for the Mac');
     check('a marked thread is first, under "For the Mac", and still shows its question and buttons', await until(async () => (await rowIds())[0] === BEDS && (await marked.getByRole('heading', { name: 'For the Mac' }).count()) === 1 && (await marked.getByRole('button', { name: 'Cedar' }).count()) === 1 && ((await marked.textContent()) ?? '').includes('Which wood for the frames?')));
     check('the service has the mark, set by Opal', service.thread(BEDS)?.desk?.by === 'opal' && posts(`/api/threads/${BEDS}/desk`).at(-1)?.on === true);
-    check('a marked thread that waits still counts in the sidebar', ((await sidebarRow.textContent()) ?? '') === 'Auto2');
+    check('a marked thread that waits still counts in the sidebar', (await sidebarSays(needsHim())) && needsHim() === 3, await sidebarRow.textContent());
     await fromMenu(TRELLIS, 'Mark for the Mac');
     await until(async () => (await marked.locator('[data-thread-id]').count()) === 2);
     check('a marked row carries a small sign', (await row(TRELLIS).getByTestId('auto-desk-sign').count()) === 1 && (await row(BREAD).getByTestId('auto-desk-sign').count()) === 0);
@@ -412,13 +412,27 @@ async function tour() {
     check('words typed under a permission request deny it with that reason', await until(async () => ((await talk.textContent()) ?? '').includes('Left them where they are. You said: Keep them one more year')) && JSON.stringify(posts(`/api/threads/${BREAD}/answer`).at(-1)).includes('"allow":false'));
     await atRest(BREAD);
 
-    // --- A send he is asked to allow up front: a card that can only say no.
+    // --- A send he is asked to allow up front: a card that can only say no, drawn as his phone draws it.
     await say('Send Robin a word about the swap');
     const grant = page.getByTestId('auto-grant');
     await grant.waitFor({ timeout: 10_000 });
-    check('a send to allow is a card: its title, who it goes to and how, the exact words, and one button, No', ((await grant.locator('p').first().textContent()) ?? '') === 'Send one Slack message to Robin' && ((await page.getByTestId('auto-grant-to').textContent()) ?? '') === 'A Slack message to Robin, about the seed swap' && ((await page.getByTestId('auto-grant-words').textContent()) ?? '') === 'I will bring the bean seedlings on Saturday.' && (await grant.getByRole('button').allTextContents()).join() === 'No' && (await grant.getByRole('textbox').count()) === 0);
+    const GRANT_TITLE = 'Send this Slack message to Robin?';
+    check('a send to allow is a card: the service’s title, the exact words, its detail, and one button, No', ((await grant.locator('p').first().textContent()) ?? '') === GRANT_TITLE && ((await page.getByTestId('auto-grant-words').textContent()) ?? '') === 'I will bring the bean seedlings on Saturday.' && (await grant.getByRole('button').allTextContents()).join() === 'No' && (await grant.getByRole('textbox').count()) === 0);
+    check('the card says who and how once, in its title: no second line repeats it', (await page.getByTestId('auto-grant-to').count()) === 0 && ((await grant.textContent()) ?? '').split('Robin').length === 2, (await grant.textContent()) ?? '');
+    const detailLines = await page.getByTestId('auto-grant-detail').evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const tops = [...new Set([...range.getClientRects()].filter((box) => box.width > 0).map((box) => Math.round(box.top)))];
+      return { text: element.textContent ?? '', lines: tops.length, height: Math.round(element.getBoundingClientRect().height), line: parseFloat(getComputedStyle(element).lineHeight) };
+    });
+    check('the detail keeps the service’s lines: what it is about, a gap, and how it would go', detailLines.text === 'the seed swap\n\nThese exact words, once, from this thread.' && detailLines.lines === 2 && detailLines.height >= detailLines.line * 2.5, JSON.stringify(detailLines));
+    check('the parts come in the phone’s order: title, words, detail, then No and where the yes is', await grant.evaluate((element) => {
+      const top = (selector) => element.querySelector(selector)?.getBoundingClientRect().top ?? -1;
+      const order = [top('p'), top('[data-testid="auto-grant-words"]'), top('[data-testid="auto-grant-detail"]'), top('button'), top('[data-testid="auto-grant-phone"]')];
+      return order.every((value) => value >= 0) && order[0] < order[1] && order[1] < order[2] && order[2] < order[3] && Math.abs(order[3] - order[4]) < 24;
+    }));
     check('one line says the yes is on his phone, and the box takes a reason', ((await page.getByTestId('auto-grant-phone').textContent()) ?? '') === 'The yes is on your phone.' && (await box.getAttribute('placeholder')) === 'Say no, with a reason');
-    check('its row waits on him with the title as its line, and it counts in the sidebar', await until(async () => ((await row(BREAD).textContent()) ?? '').includes('Send one Slack message to Robin') && (await groupIds('needs')).includes(BREAD) && (await sidebarSays(needsHim()))) && (await row(BREAD).getByRole('button', { name: /allow|yes/i }).count()) === 0);
+    check('its row waits on him with the title as its line, and it counts in the sidebar', await until(async () => ((await row(BREAD).textContent()) ?? '').includes(GRANT_TITLE) && (await groupIds('needs')).includes(BREAD) && (await sidebarSays(needsHim()))) && (await row(BREAD).getByRole('button', { name: /allow|yes/i }).count()) === 0);
     await shot(44, 'grant');
     // No key says yes: Enter and the numbers do nothing in the card or in the empty box.
     await grant.getByRole('button', { name: 'No' }).focus();
@@ -430,12 +444,32 @@ async function tour() {
     await grant.getByRole('button', { name: 'No' }).click();
     check('No refuses it, and nothing is sent', await until(async () => ((await talk.textContent()) ?? '').includes('Nothing was sent.')) && JSON.stringify(posts(`/api/threads/${BREAD}/answer`).at(-1)) === JSON.stringify({ id: posts(`/api/threads/${BREAD}/answer`).at(-1)?.id, allow: false }));
     await atRest(BREAD);
+    check('once answered it folds to its title and Not allowed', ((await talk.textContent()) ?? '').includes(`${GRANT_TITLE} Not allowed`) || ((await talk.textContent()) ?? '').includes(`${GRANT_TITLE}Not allowed`), ((await talk.textContent()) ?? '').slice(-160));
+    // Words typed while it waits. The service reads only the no, so the no goes alone and his words follow as a message.
     await say('Send Robin the same word again');
     await grant.waitFor({ timeout: 10_000 });
+    const wordsSent = () => posts(`/api/threads/${BREAD}/messages`).filter((body) => body.text === 'Not this week').length;
+    const answersBefore = posts(`/api/threads/${BREAD}/answer`).length;
+    // If the no is not taken, the words stay in the box and nothing is sent.
+    service.failWrites('refuse');
     await box.fill('Not this week');
     await box.press('Enter');
-    check('words typed while it waits are a no with those words as the reason', await until(async () => ((await talk.textContent()) ?? '').includes('Nothing was sent. You said: Not this week')) && posts(`/api/threads/${BREAD}/answer`).at(-1)?.allow === false && posts(`/api/threads/${BREAD}/answer`).at(-1)?.message === 'Not this week' && !posts(`/api/threads/${BREAD}/messages`).some((body) => body.text === 'Not this week'));
+    check('if the no is not taken his words stay in the box and nothing is sent', await until(async () => ((await grant.getByRole('alert').textContent().catch(() => '')) ?? '').includes('The stand-in refuses writes for now.')) && (await box.inputValue()) === 'Not this week' && wordsSent() === 0 && service.thread(BREAD)?.status === 'waiting' && (await page.getByTestId('auto-not-sent').count()) === 0);
+    service.failWrites(false);
+    await box.press('Enter');
+    check('typed words say the plain no first, and then go to the thread as his message', await until(() => wordsSent() === 1) && (await box.inputValue()) === '' && await (async () => {
+      const writes = service.requests.filter((request) => request.method === 'POST' && (request.path === `/api/threads/${BREAD}/answer` || request.path === `/api/threads/${BREAD}/messages`));
+      const no = writes.at(-2);
+      const words = writes.at(-1);
+      return !!no && !!words && no.path.endsWith('/answer') && JSON.stringify(no.body) === JSON.stringify({ id: no.body.id, allow: false }) && words.path.endsWith('/messages') && words.body.text === 'Not this week' && Object.keys(words.body).sort().join() === 'cid,text';
+    })(), JSON.stringify(posts(`/api/threads/${BREAD}/answer`).at(-1)));
+    check('no answer to a send carried words, a yes or a signature', posts(`/api/threads/${BREAD}/answer`).slice(answersBefore).every((body) => body.allow === false && Object.keys(body).sort().join() === 'allow,id'), JSON.stringify(posts(`/api/threads/${BREAD}/answer`).slice(answersBefore)));
     await atRest(BREAD);
+    check('the turn hears the no, and his words are in the thread with an answer of their own', await until(async () => {
+      const text = (await talk.textContent()) ?? '';
+      const messages = await talk.getByTestId('auto-message').allTextContents();
+      return text.includes('Nothing was sent.') && messages.at(-1) === 'Not this week' && text.lastIndexOf('Beans and peas go in bed 2') > text.lastIndexOf('Not this week');
+    }), ((await talk.textContent()) ?? '').slice(-200));
     check('Opal never tried to allow a send', service.unsigned.length === 0);
 
     // --- A move that is his: words on the row, never a button, and it counts.

@@ -3,7 +3,7 @@ import type { AutoAnswer, AutoQuestion, AutoThread } from '@/types/auto';
 import { afterLeaving, closedRow, entryName, homeLine, queueOrder, queueSections, withState } from '@/renderer/features/auto/model/digestModel';
 import { SNOOZE_TIME, attentionCount, moveBy, nextAfter, putBack, shownOrder, snoozeDate, snoozeDateRange } from '@/renderer/features/auto/model/listModel';
 import { END_SLACK, LIST_PLACE, forgetPlaces, keepPlace, placeIn, placeOf, queuePlace, threadPlace } from '@/renderer/features/auto/model/places';
-import { answerDeny, answerTyped, keyOptions, mayAnswer } from '@/renderer/features/auto/model/questionModel';
+import { answerDeny, answerNo, answerTyped, keyOptions, mayAnswer } from '@/renderer/features/auto/model/questionModel';
 import { unconfirmed } from '@/renderer/features/auto/model/unconfirmed';
 import { NOTICE_MS, UNDO_DEPTH, UNDO_MS, selectMore, selectSaid, useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { autoDigest, autoThread, digestEntry } from '@/tests/helpers/autoApi';
@@ -323,14 +323,18 @@ describe('what his last actions did, and the way back from each', () => {
 });
 
 describe('an answer before it is posted', () => {
-  const grant: AutoQuestion = { id: 'g1', kind: 'grant', title: 'Send one Slack message to Robin', detail: '', channel: 'slack', to: ['Robin'], about: '', text: 'Hello.' };
-  const permission: AutoQuestion = { id: 'p1', kind: 'permission', tool: 'Bash', title: 'Run it?', detail: '', reason: '' };
+  const grant: Extract<AutoQuestion, { kind: 'grant' }> = { id: 'g1', kind: 'grant', title: 'Send this Slack message to Robin?', detail: '', text: 'Hello.' };
+  const permission: Extract<AutoQuestion, { kind: 'permission' }> = { id: 'p1', kind: 'permission', tool: 'Bash', title: 'Run it?', detail: '', reason: '' };
   const ask: AutoQuestion = { id: 'q1', kind: 'ask', questions: [{ question: 'Which bed?', header: 'Bed', multiSelect: false, options: [{ label: 'Bed 1', description: '' }, { label: 'Bed 2', description: '' }, { label: 'Bed 3', description: '' }, { label: 'Bed 4', description: '' }] }] };
 
-  it('lets only a no through for a send he is asked to allow, whatever built the answer', () => {
+  it('lets only the plain no through for a send he is asked to allow, whatever built the answer', () => {
     expect(mayAnswer(grant, { id: 'g1', allow: false })).toBe(true);
-    expect(mayAnswer(grant, { id: 'g1', allow: false, message: 'Not today' })).toBe(true);
+    // Words sent with the no would be dropped by the service unread: they are not sent that way.
+    expect(mayAnswer(grant, { id: 'g1', allow: false, message: 'Not today' })).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: false, signature: 'abc' } as unknown as AutoAnswer)).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: false, answers: undefined })).toBe(false);
     expect(mayAnswer(grant, { id: 'g1', allow: true })).toBe(false);
+    expect(mayAnswer(grant, { id: 'g1', allow: true, signature: 'abc' } as unknown as AutoAnswer)).toBe(false);
     expect(mayAnswer(grant, { id: 'g1', allow: true, message: 'yes' })).toBe(false);
     expect(mayAnswer(grant, { id: 'g1', answers: { 'Send it?': 'Yes' } })).toBe(false);
     expect(mayAnswer(grant, { id: 'other', allow: false })).toBe(false);
@@ -344,10 +348,12 @@ describe('an answer before it is posted', () => {
     expect(mayAnswer(null, { id: 'q1', allow: true })).toBe(true);
   });
 
-  it('builds a no from typed words for a send to allow, as for a permission request', () => {
-    expect(answerTyped(grant, 'yes, send it')).toEqual({ id: 'g1', allow: false, message: 'yes, send it' });
-    expect(answerDeny(grant, '')).toEqual({ id: 'g1', allow: false });
-    expect(mayAnswer(grant, answerTyped(grant, 'yes'))).toBe(true);
+  it('builds the one answer to a send to allow, a no with nothing else, and keeps typed words for a permission request', () => {
+    expect(answerNo(grant)).toEqual({ id: 'g1', allow: false });
+    expect(mayAnswer(grant, answerNo(grant))).toBe(true);
+    expect(answerTyped(permission, 'Use the trash')).toEqual({ id: 'p1', allow: false, message: 'Use the trash' });
+    expect(answerDeny(permission, '')).toEqual({ id: 'p1', allow: false });
+    expect(answerDeny(permission, ' Not now ')).toEqual({ id: 'p1', allow: false, message: 'Not now' });
   });
 
   it('gives the keys 1 to 3 the first three options of one question with one choice, and nothing else', () => {

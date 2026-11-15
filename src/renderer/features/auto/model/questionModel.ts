@@ -64,11 +64,13 @@ export function answerPicks(question: Ask, picks: Picks): AutoAnswer {
 }
 
 /**
- * His own words. They answer every part that has no pick; for a permission
- * request and for a send he is asked to allow they are a "no" with a reason.
+ * His own words, as the answer to a question or a permission request. They
+ * answer every part that has no pick; for a permission request they are a
+ * "no" with a reason. A send he is asked to allow takes no words: the
+ * service reads only the no, so his words follow it as a message.
  */
-export function answerTyped(question: AutoQuestion, text: string, picks: Picks = {}): AutoAnswer {
-  if (question.kind === 'permission' || question.kind === 'grant') return { id: question.id, allow: false, message: text };
+export function answerTyped(question: Exclude<AutoQuestion, { kind: 'grant' }>, text: string, picks: Picks = {}): AutoAnswer {
+  if (question.kind === 'permission') return { id: question.id, allow: false, message: text };
   const answers: Record<string, string | string[]> = {};
   for (const part of question.questions) {
     const picked = picks[part.question];
@@ -83,12 +85,14 @@ export const answerAllow = (question: Extract<AutoQuestion, { kind: 'permission'
 
 /**
  * The last check before an answer is posted. A send he is asked to allow
- * takes only a "no" from here, whatever built the answer: anything else is
- * dropped, so no click, key or typed word in this app can allow a send.
+ * takes only the plain "no" from here, whatever built the answer: its id
+ * and `allow: false`, and nothing else. So no click, key or typed word in
+ * this app can allow a send, nothing that looks like a signature goes with
+ * it, and no words go with it either, which the service would not read.
  */
 export function mayAnswer(question: AutoQuestion | null, answer: AutoAnswer): boolean {
   if (question?.kind !== 'grant') return true;
-  return answer.id === question.id && answer.allow === false && answer.answers === undefined;
+  return answer.id === question.id && answer.allow === false && Object.keys(answer).every((key) => key === 'id' || key === 'allow');
 }
 
 /** A question with one part and one choice, whose options the keys 1 to 3 pick: its labels, else none. */
@@ -97,7 +101,11 @@ export function keyOptions(question: AutoQuestion | null): string[] {
   return question.questions[0].options.slice(0, 3).map((option) => option.label);
 }
 
-export function answerDeny(question: AutoQuestion, message: string): AutoAnswer {
+/** A "no" to a permission request, with his reason when he gave one. */
+export function answerDeny(question: Extract<AutoQuestion, { kind: 'permission' }>, message: string): AutoAnswer {
   const said = message.trim();
   return said ? { id: question.id, allow: false, message: said } : { id: question.id, allow: false };
 }
+
+/** The "no" to a send he is asked to allow: the one answer to it this app can give. */
+export const answerNo = (question: Extract<AutoQuestion, { kind: 'grant' }>): AutoAnswer => ({ id: question.id, allow: false });

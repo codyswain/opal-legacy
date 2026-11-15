@@ -88,11 +88,13 @@ export const needsCount = (threads: readonly AutoThread[]): number => listView(t
 
 /**
  * The sidebar's count: the threads that wait on him, the ones whose next
- * move Auto said is his, and the ones with a reply he has not read. Snoozed
- * and archived threads are left out.
+ * move Auto said is his, the ones with a reply he has not read and the ones
+ * back from snooze, so it agrees with the line over the list and with the
+ * count the service keeps for other devices. Snoozed and archived threads
+ * are left out.
  */
 export function attentionCount(threads: readonly AutoThread[]): number {
-  return threads.filter((thread) => !thread.archived && thread.snoozed === null && (isWaiting(thread) || thread.unread || isYours(thread))).length;
+  return threads.filter((thread) => !thread.archived && thread.snoozed === null && (isWaiting(thread) || isMarked(thread) || isYours(thread))).length;
 }
 
 const counted = (many: number, one: string, more: string): string => (many === 1 ? one : `${many} ${more}`);

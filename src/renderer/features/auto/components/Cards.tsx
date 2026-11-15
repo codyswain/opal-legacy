@@ -4,7 +4,7 @@ import type { AutoQuestion, AutoQuestionPart } from '@/types/auto';
 import { Button } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
-import { answerAllow, answerDeny, answerOption, answerPicks, isPicked, isSingle, keyOptions, pick, picksReady, splitQuestion } from '../model/questionModel';
+import { answerAllow, answerDeny, answerNo, answerOption, answerPicks, isPicked, isSingle, keyOptions, pick, picksReady, splitQuestion } from '../model/questionModel';
 import type { EntryCard } from '../model/threadModel';
 import { useThreadStore } from '../store/threadStore';
 
@@ -126,36 +126,27 @@ export function PermissionCard({ question }: { question: Extract<AutoQuestion, {
   );
 }
 
-const CHANNEL: Record<string, string> = { slack: 'a Slack message', email: 'an email', text: 'a text' };
-
 /**
- * A send Auto asks him to allow up front: what it is, who it goes to and by
- * which channel, and its exact words when the request carries them. Here he
- * can only say no. The yes is signed on his phone, and nothing in this
- * card, no key and no typed word allows it. Words typed in the box below
- * are a "no" with that reason.
+ * A send Auto asks him to allow up front, drawn as his phone draws it: the
+ * service's question, which names the channel and the people, the exact
+ * words when the request carries them, and its detail on the lines the
+ * service gave it. Here he can only say no. The yes is signed on his phone,
+ * and nothing in this card, no key and no typed word allows it. Words typed
+ * in the box below say no first and then go to the thread as his message.
  */
 export function GrantCard({ question }: { question: Extract<AutoQuestion, { kind: 'grant' }> }) {
   const { answer } = useThreadStore.getState();
-  const to = question.to.join(', ');
   return (
     <div data-testid="auto-grant" className={card}>
       <p className="text-reply font-semibold text-foreground">{question.title || 'Allow a send?'}</p>
-      {to || question.channel ? (
-        <p data-testid="auto-grant-to" className="mt-1 text-ui text-foreground-secondary">
-          {question.channel ? `${CHANNEL[question.channel].charAt(0).toUpperCase()}${CHANNEL[question.channel].slice(1)}` : 'A message'}
-          {to ? ` to ${to}` : ''}
-          {question.about ? `, about ${question.about}` : ''}
-        </p>
-      ) : null}
       {question.text ? (
         <div className="auto-md-block mt-2" data-paste>
           <pre data-testid="auto-grant-words" className="text-reply text-foreground">{question.text}</pre>
         </div>
       ) : null}
-      {question.detail ? <p className="mt-2 text-ui text-foreground-secondary">{question.detail}</p> : null}
+      {question.detail ? <p data-testid="auto-grant-detail" className="mt-2 whitespace-pre-line text-ui text-foreground-secondary">{question.detail}</p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => void answer(answerDeny(question, ''))}>No</Button>
+        <Button variant="outline" onClick={() => void answer(answerNo(question))}>No</Button>
         <p data-testid="auto-grant-phone" className="text-control text-foreground-tertiary">The yes is on your phone.</p>
       </div>
       <CardProblem />
