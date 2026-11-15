@@ -265,14 +265,14 @@ describe('the list', () => {
     const pointer = userEvent.setup();
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('bread')).getAllByRole('button')[0] });
     let menu = within(await screen.findByTestId('auto-row-menu-bread'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-2)).toEqual(['Pick a date…', 'Archive']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Pick a date…', 'Mark for the Mac', 'Archive']);
     fireEvent.click(menu.getByRole('menuitem', { name: 'Archive' }));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: true }));
     await waitFor(() => expect(screen.queryByTestId('auto-row-bread')).toBeNull());
 
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('inspect')).getAllByRole('button')[0] });
     menu = within(await screen.findByTestId('auto-row-menu-inspect'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-2)).toEqual(['Done', 'Archive']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the Mac', 'Done', 'Archive']);
     fireEvent.click(menu.getByRole('menuitem', { name: 'Done' }));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
   });
@@ -646,7 +646,7 @@ describe('the narrow layout', () => {
 });
 
 describe('what the tab asks the service for', () => {
-  it('only thread routes: never a digest, never a send', async () => {
+  it('only the routes it has: never a tick, never the inbox, never a send', async () => {
     await open();
     await openThread('bread');
     fireEvent.click(within(screen.getByTestId('auto-next')).getAllByRole('button')[0]);
@@ -655,9 +655,12 @@ describe('what the tab asks the service for', () => {
     await openThread('inspect');
     fireEvent.click(screen.getByTestId('auto-hand-over'));
     await waitFor(() => expect(auto.asked('start')).toHaveLength(1));
-    const allowed = ['status', 'check-status', 'threads', 'thread', 'create', 'message', 'stop', 'answer', 'model', 'rename', 'archive', 'move', 'snooze', 'start'];
+    const allowed = [
+      'status', 'check-status', 'threads', 'thread', 'create', 'message', 'stop', 'answer', 'model', 'rename', 'archive', 'move', 'snooze', 'start',
+      'desk', 'digest', 'digests', 'digest-resolve', 'digest-note', 'digest-thread',
+    ];
     expect(kinds().filter((kind) => !allowed.includes(kind))).toEqual([]);
-    expect(JSON.stringify(auto.routes())).not.toMatch(/digest\/|sends|confirm/);
+    expect(JSON.stringify(auto.routes())).not.toMatch(/tick|inbox|sends|confirm/);
   });
 });
 

@@ -67,13 +67,53 @@ describe('the list', () => {
     expect(ids(view.snoozed)).toEqual(['a']);
   });
 
-  it('only lets the rest be dragged, and gives no group a heading today', () => {
+  it('only lets the rest be dragged, and gives neither of the two a heading', () => {
     const view = listView(threads);
     expect(view.groups.map((group) => [group.key, group.movable, group.heading])).toEqual([['needs', false, null], ['rest', true, null]]);
   });
 
   it('leaves out a group with nothing in it', () => {
     expect(listView([thread('a')]).groups.map((group) => group.key)).toEqual(['rest']);
+  });
+});
+
+describe('the mark for the Mac', () => {
+  const mark = { at: at(2026, 11, 14, 14, 30), by: 'phone' };
+  const threads = [
+    thread('a'),
+    thread('b', { status: 'waiting', ask }),
+    thread('c', { desk: mark }),
+    thread('d', { status: 'waiting', ask, desk: mark }),
+    thread('e', { desk: mark, snoozed: at(2026, 11, 20, 8) }),
+    thread('f', { desk: mark, archived: true }),
+  ];
+
+  it('puts marked threads first under "For the Mac", in the service’s order, and they cannot be dragged', () => {
+    const view = listView(threads);
+    expect(view.groups.map((group) => [group.key, group.heading, group.movable, ids(group.threads)])).toEqual([
+      ['desk', 'For the Mac', false, ['c', 'd']],
+      ['needs', null, false, ['b']],
+      ['rest', null, true, ['a']],
+    ]);
+  });
+
+  it('keeps a marked thread that waits in that group, and still counts it', () => {
+    const view = listView(threads);
+    expect(view.groups[0].threads.find((each) => each.id === 'd')?.status).toBe('waiting');
+    expect(view.needs).toBe(2);
+    expect(needsCount(threads)).toBe(2);
+    expect(rowLine(view.groups[0].threads[1])).toEqual({ kind: 'ask', text: 'Which wood?' });
+    expect(rowOptions(view.groups[0].threads[1])).toEqual(['Cedar', 'Larch']);
+  });
+
+  it('lets snoozed win: a marked thread that is snoozed is behind the Snoozed line', () => {
+    const view = listView(threads);
+    expect(ids(view.snoozed)).toEqual(['e']);
+    expect(view.groups.flatMap((group) => ids(group.threads))).toEqual(['c', 'd', 'b', 'a']);
+  });
+
+  it('shows no heading once no thread is marked', () => {
+    expect(listView(threads.map((each) => ({ ...each, desk: null }))).groups.map((group) => group.heading)).toEqual([null, null]);
   });
 });
 

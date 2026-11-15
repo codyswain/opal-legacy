@@ -245,6 +245,37 @@
   padding-right: calc(1.5rem + 10px);
 }
 
+/*
+ * A closed digest entry shows three lines of its words. Its blocks close up
+ * and its headings take the text's size, so every line sits on one grid and
+ * the cut falls between two lines; the clamp ends running text with an
+ * ellipsis. A table or a code block is held to the same height, and fades
+ * out where it is cut.
+ */
+.auto-clip {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  max-height: calc(var(--text-reply-line) * 3);
+}
+
+.auto-clip .auto-md > :not(:first-child),
+.auto-clip .auto-md li:not(:first-child),
+.auto-clip .auto-md li > :not(:first-child),
+.auto-clip .auto-md blockquote > :not(:first-child) {
+  margin-top: 0;
+}
+
+.auto-clip .auto-md :is(h1, h2, h3, h4, h5, h6) {
+  font-size: 1em;
+  line-height: inherit;
+}
+
+.auto-clip[data-cut]:has(table, pre) {
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--text-reply-line)), transparent);
+}
+
 /* The small turning mark beside a line that is at work. */
 .auto-spin {
   display: inline-block;

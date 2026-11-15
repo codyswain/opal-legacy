@@ -5,7 +5,7 @@ import { Button, IconButton, Menu, MenuContent, MenuRadioGroup, MenuRadioItem, M
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
 import { clockTime } from '../model/listModel';
-import { NEW_THREAD } from '../model/outbox';
+import { paneThread } from '../model/pane';
 import {
   STEPS_SHOWN,
   failure,
@@ -291,7 +291,7 @@ function ThreadHeader({ narrow, scrolled }: { narrow: boolean; scrolled: boolean
   const newModel = useThreadStore((state) => state.newModel);
   const status = useAutoStore((state) => state.status);
   const { open, stop, setModel } = useThreadStore.getState();
-  const isNew = openId === null || openId === NEW_THREAD;
+  const isNew = paneThread(openId) === null;
   const models = modelChoices(status);
   const model = isNew ? newModel : view?.thread.model ?? '';
   const label = models.find(([key]) => key === model)?.[1] ?? model;

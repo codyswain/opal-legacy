@@ -1,6 +1,8 @@
 import { vi } from 'vitest';
 import type {
   AutoAPI,
+  AutoDigest,
+  AutoDigestEntry,
   AutoFailure,
   AutoListEvent,
   AutoResult,
@@ -24,6 +26,22 @@ export function autoSnapshot(thread: AutoThread, fields: Partial<AutoSnapshot> =
   return { thread, items: [], live: null, queue: [], unsent: null, next: [], cursor: 'b.1', seed: null, sendWaiting: false, sent: [], ...fields };
 }
 
+/** An entry of a made-up digest. */
+export function digestEntry(id: string, fields: Partial<AutoDigestEntry> = {}): AutoDigestEntry {
+  return { id, kind: 'text', title: '', md: `Words of ${id}`, section: '', state: 'open', thread: null, note: '', priority: '', draft: null, ...fields };
+}
+
+/** A day's digest from its sections; each entry takes its section's title, and `left` counts the open ones. */
+export function autoDigest(date: string, sections: Array<[string, AutoDigestEntry[]]>): AutoDigest {
+  const made = sections.map(([title, entries]) => ({ title, entries: entries.map((entry) => ({ ...entry, section: title })) }));
+  return {
+    date,
+    path: `Library/digests/${date} digest.md`,
+    left: made.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open').length, 0),
+    sections: made,
+  };
+}
+
 export const AUTO_STATUS: AutoStatus = {
   auth: { loggedIn: true, token: 'none', error: null },
   signin: 'auto-login --on desk-mac',
@@ -43,10 +61,14 @@ export interface FakeAuto {
     status: AutoStatus;
     threads: AutoThread[];
     snapshots: Record<string, AutoSnapshot>;
+    /** The digests the service has, by day. */
+    digests: Record<string, AutoDigest>;
     /** Every request fails this way while set. */
     fail: AutoFailure | null;
     /** Writes alone fail this way while set. */
     failWrites: AutoFailure | null;
+    /** Reads of a digest and of the days alone fail this way while set. */
+    failDigest: AutoFailure | null;
   };
   /** Every route asked for, in order. */
   routes: () => AutoRoute[];
@@ -60,7 +82,8 @@ export interface FakeAuto {
   stream: (stream: 'list' | 'thread', type: 'open' | 'down') => void;
 }
 
-const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'thread']);
+const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'thread', 'digest', 'digests']);
+const NO_DIGEST: AutoResult<never> = { success: false, error: { kind: 'refused', message: 'No digest.', code: 'not_found', status: 404 } };
 
 /** Puts a fake of the main process's Auto bridge on `window`: an in-memory service and two streams to push events down. */
 export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAuto {
@@ -70,17 +93,32 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     status: AUTO_STATUS,
     threads: [],
     snapshots: {},
+    digests: {},
     fail: null,
     failWrites: null,
+    failDigest: null,
     ...options,
   };
   const followed: FakeAuto['followed'] = { list: null, thread: null };
   let tokens = 0;
   const entry = (id: string) => state.threads.find((thread) => thread.id === id) ?? autoThread(id);
+  const days = () => Object.keys(state.digests).sort().reverse();
+  /** Changes entries of a day and answers the day as it is after, counted again. */
+  const change = (date: string, ids: string[], fields: (found: AutoDigestEntry) => Partial<AutoDigestEntry>): AutoResult<unknown> => {
+    const digest = state.digests[date];
+    if (!digest) return NO_DIGEST;
+    const sections = digest.sections.map((section) => ({
+      ...section,
+      entries: section.entries.map((found) => (ids.includes(found.id) ? { ...found, ...fields(found) } : found)),
+    }));
+    state.digests[date] = { ...digest, sections, left: sections.reduce((sum, section) => sum + section.entries.filter((found) => found.state === 'open').length, 0) };
+    return ok(state.digests[date]);
+  };
 
   const request = vi.fn(async (route: AutoRoute): Promise<AutoResult<unknown>> => {
     if (state.fail) return { success: false, error: state.fail };
     if (state.failWrites && !READS.has(route.kind)) return { success: false, error: state.failWrites };
+    if (state.failDigest && (route.kind === 'digest' || route.kind === 'digests')) return { success: false, error: state.failDigest };
     switch (route.kind) {
       case 'status':
       case 'check-status':
@@ -115,6 +153,29 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         return ok({ thread: { ...entry(route.id), model: route.model } });
       case 'start':
         return ok({ thread: { ...entry(route.id), waits: false, status: 'working' } });
+      case 'desk':
+        return ok({ thread: { ...entry(route.id), desk: route.on ? { at: 1_794_000_900, by: 'opal' } : null } });
+      case 'digests':
+        return ok({ days: days(), latest: days()[0] ?? null });
+      case 'digest': {
+        const date = route.date ?? days()[0];
+        return date && state.digests[date] ? ok(state.digests[date]) : NO_DIGEST;
+      }
+      case 'digest-resolve':
+        return change(route.date, route.ids, (found) => ({ state: route.resolved ? 'resolved' : found.thread ? 'thread' : 'open' }));
+      case 'digest-note':
+        return change(route.date, [route.id], () => ({ note: route.text }));
+      case 'digest-thread': {
+        const found = state.digests[route.date]?.sections.flatMap((section) => section.entries).find((each) => each.id === route.id);
+        if (!found) return NO_DIGEST;
+        const id = `from-${route.id}`.slice(0, 40);
+        const waits = route.words === null;
+        const thread = autoThread(id, { title: found.title || found.md.slice(0, 40), digest: { date: route.date, id: route.id }, waits, status: waits ? 'idle' : 'working', last: found.md.slice(0, 80) });
+        state.threads = [thread, ...state.threads.filter((each) => each.id !== id)];
+        state.snapshots[id] = autoSnapshot(thread, waits ? { seed: found.md } : { live: { items: [{ role: 'user', text: route.words ?? '', cid: route.cid }], activity: '', state: 'working', question: null } });
+        change(route.date, [route.id], () => ({ state: 'thread', thread: id }));
+        return ok({ thread });
+      }
     }
   });
 

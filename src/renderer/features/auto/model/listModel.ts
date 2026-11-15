@@ -1,8 +1,9 @@
 import type { AutoThread } from '@/types/auto';
 
 /*
- * The list: his threads in the service's order, the ones that wait on him
- * above the rest, and snoozed ones behind one line at the bottom.
+ * The list: the threads he marked for the Mac first, then the ones that wait
+ * on him, then the rest, each in the service's order, and snoozed ones
+ * behind one line at the bottom. Snoozed wins over every group.
  */
 
 export interface ListGroup {
@@ -28,6 +29,8 @@ interface GroupRule {
  * line here.
  */
 const GROUPS: readonly GroupRule[] = [
+  // Marked for the Mac on any device. A marked thread that waits on him stays here, with its question.
+  { key: 'desk', heading: 'For the Mac', movable: false, takes: (thread) => thread.desk !== null },
   { key: 'needs', heading: null, movable: false, takes: (thread) => thread.status === 'waiting' },
   { key: 'rest', heading: null, movable: true, takes: () => true },
 ];
@@ -54,7 +57,8 @@ export function listView(threads: readonly AutoThread[]): ListView {
   return {
     groups: groups.filter((group) => group.threads.length > 0),
     snoozed,
-    needs: groups.find((group) => group.key === 'needs')?.threads.length ?? 0,
+    // Whichever group they show in.
+    needs: shown.filter((thread) => thread.status === 'waiting').length,
   };
 }
 

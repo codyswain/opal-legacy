@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { autoApi, useAutoStore } from './store/autoStore';
-import { dispatchStream, useThreadStore } from './store/threadStore';
+import { dispatchStream } from './store/streams';
+import { useThreadStore } from './store/threadStore';
 
 /** While the service is out of reach and a tab is open, the list is asked for again this often. */
 const RETRY_MS = 5_000;

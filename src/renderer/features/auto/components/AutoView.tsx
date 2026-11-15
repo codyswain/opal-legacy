@@ -7,8 +7,10 @@ import { canonical, tabLocation, useTabsStore } from '@/renderer/features/disk-e
 import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import { Button } from '@/renderer/shared/ui';
 import { MarkdownLinksContext, type MarkdownLinks } from '../markdown/Markdown';
+import { DIGEST_QUEUE } from '../model/pane';
 import { autoApi, signInProblem, useAutoStore } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
+import { QueuePane } from './QueuePane';
 import { ThreadList } from './ThreadList';
 import { ThreadPane } from './ThreadPane';
 
@@ -210,7 +212,8 @@ export function AutoView() {
         <Notice />
         <div className="flex min-h-0 flex-1">
           {!narrow || openId === null ? <ThreadList narrow={narrow} /> : null}
-          {!narrow || openId !== null ? <ThreadPane narrow={narrow} /> : null}
+          {/* One pane beside the list: a thread, or the digest's queue. Narrow, either one hides the list. */}
+          {narrow && openId === null ? null : openId === DIGEST_QUEUE ? <QueuePane narrow={narrow} /> : <ThreadPane narrow={narrow} />}
         </div>
       </MarkdownLinksContext.Provider>
     );

@@ -53,6 +53,8 @@ export interface AutoStore {
   move: (id: string, before: string | null) => Promise<void>;
   /** An option of a waiting row, clicked. */
   answer: (thread: AutoThread, label: string) => Promise<void>;
+  /** Marks a thread for the Mac, or takes the mark off. The service ends the mark by itself. */
+  desk: (thread: AutoThread, on: boolean) => Promise<void>;
 }
 
 export const autoApi = (): AutoAPI | undefined => (typeof window !== 'undefined' ? window.autoAPI : undefined);
@@ -222,6 +224,13 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       if (!ask?.question) return;
       const result = await autoApi()?.request({ kind: 'answer', id: thread.id, answer: { id: ask.id, answers: { [ask.question]: label } } }).catch((): null => null);
       if (result && !result.success) said(result.error.message);
+    },
+
+    desk: async (thread, on) => {
+      const result = await autoApi()?.request({ kind: 'desk', id: thread.id, on }).catch((): null => null);
+      // The mark changes only by the service's answer, or by its event on the list stream.
+      if (result?.success) get().upsert(result.data.thread);
+      else if (result) said(result.error.message);
     },
   };
 });

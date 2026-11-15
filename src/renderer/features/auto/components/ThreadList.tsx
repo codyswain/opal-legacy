@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, Check, ChevronRight, Clock, MoreHorizontal, SquarePen } from 'lucide-react';
+import { Archive, Check, ChevronRight, Clock, MoreHorizontal, Newspaper, SquarePen } from 'lucide-react';
 import type { AutoThread } from '@/types/auto';
 import {
   Button,
@@ -28,8 +28,10 @@ import {
   snoozedUntil,
   type ListGroup,
 } from '../model/listModel';
-import { NEW_THREAD } from '../model/outbox';
+import { leftWord } from '../model/digestModel';
+import { DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { useAutoStore } from '../store/autoStore';
+import { useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
 import { SnoozeDateDialog, SnoozeItems } from './SnoozeMenu';
 
@@ -99,7 +101,7 @@ function RowLineView({ thread }: { thread: AutoThread }) {
 
 function ThreadRow({ thread, now, current, snoozed = false, drop = null, dragging = false, drag, onPickDate }: RowProps) {
   const open = useThreadStore((state) => state.open);
-  const { snooze, archive, answer } = useAutoStore.getState();
+  const { snooze, archive, answer, desk } = useAutoStore.getState();
   const options = snoozed ? [] : rowOptions(thread);
   const digestEntry = fromDigest(thread);
   const time = snoozed && thread.snoozed ? snoozedUntil(thread.snoozed, now) : rowTime(thread, now);
@@ -194,6 +196,11 @@ function ThreadRow({ thread, now, current, snoozed = false, drop = null, draggin
             </>
           )}
           <ContextMenuSeparator />
+          {/* "I want this one on the Mac". It stays on every device; the service ends the mark. */}
+          <ContextMenuItem onSelect={() => void desk(thread, thread.desk === null)}>
+            {thread.desk === null ? 'Mark for the Mac' : 'Take off the Mac mark'}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           {digestEntry ? <ContextMenuItem onSelect={() => void archive(thread, true)}>Done</ContextMenuItem> : null}
           <ContextMenuItem onSelect={() => void archive(thread)}>Archive</ContextMenuItem>
         </ContextMenuContent>
@@ -204,13 +211,15 @@ function ThreadRow({ thread, now, current, snoozed = false, drop = null, draggin
 
 interface GroupProps {
   group: ListGroup;
+  /** The group above this one has a heading and this one has none, so a gap parts them. */
+  apart: boolean;
   now: number;
   openId: string | null;
   onPickDate: (thread: AutoThread) => void;
 }
 
 /** One group of rows. A movable group's rows drag to a new place among themselves. */
-function GroupRows({ group, now, openId, onPickDate }: GroupProps) {
+function GroupRows({ group, apart, now, openId, onPickDate }: GroupProps) {
   const [dragging, setDragging] = React.useState<string | null>(null);
   const [drop, setDrop] = React.useState<{ id: string; edge: 'above' | 'below' } | null>(null);
   const move = useAutoStore((state) => state.move);
@@ -251,7 +260,7 @@ function GroupRows({ group, now, openId, onPickDate }: GroupProps) {
   };
 
   return (
-    <section aria-label={group.heading ?? undefined} data-testid={`auto-group-${group.key}`}>
+    <section aria-label={group.heading ?? undefined} data-testid={`auto-group-${group.key}`} className={apart ? 'pt-3' : undefined}>
       {group.heading ? <h2 className="px-2 pb-1 pt-3 text-label text-foreground-tertiary">{group.heading}</h2> : null}
       <ul
         className="flex flex-col gap-0.5"
@@ -284,6 +293,7 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
   const snooze = useAutoStore((state) => state.snooze);
   const openId = useThreadStore((state) => state.openId);
   const open = useThreadStore((state) => state.open);
+  const left = useDigestStore((state) => leftWord(state.latest));
   const now = useNow();
   const view = React.useMemo(() => listView(threads), [threads]);
   const empty = emptyList(view, now);
@@ -324,6 +334,22 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
           </div>
         </div>
 
+        {/* The digest, as a queue. Not a thread: it does not drag, snooze or archive. */}
+        <div className={cn('mb-0.5 rounded-row transition-hover', openId === DIGEST_QUEUE ? 'bg-surface-selected' : 'hover:bg-surface-hover')}>
+          <button
+            type="button"
+            data-auto-row
+            data-testid="auto-digest-row"
+            aria-current={openId === DIGEST_QUEUE || undefined}
+            onClick={() => open(DIGEST_QUEUE)}
+            className="flex h-row w-full items-center gap-2 rounded-row px-2 text-left text-ui font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+          >
+            <Newspaper aria-hidden className="h-3.5 w-3.5 shrink-0 text-icon" />
+            <span className="min-w-0 flex-1 truncate">Digest</span>
+            {left ? <span className="shrink-0 text-metadata font-normal tabular-nums text-foreground-tertiary">{left}</span> : null}
+          </button>
+        </div>
+
         {empty ? (
           <div data-testid="auto-empty" className="px-2 py-6">
             <p className="text-ui text-foreground-secondary">{empty.title}</p>
@@ -332,8 +358,15 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
         ) : null}
 
         <div className="flex flex-col gap-0.5">
-          {view.groups.map((group) => (
-            <GroupRows key={group.key} group={group} now={now} openId={openId} onPickDate={setPicking} />
+          {view.groups.map((group, at) => (
+            <GroupRows
+              key={group.key}
+              group={group}
+              apart={at > 0 && view.groups[at - 1].heading !== null && group.heading === null}
+              now={now}
+              openId={openId}
+              onPickDate={setPicking}
+            />
           ))}
         </div>
 

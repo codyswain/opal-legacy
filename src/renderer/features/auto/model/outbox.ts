@@ -1,4 +1,7 @@
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
+import { NEW_THREAD } from './pane';
+
+export { NEW_THREAD };
 
 /*
  * The box's outbox. A message is kept here from Enter until the service has
@@ -22,12 +25,9 @@ export interface OutboxEntry {
 
 export interface BoxState {
   outbox: OutboxEntry[];
-  /** Typed and not sent, by thread id; `new` is the new thread's box. */
+  /** Typed and not sent, by thread id; NEW_THREAD is the new thread's box. */
   drafts: Record<string, string>;
 }
-
-/** The new thread's box. */
-export const NEW_THREAD = 'new';
 
 const PREF_KEY = 'auto.box';
 const OUTBOX_LIMIT = 50;

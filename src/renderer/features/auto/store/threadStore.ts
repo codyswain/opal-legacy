@@ -14,6 +14,7 @@ import {
   type Failed,
   type OutboxEntry,
 } from '../model/outbox';
+import { DIGEST_QUEUE, paneThread } from '../model/pane';
 import type { Picks } from '../model/questionModel';
 import { applyEvent, fromSnapshot, unconfirmed, type PendingMessage, type ThreadView } from '../model/threadModel';
 import { autoApi, useAutoStore } from './autoStore';
@@ -25,7 +26,10 @@ import { autoApi, useAutoStore } from './autoStore';
  */
 
 export interface ThreadStore {
-  /** The open thread's id, `new` for the empty one, or null when none is open. */
+  /**
+   * What the pane beside the list shows: a thread's id, NEW_THREAD for the
+   * empty thread, DIGEST_QUEUE for the digest, or null for nothing.
+   */
   openId: string | null;
   view: ThreadView | null;
   loading: boolean;
@@ -139,13 +143,13 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (id === get().openId) return;
       unfollow();
       set({ openId: id, view: null, loading: false, problem: null, pending: [], picks: {}, cardProblem: null });
-      if (id && id !== NEW_THREAD) void get().load();
+      if (paneThread(id)) void get().load();
     },
 
     load: async () => {
-      const id = get().openId;
+      const id = paneThread(get().openId);
       const api = autoApi();
-      if (!api || !id || id === NEW_THREAD) return;
+      if (!api || !id) return;
       unfollow();
       set({ loading: get().view === null });
       const result = await api.request({ kind: 'thread', id }).catch((): null => null);
@@ -207,7 +211,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const words = text.trim();
       const openId = get().openId;
       const key = draftKey(openId);
-      if (!words) return false;
+      // The queue has boxes of its own.
+      if (!words || openId === DIGEST_QUEUE) return false;
       // While the service is out of reach the box is left as it is.
       if (!useAutoStore.getState().reachable) {
         set({ notSent: { thread: key, text: 'Not sent' } });
@@ -234,8 +239,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     },
 
     stop: async () => {
-      const id = get().openId;
-      if (!id || id === NEW_THREAD) return;
+      const id = paneThread(get().openId);
+      if (!id) return;
       const result = await autoApi()?.request({ kind: 'stop', id }).catch((): null => null);
       if (!result?.success) {
         if (result?.error.kind === 'refused') set({ cardProblem: result.error.message });
@@ -249,8 +254,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     },
 
     answer: async (answer) => {
-      const id = get().openId;
-      if (!id || id === NEW_THREAD) return false;
+      const id = paneThread(get().openId);
+      if (!id) return false;
       const result = await autoApi()?.request({ kind: 'answer', id, answer }).catch((): null => null);
       if (result?.success) {
         set({ picks: {}, cardProblem: null });
@@ -263,24 +268,24 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     setPicks: (picks) => set({ picks }),
 
     handOver: async () => {
-      const id = get().openId;
-      if (!id || id === NEW_THREAD) return;
+      const id = paneThread(get().openId);
+      if (!id) return;
       const result = await autoApi()?.request({ kind: 'start', id }).catch((): null => null);
       if (result?.success) useAutoStore.getState().upsert(result.data.thread);
       else set({ cardProblem: result?.error.message ?? "Can't reach Auto." });
     },
 
     rename: async (title) => {
-      const id = get().openId;
+      const id = paneThread(get().openId);
       const said = title.trim();
-      if (!id || id === NEW_THREAD || !said || said === get().view?.thread.title) return;
+      if (!id || !said || said === get().view?.thread.title) return;
       const result = await autoApi()?.request({ kind: 'rename', id, title: said }).catch((): null => null);
       if (result?.success) useAutoStore.getState().upsert(result.data.thread);
     },
 
     setModel: async (model) => {
-      const id = get().openId;
-      if (!id || id === NEW_THREAD) {
+      const id = paneThread(get().openId);
+      if (!id) {
         set({ newModel: model });
         return;
       }
@@ -312,9 +317,3 @@ useAutoStore.subscribe((state, before) => {
   if (entry && entry !== view.thread) useThreadStore.setState({ view: { ...view, thread: entry } });
   else if (!entry && before.threads.some((thread) => thread.id === openId)) open(null);
 });
-
-/** Every stream message from the main process, handed to the store that follows that stream. */
-export function dispatchStream(message: AutoStreamMessage): void {
-  useAutoStore.getState().handle(message);
-  useThreadStore.getState().handle(message);
-}
