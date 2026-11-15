@@ -8,6 +8,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { useDiskStore } from "@/renderer/features/disk-explorer/store/diskStore";
 import { useStackStore } from "@/renderer/features/disk-explorer/store/stackStore";
 import { useTabsStore } from "@/renderer/features/disk-explorer/store/tabsStore";
+import { usePinsStore } from "@/renderer/features/disk-explorer/store/pinsStore";
 import { useSettingsStore } from "@/renderer/features/settings";
 import { fileLocation, stackLocation } from "@/renderer/features/disk-explorer/navigation/filesLocation";
 import {
@@ -151,7 +152,7 @@ describe("WorkspaceSidebar", () => {
     }
   });
 
-  it("shows the same nav and file tree on every route, without Library", async () => {
+  it("shows the same nav and file tree on every route, with no Recent row", async () => {
     useDiskStore.setState({
       roots: [ROOT],
       listings: { [ROOT]: ROOT_ENTRIES },
@@ -159,7 +160,8 @@ describe("WorkspaceSidebar", () => {
     renderSidebar(false, "/");
 
     expect(screen.getByRole("button", { name: "Daily" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Recent" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Recent" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Auto/ })).toBeNull();
     expect(screen.queryByRole("link", { name: "Library" })).toBeNull();
     expect(screen.queryByText("Open folders")).toBeNull();
     expect(screen.queryByRole("button", { name: /workspace folder/i })).toBeNull();
@@ -193,24 +195,43 @@ describe("WorkspaceSidebar", () => {
     act(() => useShellStore.getState().setFullScreen(false));
   });
 
-  it("highlights Recent only while browsing Recent", async () => {
+  it("has two sections that fold, Threads then Library, open at first and remembered", async () => {
     const user = userEvent.setup();
-    useDiskStore.setState({ roots: [ROOT], rootsLoaded: true });
-    renderSidebar(true);
-    const recent = screen.getByRole("button", { name: "Recent" });
-    expect(recent).not.toHaveClass("bg-sidebar-selected");
+    useDiskStore.setState({ roots: [ROOT], rootsLoaded: true, listings: { [ROOT]: ROOT_ENTRIES } });
+    usePinsStore.setState({ byRoot: { [ROOT]: [`${ROOT}/readme.md`] }, missing: [] });
+    renderSidebar();
+    const threads = screen.getByTestId("sidebar-fold-threads");
+    const library = screen.getByTestId("sidebar-fold-library");
+    expect(threads.textContent).toBe("Threads");
+    expect(library.textContent).toBe("Library");
+    expect(threads.compareDocumentPosition(library) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(threads).toHaveAttribute("aria-expanded", "true");
+    expect(library).toHaveAttribute("aria-expanded", "true");
+    // Pinned pages sit at the top of Library, above the tree.
+    const section = screen.getByTestId("sidebar-library");
+    expect(within(section).getByTestId("pinned-section")).toBeInTheDocument();
+    expect(within(section).getByRole("tree", { name: "Files" })).toBeInTheDocument();
+    expect(screen.getByTestId("pinned-section").compareDocumentPosition(screen.getByRole("tree", { name: "Files" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    await user.click(recent);
-    expect(await screen.findByRole("heading", { name: "Recent" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent(
-      "/files?mode=browse&collection=recent",
-    );
-    expect(recent).toHaveClass("bg-sidebar-selected");
-    expect(window.activityAPI.record).not.toHaveBeenCalled();
-
-    // Opening a page from Recent leaves Recent one Back step away.
-    act(() => useTabsStore.getState().open(fileLocation(`${ROOT}/readme.md`)));
-    expect(recent).not.toHaveClass("bg-sidebar-selected");
+    // A click folds Library: its pins and its tree go with it, and the fold is kept.
+    await user.click(library);
+    expect(library).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("pinned-section")).toBeNull();
+    expect(screen.queryByRole("tree", { name: "Files" })).toBeNull();
+    expect(useShellStore.getState().hydrate()).toMatchObject({ libraryOpen: false, threadsOpen: true });
+    // Right opens it, Left folds it, Enter and Space toggle it.
+    fireEvent.keyDown(library, { key: "ArrowRight" });
+    expect(library).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(threads, { key: "ArrowLeft" });
+    expect(threads).toHaveAttribute("aria-expanded", "false");
+    fireEvent.keyDown(threads, { key: "ArrowLeft" });
+    expect(threads).toHaveAttribute("aria-expanded", "false");
+    threads.focus();
+    await user.keyboard("{Enter}");
+    expect(threads).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard(" ");
+    expect(threads).toHaveAttribute("aria-expanded", "false");
+    act(() => useShellStore.getState().setFoldOpen("threads", true));
   });
 });
 

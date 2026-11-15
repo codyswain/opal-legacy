@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useAutoTabName } from '@/renderer/features/auto/useAutoTabName';
 import { locationName } from '@/renderer/features/disk-explorer/components/tabLabels';
 import { useDiskSync } from '@/renderer/features/disk-explorer/hooks/useDiskSync';
 import { usePinsSync } from '@/renderer/features/disk-explorer/hooks/usePinsSync';
@@ -111,7 +112,8 @@ export function AppShell({ children }: AppShellProps) {
   const shownLocation = useTabsStore(selectCurrentLocation);
   // A hidden file never names the window.
   const titleHidden = useHiddenStore((state) => namesHidden(state, shownLocation ? locationPath(shownLocation) : null));
-  const pageName = shownLocation && !titleHidden ? locationName(shownLocation) : null;
+  const autoName = useAutoTabName();
+  const pageName = shownLocation && !titleHidden ? locationName(shownLocation, undefined, autoName) : null;
   const { layout, width: viewport } = useShellViewport();
   const narrowSidebarRef = React.useRef<HTMLDivElement>(null);
   const sidebarToggleRef = React.useRef<HTMLButtonElement>(null);

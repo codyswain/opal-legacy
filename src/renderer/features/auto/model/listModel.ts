@@ -231,6 +231,19 @@ export function rowLine(thread: AutoThread): RowLine {
   return { kind: 'plain', text: rest, under: '' };
 }
 
+/**
+ * The line a row in the sidebar shows under its title, only when there is
+ * something he must see: the question, "Your move: ...", "Not started", why
+ * it failed, or who replied to a wait. The first words of an idle thread's
+ * last reply, and the live line of one at work, are left out: its time says
+ * how long it has been working.
+ */
+export function needsLine(thread: AutoThread): RowLine | null {
+  const line = rowLine(thread);
+  if (!line.text || line.kind === 'plain' || line.kind === 'live') return null;
+  return { ...line, under: '' };
+}
+
 /** The labels a waiting row offers as buttons: only for a plain question, never for a permission. */
 export function rowOptions(thread: AutoThread): string[] {
   const ask = thread.ask;

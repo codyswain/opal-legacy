@@ -1,21 +1,18 @@
 import * as React from "react";
-import { ChevronsDownUp, Clock, Inbox, Settings } from "lucide-react";
-import { attentionCount, openAutoTab, useAutoStore } from "@/renderer/features/auto";
-import { browseRecent, isAutoLocation } from "@/renderer/features/disk-explorer/navigation";
+import { ChevronsDownUp, Settings } from "lucide-react";
+import { SaidBar, ThreadsSection } from "@/renderer/features/auto";
 import { useDiskStore } from "@/renderer/features/disk-explorer/store/diskStore";
 import { canCollapseTree } from "@/renderer/features/disk-explorer/store/treeExpansion";
-import {
-  selectCurrentLocation,
-  useTabsStore,
-} from "@/renderer/features/disk-explorer/store/tabsStore";
 import { useSettingsStore } from "@/renderer/features/settings/store/settingsStore";
 import { UpdateRow } from "@/renderer/features/updates";
 import { IconButton } from "@/renderer/shared/ui";
-import { useShell } from "../context/ShellContext";
+import { cn } from "@/renderer/shared/utils";
+import { useShellStore } from "../store/shellStore";
 import { DailyItem } from "./DailyItem";
 import { FileTree } from "./FileTree";
 import { FrameControls, SearchButton, TrafficLightInset } from "./FrameControls";
 import { PinnedSection } from "./PinnedSection";
+import { SidebarFold } from "./SidebarFold";
 import { SidebarItem } from "./SidebarItem";
 import { SidebarSection } from "./SidebarSection";
 
@@ -47,34 +44,11 @@ function CollapseFoldersButton() {
   );
 }
 
-/** Cmd+click and middle-click open in a new tab, as everywhere else. */
-function wantsNewTab(event: React.MouseEvent): boolean {
-  return event.metaKey || event.ctrlKey || event.button === 1;
-}
-
 export function WorkspaceSidebar({
   onNavigate,
   onToggleSidebar,
 }: WorkspaceSidebarProps) {
-  const isRecent = useTabsStore((state) => {
-    const shown = selectCurrentLocation(state);
-    return shown?.mode === "browse" && shown.collection.kind === "recent";
-  });
-  const isAuto = useTabsStore((state) => isAutoLocation(selectCurrentLocation(state)));
-  // The threads that wait on him, and the ones with a reply he has not read.
-  const autoNeeds = useAutoStore((state) => attentionCount(state.threads));
-  const { navigateFiles } = useShell();
-
-  const goToRecent = (newTab: boolean) => {
-    navigateFiles(browseRecent(), { newTab });
-    onNavigate?.();
-  };
-
-  // One Auto tab: the row goes to the one already open, or opens one beside the page.
-  const goToAuto = () => {
-    openAutoTab(navigateFiles);
-    onNavigate?.();
-  };
+  const libraryOpen = useShellStore((state) => state.libraryOpen);
 
   const openSettings = () => {
     onNavigate?.();
@@ -99,29 +73,28 @@ export function WorkspaceSidebar({
       <nav aria-label="Primary" className="shrink-0 pt-1">
         <SidebarSection>
           <DailyItem onNavigate={onNavigate} />
-          <SidebarItem
-            icon={Clock}
-            label="Recent"
-            active={isRecent}
-            onActivate={(event) => goToRecent(wantsNewTab(event))}
-          />
-          <SidebarItem
-            icon={Inbox}
-            label="Auto"
-            active={isAuto}
-            trailing={autoNeeds > 0 ? autoNeeds : undefined}
-            onActivate={goToAuto}
-          />
         </SidebarSection>
       </nav>
 
-      <PinnedSection onNavigate={onNavigate} />
-
-      <div className="min-h-0 flex-1 pt-sidebar-group">
-        <FileTree onNavigate={onNavigate} />
+      {/* Threads, then Library. Threads takes the height its rows need, up to about half; Library the rest. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ThreadsSection onNavigate={onNavigate} />
+        <SidebarFold
+          fold="library"
+          label="Library"
+          className={cn("pt-2", libraryOpen ? "flex-1" : "shrink-0")}
+          bodyClassName="flex-1"
+        >
+          <PinnedSection onNavigate={onNavigate} />
+          <div className="min-h-0 flex-1">
+            <FileTree onNavigate={onNavigate} />
+          </div>
+        </SidebarFold>
       </div>
 
       <div className="shrink-0 px-sidebar-inset py-2">
+        {/* What the last Auto action did, and the way back: here, whether or not an Auto tab is open. */}
+        <SaidBar className="mb-1.5" />
         <UpdateRow />
         <SidebarItem icon={Settings} label="Settings" onActivate={openSettings} />
       </div>

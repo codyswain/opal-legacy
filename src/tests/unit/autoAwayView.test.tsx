@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoItem, AutoQuestion, AutoRoute, AutoThread, AutoWait } from '@/types/auto';
-import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { AutoScreen } from '@/tests/helpers/autoHarness';
 import { forgetPlaces } from '@/renderer/features/auto/model/places';
 import { useAutoCommands } from '@/renderer/features/auto/useAutoCommands';
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
@@ -108,7 +109,7 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
         <TooltipProvider>
           <ShellProvider>
             <Sync />
-            <AutoView />
+            <AutoScreen />
           </ShellProvider>
         </TooltipProvider>
       </ThemeProvider>
@@ -120,7 +121,7 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
 }
 
 const row = (id: string) => screen.getByTestId(`auto-row-${id}`);
-const rowButton = (id: string) => screen.getByTestId('auto-list').querySelector(`[data-row-id="${id}"]`) as HTMLElement;
+const rowButton = (id: string) => document.querySelector(`[data-auto-list] [data-row-id="${id}"]`) as HTMLElement;
 const rowIds = (within_ = 'auto-list') => [...screen.getByTestId(within_).querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
 /** The threads in the list proper, without what is put away. */
 const listed = () => [...screen.getByTestId('auto-list').querySelectorAll('[data-testid^="auto-group-"] [data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
@@ -255,7 +256,7 @@ describe('archived threads', () => {
     expect(screen.getByTestId('auto-away-lead').textContent).toBe('Archived');
     expect(screen.getByTestId('auto-away-detail').textContent).toBe('Yesterday');
     expect(screen.getByTestId('auto-bring-back').textContent).toBe('Bring back');
-    expect(row('gone1').className).toContain('bg-surface-selected');
+    expect(row('gone1').className).toContain('bg-sidebar-selected');
   });
 
   it('brings a thread back from its row: it joins the list, the line says so, and Undo archives it again', async () => {
@@ -424,7 +425,7 @@ describe('a thread waiting on a reply', () => {
     expect(within(row('glass')).getByTestId('auto-wait-detail').textContent).toBe('Gives up Tue 5:00 pm.');
     expect(within(row('bread')).getByRole('img', { name: 'Unread' })).toBeInTheDocument();
     expect(within(row('glass')).queryByRole('img')).toBeNull();
-    expect(within(row('glass')).getByText('Greenhouse glass').className).toContain('font-medium');
+    expect(within(row('glass')).getByText('Greenhouse glass').className).not.toContain('font-semibold');
   });
 
   it('is put away from the snooze menu: who he waits on, when it gives up, and one post with his words', async () => {
@@ -517,10 +518,10 @@ describe('a thread waiting on a reply', () => {
     expect(within(row('glass')).getByTestId('auto-wait-back').textContent).toBe('Sam replied: 4 mm toughened, 86 for the lot.');
     act(() => auto.list({ kind: 'thread', thread: { ...met, last: 'No reply from Sam.', wait: wait({ state: 'expired' }) } }));
     expect(within(row('glass')).getByTestId('auto-wait-back').textContent).toBe('No reply from Sam.');
-    // Opened, the service clears `woke`, and the row says its last line again.
+    // Opened, the service clears `woke`, and the row is one line again: the first words of a reply stay out of the sidebar.
     act(() => auto.list({ kind: 'thread', thread: { ...met, woke: null } }));
     expect(within(row('glass')).queryByTestId('auto-wait-back')).toBeNull();
-    expect(within(row('glass')).getByText('Sam: 4 mm toughened, 86 for the lot.')).toBeInTheDocument();
+    expect(within(row('glass')).queryByText('Sam: 4 mm toughened, 86 for the lot.')).toBeNull();
   });
 
   it('shows the service’s note in the thread where the wait ended', async () => {
@@ -696,7 +697,7 @@ describe('what Undo leaves behind', () => {
     // The late copy neither takes the row away nor closes the pane.
     expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
     expect(screen.getByTestId('auto-title').textContent).toBe('Sourdough timings');
-    expect(row('bread').className).toContain('bg-surface-selected');
+    expect(row('bread').className).toContain('bg-sidebar-selected');
     expect(screen.queryByTestId('auto-away')).toBeNull();
   });
 
@@ -857,23 +858,10 @@ describe('where the keyboard goes', () => {
     await waitFor(() => expect(document.activeElement).toBe(box()));
   });
 
-  it('stays on the row after a click on a row’s answer', async () => {
-    hold.ms = 60;
+  it('shows the numbers beside a question’s options only while the card has the keyboard, and a digit in the box is typed', async () => {
     await open();
-    fireEvent.click(within(row('beds')).getByRole('button', { name: /^Larch/ }));
-    await waitFor(() => expect(focusedRow()).toBe('beds'));
-    expect(within(row('beds')).getByTestId('auto-row-held').textContent).toBe('Larch');
-  });
-
-  it('shows the numbers beside a question’s options only while the card or the row has the keyboard, and a digit in the box is typed', async () => {
-    await open();
-    // On a row: shown by the row's own focus, hidden otherwise.
-    const rowKeys = within(row('beds')).getAllByTestId('auto-row-key');
-    expect(rowKeys.map((each) => each.textContent)).toEqual(['1', '2']);
-    for (const each of rowKeys) {
-      expect(each.className).toContain('hidden');
-      expect(each.className).toContain('group-has-[[data-auto-row]:focus-visible]:inline');
-    }
+    // A row has no options, so no numbers.
+    expect(within(row('beds')).queryByTestId('auto-row-key')).toBeNull();
     await openThread('bread');
     act(() => auto.thread({ kind: 'turn', items: [user('Plan it', 'a1')], state: 'working', activity: '' }));
     act(() => auto.thread({ kind: 'question', question: ASK }));

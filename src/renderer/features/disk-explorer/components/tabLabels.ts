@@ -37,11 +37,11 @@ export function vaultFolder(path: string, roots: readonly string[]): string {
 /**
  * A tab's name. The stream of daily pages is "Daily" while its head is
  * today's page; any other stack goes by its head's name, as the head opened
- * alone does.
+ * alone does. The Auto tab is named after what it shows, `autoName`.
  */
-export function locationName(location: FilesLocation, today = localDate()): string {
+export function locationName(location: FilesLocation, today = localDate(), autoName = 'Auto'): string {
   const path = locationPath(location);
-  if (!path) return location.mode === 'browse' && location.collection.kind === 'auto' ? 'Auto' : 'Recent';
+  if (!path) return location.mode === 'browse' && location.collection.kind === 'auto' ? autoName : 'Recent';
   if (location.mode === 'stack' && location.kind === 'daily' && dailyHeadDate(path) === today) return 'Daily';
   const name = basenameFsPath(path);
   return fileTreeLabel(name, classifyFile(name));
@@ -75,9 +75,10 @@ function distinguishingFolders(path: string, rivals: readonly string[]): string 
  */
 export function tabLabels(
   locations: readonly FilesLocation[],
-  roots: readonly string[]
+  roots: readonly string[],
+  autoName = 'Auto'
 ): TabLabel[] {
-  const names = locations.map((location) => locationName(location));
+  const names = locations.map((location) => locationName(location, localDate(), autoName));
   const paths = locations.map(locationPath);
   return locations.map((_, index) => {
     const name = names[index];

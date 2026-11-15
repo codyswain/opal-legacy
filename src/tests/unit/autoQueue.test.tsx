@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoRoute } from '@/types/auto';
-import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { AutoScreen } from '@/tests/helpers/autoHarness';
 import { forgetPlaces } from '@/renderer/features/auto/model/places';
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
 import { HOLD_MS, hold } from '@/renderer/features/auto/store/actions';
@@ -74,7 +75,7 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
         <TooltipProvider>
           <ShellProvider>
             <Sync />
-            <AutoView />
+            <AutoScreen />
           </ShellProvider>
         </TooltipProvider>
       </ThemeProvider>
@@ -147,14 +148,12 @@ describe('the mark for the Mac', () => {
     expect(group.getByTestId('auto-row-seeds')).toBeInTheDocument();
   });
 
-  it('keeps a marked thread that waits there, with its question and its buttons', async () => {
+  it('keeps a marked thread that waits there, with its question under its title', async () => {
     await open({ threads: [BREAD, { ...BEDS, desk: { at: 1_794_000_100, by: 'phone' } }, SEEDS] });
     expect(rowIds()).toEqual(['beds', 'bread', 'seeds']);
     const group = within(screen.getByTestId('auto-group-desk'));
+    expect(group.getByText('For the Mac')).toBeInTheDocument();
     expect(group.getByText('Which wood for the frames?')).toBeInTheDocument();
-    hold.ms = 40;
-    fireEvent.click(group.getByRole('button', { name: 'Larch' }));
-    await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'beds', answer: { id: 'q0', answers: { 'Which wood for the frames?': 'Larch' } } }));
   });
 
   it('takes the mark off from the same menu', async () => {
@@ -191,18 +190,16 @@ describe('the mark for the Mac', () => {
 });
 
 describe('the Digest row', () => {
-  it('sits under New thread with how much is left and a line about the day, and is not a thread row', async () => {
+  it('heads the Threads section on one line with how much is left, and is not a thread row', async () => {
     await open();
     await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
-    expect(screen.getByTestId('auto-digest-line').textContent).toBe('Fri Nov 13. 8 entries, 1 resolved.');
+    expect(screen.queryByTestId('auto-digest-line')).toBeNull();
     const rows = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')];
-    expect(rows[0].getAttribute('data-testid')).toBe('auto-new-thread');
-    expect(rows[1]).toBe(digestRow());
+    expect(rows[0]).toBe(digestRow());
     expect(digestRow().closest('[data-thread-id]')).toBeNull();
     expect(digestRow().closest('[draggable="true"]')).toBeNull();
-    // New thread and Digest stay put above the rows that scroll.
-    expect(screen.getByTestId('auto-list-rows').contains(digestRow())).toBe(false);
-    expect(screen.getByTestId('auto-list-rows').contains(row('bread'))).toBe(true);
+    // The new thread is the heading's button, outside the run of rows.
+    expect(screen.getByTestId('auto-list').contains(screen.getByTestId('auto-new-thread'))).toBe(false);
     expect(auto.asked('digest')).toEqual([{ kind: 'digest', date: null }]);
     expect(auto.asked('digests')).toHaveLength(1);
   });
@@ -275,8 +272,8 @@ describe('the queue', () => {
     expect(saidText()).toBe('Sowed the beans., resolvedUndo');
     expect(digestWord()).toBe('Digest4 left');
     expect(screen.getByTestId('auto-queue-left').textContent).toBe('Left4');
-    // The line is in the list's column, not in the app's corner.
-    expect(screen.getByTestId('auto-list').contains(said())).toBe(true);
+    // The line is the sidebar's, not the page's and not the app's corner.
+    expect(screen.getByTestId('auto').contains(said())).toBe(false);
     pressSaid('Undo');
     await waitFor(() => expect(last('digest-resolve')).toEqual({ kind: 'digest-resolve', date: DAY, ids: ['text-b'], resolved: false }));
     await waitFor(() => expect(entryIds()).toContain('text-b'));
@@ -972,26 +969,6 @@ describe('changes made somewhere else', () => {
     await openQueue();
     act(() => useAutoStore.setState({ address: 'https://other.example/agent' }));
     expect(useDigestStore.getState()).toMatchObject({ latest: null, status: 'unknown', days: [], past: null, words: {} });
-  });
-});
-
-describe('the narrow layout', () => {
-  it('treats the queue like an open thread: it hides the list, and its back button shows the list alone', async () => {
-    class Observer {
-      constructor(private callback: (entries: Array<{ contentRect: { width: number } }>) => void) {}
-      observe() { this.callback([{ contentRect: { width: 600 } }]); }
-      disconnect() { /* nothing to release */ }
-    }
-    vi.stubGlobal('ResizeObserver', Observer);
-    await open();
-    expect(screen.getByTestId('auto').getAttribute('data-narrow')).toBe('true');
-    expect(screen.queryByTestId('auto-queue-pane')).toBeNull();
-    fireEvent.click(digestRow());
-    await screen.findByTestId('auto-queue-pane');
-    expect(screen.queryByTestId('auto-list')).toBeNull();
-    fireEvent.click(screen.getByTestId('auto-back'));
-    expect(screen.getByTestId('auto-list')).toBeInTheDocument();
-    expect(screen.queryByTestId('auto-queue-pane')).toBeNull();
   });
 });
 

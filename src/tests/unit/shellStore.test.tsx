@@ -51,6 +51,8 @@ describe('shell preferences', () => {
     const saved = {
       sidebarOpen: false,
       sidebarWidth: 248,
+      threadsOpen: false,
+      libraryOpen: true,
     };
     writePref(SHELL_PREFERENCE_KEY, saved);
 
@@ -66,6 +68,8 @@ describe('shell preferences', () => {
     expect(useShellStore.getState().hydrate()).toEqual({
       sidebarOpen: true,
       sidebarWidth: SHELL_LIMITS.sidebar.max,
+      threadsOpen: true,
+      libraryOpen: true,
     });
   });
 
@@ -99,7 +103,20 @@ describe('shell preferences', () => {
     ).toEqual({
       sidebarOpen: false,
       sidebarWidth: SHELL_LIMITS.sidebar.min,
+      threadsOpen: true,
+      libraryOpen: true,
     });
+  });
+
+  it('keeps each section of the sidebar open or folded across launches, open at first', () => {
+    expect(DEFAULT_SHELL_PREFERENCES.threadsOpen).toBe(true);
+    expect(DEFAULT_SHELL_PREFERENCES.libraryOpen).toBe(true);
+    useShellStore.getState().setFoldOpen('library', false);
+    expect(readPref(SHELL_PREFERENCE_KEY, DEFAULT_SHELL_PREFERENCES)).toMatchObject({ threadsOpen: true, libraryOpen: false });
+    useShellStore.setState({ libraryOpen: true });
+    expect(useShellStore.getState().hydrate()).toMatchObject({ libraryOpen: false, threadsOpen: true });
+    writePref(SHELL_PREFERENCE_KEY, { sidebarOpen: true, sidebarWidth: 248, threadsOpen: 'no' });
+    expect(useShellStore.getState().hydrate()).toMatchObject({ threadsOpen: true, libraryOpen: true });
   });
 
   it('drops the retired inspector fields from stored preferences', () => {
@@ -113,6 +130,8 @@ describe('shell preferences', () => {
     expect(useShellStore.getState().hydrate()).toEqual({
       sidebarOpen: true,
       sidebarWidth: 248,
+      threadsOpen: true,
+      libraryOpen: true,
     });
   });
 

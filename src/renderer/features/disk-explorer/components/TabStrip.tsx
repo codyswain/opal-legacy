@@ -12,6 +12,7 @@ import { useDiskStore } from '../store/diskStore';
 import { isPinned, usePinsStore } from '../store/pinsStore';
 import { tabFile, tabLocation, useTabsStore, type Tab } from '../store/tabsStore';
 import { locationPath } from '../navigation/filesLocation';
+import { useAutoTabName } from '@/renderer/features/auto/useAutoTabName';
 import { tabLabels } from './tabLabels';
 import { namesHidden, useHiddenStore } from '../store/hiddenStore';
 
@@ -58,8 +59,9 @@ export const TabStrip: React.FC = () => {
   const [edges, setEdges] = useState({ start: false, end: false });
   const hiddenChecks = useHiddenStore((state) => state.blocked);
   const hiddenReady = useHiddenStore((state) => state.ready);
+  const autoName = useAutoTabName();
   const labels = useMemo(() => {
-    const named = tabLabels(tabs.map(tabLocation), roots);
+    const named = tabLabels(tabs.map(tabLocation), roots, autoName);
     // A hidden file's tab says only that, and a tab from the last session waits for the first check.
     return named.map((label, index) => {
       const file = tabFile(tabs[index]);
@@ -67,7 +69,7 @@ export const TabStrip: React.FC = () => {
       const name = hiddenChecks[file as string] ? 'Hidden' : '';
       return { name, hint: null, title: name };
     });
-  }, [tabs, roots, hiddenChecks, hiddenReady]);
+  }, [tabs, roots, autoName, hiddenChecks, hiddenReady]);
   const { activate, close, closeAll, closeOthers, closeToRight, move } = useTabsStore.getState();
 
   // The faded edges say more pills are scrolled out of view on that side.

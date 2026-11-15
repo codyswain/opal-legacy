@@ -6,9 +6,14 @@ import { useAutoStore, wantedRow } from '../store/autoStore';
  * focus on to the next one.
  */
 
-/** A row of the list by its id: a thread's, or a pane's name for New thread and Digest. */
+/** A row of the sidebar's Threads by its id: a thread's, or a pane's name for New thread and Digest. */
 export const rowElement = (id: string): HTMLElement | null =>
-  document.querySelector<HTMLElement>(`[data-testid="auto-list"] [data-row-id="${id.replace(/["\\]/g, '')}"]`);
+  document.querySelector<HTMLElement>(`[data-auto-list] [data-row-id="${id.replace(/["\\]/g, '')}"]`);
+
+/** Puts the keyboard on a row of the sidebar now, or on its New thread button, if the sidebar shows it. */
+export function focusRowNow(id: string): void {
+  (rowElement(id) ?? rowElement(':new'))?.focus();
+}
 
 /**
  * For a menu or a dialog that closes: the keyboard goes to the row an

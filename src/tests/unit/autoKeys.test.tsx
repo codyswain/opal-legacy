@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoItem, AutoQuestion, AutoRoute } from '@/types/auto';
-import { AutoView, useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { AutoScreen } from '@/tests/helpers/autoHarness';
 import { unconfirmedThreads } from '@/renderer/features/auto/store/autoStore';
 import { forgetPlaces, keepPlace, placeOf, threadPlace } from '@/renderer/features/auto/model/places';
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
@@ -13,7 +14,8 @@ import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { SLOW_MS, forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { CommandPalette, usePaletteStore } from '@/renderer/features/commands';
 import { commandRegistry } from '@/renderer/features/commands/services/commandRegistry';
-import { browseAuto } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { browseAuto, focusFile } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
 import { ShellProvider } from '@/renderer/features/shell';
 import { ThemeProvider } from '@/renderer/features/theme';
@@ -71,7 +73,7 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
         <TooltipProvider>
           <ShellProvider>
             <Sync />
-            <AutoView />
+            <AutoScreen />
             <CommandPalette />
           </ShellProvider>
         </TooltipProvider>
@@ -83,7 +85,7 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
   return view;
 }
 
-const rowButton = (id: string) => screen.getByTestId('auto-list').querySelector(`[data-row-id="${id}"]`) as HTMLElement;
+const rowButton = (id: string) => document.querySelector(`[data-auto-list] [data-row-id="${id}"]`) as HTMLElement;
 const row = (id: string) => screen.getByTestId(`auto-row-${id}`);
 const rowIds = () => [...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
 const entryRow = (id: string) => screen.getByTestId('auto-queue').querySelector(`[data-entry-id="${id}"]`) as HTMLElement;
@@ -138,20 +140,19 @@ afterEach(() => {
 });
 
 describe('the list under the keyboard', () => {
-  it('is one Tab stop: New thread, Digest and every row in one run, and no button inside a row', async () => {
+  it('is one Tab stop: Digest and every row in one run, and no button inside a row', async () => {
     await open();
     const stops = [...screen.getByTestId('auto-list').querySelectorAll<HTMLElement>('button, [tabindex]')].filter((element) => element.tabIndex === 0);
     expect(stops).toHaveLength(1);
-    expect(stops[0]).toBe(rowButton(':new'));
+    // The open thread's row; the new thread that shows with none is the heading's button, outside the run.
+    expect(stops[0]).toBe(rowButton(':digest'));
     // The run of rows the arrows walk.
-    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual([':new', ':digest', 'beds', 'bread', 'seeds', 'trellis', 'inspect', ':snoozed', ':archived']);
+    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual([':digest', 'beds', 'bread', 'seeds', 'trellis', 'inspect', ':snoozed', ':archived']);
   });
 
   it('moves with the arrows, Home and End, and J and K', async () => {
     await open();
-    rowButton(':new').focus();
-    key('ArrowDown');
-    expect(focusedRow()).toBe(':digest');
+    rowButton(':digest').focus();
     key('j');
     expect(focusedRow()).toBe('beds');
     key('End');
@@ -164,12 +165,11 @@ describe('the list under the keyboard', () => {
     key('ArrowUp');
     expect(focusedRow()).toBe('trellis');
     key('Home');
-    expect(focusedRow()).toBe(':new');
+    expect(focusedRow()).toBe(':digest');
     // The row the keyboard was last on is the Tab stop.
     key('ArrowDown');
-    key('ArrowDown');
     expect(rowButton('beds').tabIndex).toBe(0);
-    expect(rowButton(':new').tabIndex).toBe(-1);
+    expect(rowButton(':digest').tabIndex).toBe(-1);
   });
 
   it('archives with E and moves the keyboard to the row below, or the one above from the last', async () => {
@@ -216,7 +216,7 @@ describe('the list under the keyboard', () => {
     await waitFor(() => expect(last('desk')).toEqual({ kind: 'desk', id: 'seeds', on: true }));
     await waitFor(() => expect(rowIds()[0]).toBe('seeds'));
     await waitFor(() => expect(focusedRow()).toBe('seeds'));
-    expect(within(row('seeds')).getByRole('img', { name: 'Marked for the Mac' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('auto-group-desk')).getByTestId('auto-row-seeds')).toBeInTheDocument();
     key('m');
     await waitFor(() => expect(last('desk')).toEqual({ kind: 'desk', id: 'seeds', on: false }));
     await waitFor(() => expect(focusedRow()).toBe('seeds'));
@@ -563,25 +563,34 @@ describe('undo', () => {
     expect(screen.getByTestId('auto-snoozed').querySelector('[data-thread-id="labels"]')).not.toBeNull();
   });
 
-  it('holds a row’s answer with Undo, and picks with 1 to 3 on a focused waiting row', async () => {
-    hold.ms = 120;
+  it('takes an action back with Cmd+Z from a sidebar row with a page in front, and never from a page’s text', async () => {
+    await open();
+    rowButton('bread').focus();
+    key('e');
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: true }));
+    // A page's text, wherever it sits: Cmd+Z there is the page's own.
+    const page = document.createElement('div');
+    page.contentEditable = 'true';
+    document.body.appendChild(page);
+    page.focus();
+    fireEvent.keyDown(page, { key: 'z', metaKey: true });
+    expect(auto.asked('archive')).toHaveLength(1);
+    expect(rowIds()).not.toContain('bread');
+    // A page in front, the keyboard on a row of the sidebar: Cmd+Z is Auto's.
+    act(() => useTabsStore.getState().open(focusFile('/Vault/Recipes/Bread.md').location, { newTab: true }));
+    rowButton('seeds').focus();
+    key('z', { metaKey: true });
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: false }));
+    expect(rowIds()).toContain('bread');
+    page.remove();
+  });
+
+  it('picks nothing with a number on a row: a question is answered in the open thread', async () => {
     await open();
     rowButton('beds').focus();
-    key('2');
-    expect(within(row('beds')).getByTestId('auto-row-held').textContent).toBe('Larch');
-    expect(said()).toBe('Raised bed plan, LarchUndo');
-    key('z', { metaKey: true });
-    expect(screen.queryByTestId('auto-row-held')).toBeNull();
-    await new Promise((resolve) => setTimeout(resolve, 180));
-    expect(auto.asked('answer')).toEqual([]);
-    // 1 picks the first; a number past the options, and any number on a row that asks nothing, does nothing.
-    key('3');
-    rowButton('bread').focus();
     key('1');
-    expect(screen.queryByTestId('auto-row-held')).toBeNull();
-    rowButton('beds').focus();
-    key('1');
-    await waitFor(() => expect(last('answer')).toEqual({ kind: 'answer', id: 'beds', answer: { id: 'q0', answers: { 'Which wood for the frames?': 'Cedar' } } }));
+    expect(useAutoStore.getState().held).toEqual({});
+    expect(screen.queryByTestId('auto-said')).toBeNull();
   });
 
   it('offers nothing to undo, and posts no held answer, once the address has changed', async () => {
@@ -590,15 +599,15 @@ describe('undo', () => {
     rowButton('bread').focus();
     key('e');
     rowButton('beds').focus();
-    key('1');
+    key('e');
+    await waitFor(() => expect(auto.asked('archive')).toHaveLength(2));
     expect(useSaidStore.getState().stack).toHaveLength(2);
     // Another address is another service: what was done at the old one is not this one's to take back.
     act(() => useAutoStore.setState({ address: 'https://other.example/agent' }));
     expect(useSaidStore.getState().stack).toEqual([]);
     expect(screen.queryByTestId('auto-said')).toBeNull();
-    await new Promise((resolve) => setTimeout(resolve, 140));
-    expect(auto.asked('answer')).toEqual([]);
-    expect(useAutoStore.getState().held).toEqual({});
+    key('z', { metaKey: true });
+    expect(auto.asked('archive')).toHaveLength(2);
   });
 
   it('opens what the last action made with O, from a row or an entry', async () => {
@@ -810,7 +819,7 @@ describe('his place in a thread', () => {
     keepPlace(threadPlace('bread'), { top: 400, atEnd: false, height: 3000 });
     render(
       <MemoryRouter initialEntries={['/files']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <ThemeProvider><TooltipProvider><ShellProvider><Sync /><AutoView /></ShellProvider></TooltipProvider></ThemeProvider>
+        <ThemeProvider><TooltipProvider><ShellProvider><Sync /><AutoScreen /></ShellProvider></TooltipProvider></ThemeProvider>
       </MemoryRouter>
     );
     await screen.findByTestId('auto-thread');
@@ -904,7 +913,7 @@ describe('his place in the list and in the queue', () => {
   const remount = () =>
     render(
       <MemoryRouter initialEntries={['/files']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <ThemeProvider><TooltipProvider><ShellProvider><Sync /><AutoView /></ShellProvider></TooltipProvider></ThemeProvider>
+        <ThemeProvider><TooltipProvider><ShellProvider><Sync /><AutoScreen /></ShellProvider></TooltipProvider></ThemeProvider>
       </MemoryRouter>
     );
 
@@ -1090,7 +1099,7 @@ describe('the queue under the keyboard', () => {
   });
 });
 
-describe('the narrow layout', () => {
+describe('a narrow Auto page', () => {
   const width = { now: 600 };
   beforeEach(() => {
     width.now = 600;
@@ -1102,32 +1111,23 @@ describe('the narrow layout', () => {
     vi.stubGlobal('ResizeObserver', Observer);
   });
 
-  it('goes back to the list on Escape in the box and on Back, with the keyboard on the row he came from', async () => {
+  it('keeps the thread on Escape in the box, the keyboard going to its row in the sidebar', async () => {
     await open();
     fireEvent.click(rowButton('bread'));
     await screen.findByTestId('auto-thread');
     fireEvent.keyDown(box(), { key: 'Escape' });
     await waitFor(() => expect(focusedRow()).toBe('bread'));
-    expect(screen.queryByTestId('auto-thread')).toBeNull();
-    fireEvent.click(rowButton('seeds'));
-    await screen.findByTestId('auto-thread');
-    fireEvent.click(screen.getByTestId('auto-back'));
-    await waitFor(() => expect(focusedRow()).toBe('seeds'));
+    expect(screen.getByTestId('auto-thread')).toBeInTheDocument();
+    expect(screen.queryByTestId('auto-back')).toBeNull();
   });
 
-  it('says what the last action did above the box while the list is hidden, and at the foot of the list when it shows', async () => {
+  it('says what the last action did at the sidebar’s foot, never in the page', async () => {
     await open();
     fireEvent.click(rowButton('bread'));
     await screen.findByTestId('auto-thread');
     fireEvent.click(screen.getByTestId('auto-archive-open'));
     expect(said()).toBe('Archived: Sourdough timingsUndo');
-    const bar = screen.getByTestId('auto-said');
-    const form = screen.getByTestId('auto-thread').querySelector('form') as HTMLElement;
-    expect(screen.getByTestId('auto-thread').contains(bar)).toBe(true);
-    expect(bar.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(screen.getByTestId('auto-back'));
-    await screen.findByTestId('auto-list');
-    expect(screen.getByTestId('auto-list').contains(screen.getByTestId('auto-said'))).toBe(true);
+    expect(screen.getByTestId('auto').contains(screen.getByTestId('auto-said'))).toBe(false);
   });
 
   it('puts the queue’s actions on a line under the words when the pane has no room for a column', async () => {
@@ -1137,7 +1137,7 @@ describe('the narrow layout', () => {
     // At 600 px there is room for the column at the row's right.
     const beside = screen.getByTestId('auto-entry-item-1');
     expect((beside.querySelector('[data-auto-entry]') as HTMLElement).parentElement?.contains(within(beside).getByRole('button', { name: 'Resolve' }))).toBe(true);
-    fireEvent.click(screen.getByTestId('auto-back'));
+    fireEvent.click(rowButton('bread'));
     width.now = 400;
     fireEvent.click(rowButton(':digest'));
     await screen.findByTestId('auto-queue-pane');

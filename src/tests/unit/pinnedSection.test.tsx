@@ -169,8 +169,8 @@ describe('PinnedSection', () => {
     setPins({ [ROOT]: [README, NOTES] });
     const user = userEvent.setup();
     renderSidebar();
-    // Auto is the last row of the nav above the pins.
-    screen.getByRole('button', { name: 'Auto' }).focus();
+    // The Library heading is right above the pins.
+    screen.getByTestId('sidebar-fold-library').focus();
     await user.tab();
     expect(pinned(README)).toHaveFocus();
     await user.tab();

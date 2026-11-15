@@ -22,8 +22,7 @@ import { keepPlace, placeIn, placeOf, queuePlace } from '../model/places';
 import { useAutoStore } from '../store/autoStore';
 import { QUEUE_FIRST, QUEUE_TOP, selectDay, useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
-import { rovingTarget } from './focus';
-import { SaidBar } from './SaidBar';
+import { focusRowNow, rovingTarget } from './focus';
 import { ThreadLine } from './ThreadLine';
 import { useGrow } from './ThreadPane';
 
@@ -486,7 +485,7 @@ function Queue({ day, roomy }: { day: AutoDigest; roomy: boolean }) {
  * start a thread. Nothing here sends anything to anyone. Its header, its
  * section labels and its entries share the reading column's edges.
  */
-export function QueuePane({ narrow }: { narrow: boolean }) {
+export function QueuePane() {
   const day = useDigestStore(selectDay);
   const status = useDigestStore((state) => state.status);
   const days = useDigestStore((state) => state.days);
@@ -550,11 +549,8 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
     element.scrollTop = placeOf(queuePlace(date))?.top ?? 0;
   }, [date]);
 
-  /** Back to the list, with the keyboard on the Digest row. */
-  const back = () => {
-    useAutoStore.getState().requestFocus(DIGEST_QUEUE);
-    if (narrow) useThreadStore.getState().open(null);
-  };
+  /** Back to the sidebar, with the keyboard on the Digest row. */
+  const back = () => focusRowNow(DIGEST_QUEUE);
 
   /** The queue's own keys, from anywhere in it but a field: [ and ] step a day, A switches between Left and All. */
   const onPaneKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -596,11 +592,6 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
       <header className={cn('auto-beside-talk shrink-0 border-b', scrolled ? 'border-border-subtle' : 'border-transparent')}>
         <div className="auto-column">
           <div className="flex h-header items-center gap-1">
-            {narrow ? (
-              <IconButton label="All threads" data-testid="auto-back" className="-ml-2" onClick={back}>
-                <ChevronLeft aria-hidden className="h-4 w-4" />
-              </IconButton>
-            ) : null}
             <h1 data-testid="auto-queue-day" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
               {day ? dayTitle(day.date) : 'Digest'}
             </h1>
@@ -666,12 +657,6 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
           )}
         </div>
       </div>
-      {/* With the list hidden, what the last action did shows at the foot of the pane. */}
-      {narrow ? (
-        <div className="auto-beside-talk shrink-0 pb-3">
-          <div className="auto-column"><SaidBar /></div>
-        </div>
-      ) : null}
       {/* An archived digest says so at its foot, as an archived thread does, with the same way back. */}
       {day?.archived ? (
         <div className="auto-beside-talk shrink-0 pb-3">
