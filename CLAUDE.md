@@ -177,7 +177,10 @@ not exist.
   snoozes, reorders, marks and archives threads through the service's HTTP
   API, and works through the day's digest as a queue (resolve, note, make a
   thread). No control in it starts or confirms a send to anyone; a drafted
-  reply can only be copied.
+  reply can only be copied. A send the service asks him to allow up front
+  (a `grant` question) shows as a card with one button, "No": the yes is
+  signed on his phone, and `mayAnswer` (`questionModel.ts`) keeps every
+  other answer to one from being posted, whatever built it.
   `AutoService` in `src/main/auto` makes every request, since the page's
   policy allows it no network. The address comes from `<userData>/auto.json`
   alone (`{ "version": 1, "url": "https://host.example/agent" }`; https, or
@@ -193,7 +196,11 @@ not exist.
   Opal's own shapes by `src/common/autoModel.ts`, which drops what does not
   fit. In the renderer, `features/auto`: `listModel.ts` (the list's groups,
   set in one place: "For the Mac" for threads the service says are marked,
-  then the ones that wait on him, then the rest), `threadModel.ts` (a thread
+  then the ones that wait on him, then the ones new to him (an unread
+  reply, back from snooze), then the rest in his order; the line over the
+  list, "1 needs you, 2 new"; a row's line, with "Your move: …" for a
+  thread the service says is his and "Not started" for one nobody has
+  started; and the snooze choices), `threadModel.ts` (a thread
   reduced from its snapshot and events), `outbox.ts` (a message is kept
   until the service has it; a failed one returns to the box), `digestModel.ts`
   and `digestStore.ts` (the queue: Left and All, the day shown, and every
@@ -205,15 +212,23 @@ not exist.
   calls the service's tick or inbox routes. `store/actions.ts` holds what he
   does to a thread (archive, done, snooze): the row leaves at once, the
   next thread takes its place, and the row returns with the service's
-  sentence if the post fails. What an action did is said in one line at the
-  foot of the list (`saidStore.ts`, `SaidBar.tsx`), with Undo, never in the
-  app's corner toast. The last view of each thread and his place in each
+  sentence if the post fails. An option picked on a row is held four
+  seconds before it is posted, so it can be taken back. What an action did
+  is said in one line at the foot of the list (`saidStore.ts`,
+  `SaidBar.tsx`), name first, never in the app's corner toast. Undo is on
+  offer from the moment the row or entry leaves, for 30 seconds, ten
+  actions deep, newest first; a reversal is posted only after the action's
+  own post has landed, and the offers go with the address. Until those
+  posts have landed, what he did is laid over every copy of the thread or
+  the day that arrives (`model/unconfirmed.ts`), so the service's own word
+  of an archive he has taken back does not take the row away again. The last view of each thread and his place in each
   thread, the list and the queue are kept in memory for the session
   (`threadStore.ts`, `model/places.ts`) and dropped with the address. The
   list and the queue are each one Tab stop with a roving focus
   (`components/focus.ts`); single keys act only on a focused row or entry,
   and Cmd+. and Cmd+Z act only while the tab is in front with the keyboard
-  in it. While a question waits, the box is its answer field. A page's
+  in it. In a field, Cmd+Z is the field's own undo while it holds text and
+  takes the last action back when it is empty. While a question waits, the box is its answer field. A page's
   header, its scrolling part and its foot each hold an `.auto-column`, so
   they share their edges at every width. `useAutoCommands.ts` puts Auto's
   commands and every thread's title in the palette. A vault path in a step,

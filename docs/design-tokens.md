@@ -248,8 +248,18 @@ underline, inline code, quote rule, table and code block, in em of the
 reply's size. His own messages are `bg-surface-active` blocks at the right.
 What Auto did is `text-control` in `text-foreground-tertiary`. List rows are
 `rounded-row` with the neutral hover and selected fills; a row's actions
-take its time's place on hover. Cards (a question, a permission request)
-are `rounded-card` with a `border-border-strong` ring and no fill.
+take its time's place on hover, and that place is kept as wide as the
+actions, so the title is cut at the same point either way. The line over
+the list ("1 needs you, 2 new") is `text-metadata` in
+`text-foreground-tertiary`. A row's "Your move: …" and "Not started" are in
+`text-foreground`, as words and never as a button. New thread and Digest
+stay above the scrolling rows, which keep the scrollbar's 10 px
+(`.auto-list-rows`, `.auto-beside-list`) so both are one width; a
+`border-border-subtle` hairline shows under the pinned rows once the list
+has scrolled. Cards (a question, a permission request, a send to allow)
+are `rounded-card` with a `border-border-strong` ring and no fill. No
+option of a question is filled: every one is an outline button, with its
+number, 1 to 3, in `text-foreground-tertiary` beside it.
 
 The digest queue takes the thread's place, in the same column. A section's
 name is `text-label` in `text-foreground-tertiary`. An entry is a
@@ -262,8 +272,9 @@ shown while the pointer or the keyboard is on the row. His note has a 2 px
 `border-foreground` rule at its left.
 
 What the last action did is one line at the foot of the list, in
-`bg-primary` with `text-primary-foreground` and a `rounded-card` corner,
-with Undo. A table or a code block that scrolls sideways fades at the edge
+`bg-primary` with `text-primary-foreground` and a `rounded-card` corner:
+the name first, cut if it is long, then what happened, then Undo, and
+"2 more" when Undo reaches further back. A table or a code block that scrolls sideways fades at the edge
 it is cut at (`[data-fade]`).
 
 ## Page headings
