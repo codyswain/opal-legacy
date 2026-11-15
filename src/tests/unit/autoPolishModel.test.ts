@@ -40,12 +40,12 @@ describe('the rows in the order they show', () => {
   ];
 
   it('is each group in turn, then the snoozed ones when their line is open', () => {
-    expect(shownOrder(threads, false)).toEqual(['c', 'b', 'a', 'f']);
-    expect(shownOrder(threads, true)).toEqual(['c', 'b', 'a', 'f', 'e', 'd']);
+    expect(shownOrder(threads, { waiting: false, snoozed: false })).toEqual(['c', 'b', 'a', 'f']);
+    expect(shownOrder(threads, { waiting: false, snoozed: true })).toEqual(['c', 'b', 'a', 'f', 'e', 'd']);
   });
 
   it('gives a leaving row’s place to the one below, else the one above, else nobody', () => {
-    const order = shownOrder(threads, false);
+    const order = shownOrder(threads, { waiting: false, snoozed: false });
     expect(nextAfter(order, 'c')).toBe('b');
     expect(nextAfter(order, 'a')).toBe('f');
     expect(nextAfter(order, 'f')).toBe('a');

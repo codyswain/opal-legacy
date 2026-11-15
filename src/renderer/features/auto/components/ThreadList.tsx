@@ -18,10 +18,10 @@ import {
 } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { emptyList, fromDigest, isMarked, isYours, listSummary, listView, moveBy, moveTarget, rowOptions, rowTime, snoozedUntil, type ListGroup } from '../model/listModel';
-import { homeLine, leftWord } from '../model/digestModel';
+import { homeLine, leftWord, shortDay } from '../model/digestModel';
 import { DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { LIST_PLACE, keepPlace, placeIn, placeOf } from '../model/places';
-import { answerFromRow, archiveThread, snoozeThread } from '../store/actions';
+import { answerFromRow, archiveThread, restoreThread, snoozeThread } from '../store/actions';
 import { useAutoStore } from '../store/autoStore';
 import { useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
@@ -31,8 +31,13 @@ import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
 import { ThreadLine } from './ThreadLine';
 
 const DRAG_TYPE = 'application/x-opal-auto-thread';
-/** The Snoozed line's place in the run of rows. */
+/** The places of the lines over what is put away, in the run of rows. */
+const WAITING_LINE = ':waiting';
 const SNOOZED_LINE = ':snoozed';
+const ARCHIVED_LINE = ':archived';
+const ARCHIVED_ALL = ':archived-all';
+/** An archived digest's row, by its day. */
+const digestRow = (date: string): string => `:digest:${date}`;
 
 /** Re-renders so times and day names move on. */
 function useNow(intervalMs = 30_000): number {
@@ -50,8 +55,12 @@ interface RowProps {
   current: boolean;
   /** This row is the list's one Tab stop. */
   tabStop: boolean;
-  /** Shown under the Snoozed line: the time slot says when it comes back. */
-  snoozed?: boolean;
+  /**
+   * The row is one of those put away. `snoozed`: its time slot says when it
+   * comes back. `waiting`: put away until someone replies, and its line says
+   * who it waits on. `archived`: it can only be opened and brought back.
+   */
+  away?: 'snoozed' | 'waiting' | 'archived';
   drop?: 'above' | 'below' | null;
   dragging?: boolean;
   drag?: {
@@ -68,20 +77,25 @@ const rowActions =
 const timeHides =
   'group-hover:invisible group-has-[[data-auto-row]:focus-visible]:invisible group-has-[[data-state=open]]:invisible';
 
-function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null, dragging = false, drag }: RowProps) {
+function ThreadRow({ thread, now, current, tabStop, away, drop = null, dragging = false, drag }: RowProps) {
   const [snoozing, setSnoozing] = React.useState(false);
   const container = React.useRef<HTMLDivElement>(null);
   // An answer picked here is held a few seconds before it is posted: the row shows the pick meanwhile.
   const held = useAutoStore((state) => state.held[thread.id]);
-  const options = snoozed ? [] : rowOptions(thread);
-  const digestEntry = fromDigest(thread);
+  const archived = away === 'archived';
+  // Put away with a time on it: snoozed to a time, or until someone replies.
+  const snoozed = away === 'snoozed' || away === 'waiting';
+  const options = away ? [] : rowOptions(thread);
+  const digestEntry = !archived && fromDigest(thread);
   // The icons that take the time's place: the slot is at least as wide as they are, so they never sit on the title.
-  const icons = 2 + (digestEntry ? 1 : 0) + (snoozed ? 1 : 0);
-  const time = snoozed && thread.snoozed ? snoozedUntil(thread.snoozed, now) : rowTime(thread, now);
-  // The dot before the title, as on the phone: a reply he has not read, or a thread back from snooze. Not on the one he is reading.
-  const dot = isMarked(thread) && !current;
+  const icons = archived ? 1 : 2 + (digestEntry ? 1 : 0) + (snoozed ? 1 : 0);
+  // A waiting row says its give-up time in its line, and an archived row says when it was archived there.
+  const time = away === 'snoozed' && thread.snoozed ? snoozedUntil(thread.snoozed, now) : away ? '' : rowTime(thread, now);
+  // The dot before the title, as on the phone: a reply he has not read, or a thread back from snooze. Not on the one he is
+  // reading, and not on a row that is put away: the line it sits behind is quiet, and so are its rows.
+  const dot = !away && isMarked(thread) && !current;
   // The rows that are his carry a heavier title.
-  const heavy = dot || thread.status === 'waiting' || thread.waits || isYours(thread);
+  const heavy = !away && (dot || thread.status === 'waiting' || thread.waits || isYours(thread));
   const title = thread.title || 'Untitled';
   const marked = thread.desk !== null;
 
@@ -93,6 +107,14 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.metaKey || event.ctrlKey) return;
+    if (archived) {
+      // E put it away, and E on it here brings it back.
+      if (!event.altKey && !event.shiftKey && event.key.toLowerCase() === 'e') {
+        event.preventDefault();
+        void restoreThread(thread);
+      }
+      return;
+    }
     const { move, requestFocus, threads } = useAutoStore.getState();
     if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       // The same post as a drag.
@@ -146,7 +168,7 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
               data-row-id={thread.id}
               tabIndex={tabStop ? 0 : -1}
               aria-current={current || undefined}
-              aria-keyshortcuts={`E S M${digestEntry ? ' D' : ''}${options.slice(0, 3).map((_label, at) => ` ${at + 1}`).join('')}`}
+              aria-keyshortcuts={archived ? 'E' : `E S M${digestEntry ? ' D' : ''}${options.slice(0, 3).map((_label, at) => ` ${at + 1}`).join('')}`}
               onClick={() => useThreadStore.getState().open(thread.id)}
               onKeyDown={onKeyDown}
               className={cn(rowButton, 'flex w-full min-w-0 flex-col px-2 py-1.5')}
@@ -163,7 +185,7 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
                 ) : null}
                 <span style={{ minWidth: `${icons * 1.75 - 0.25}rem` }} className={cn('shrink-0 text-right text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{time}</span>
               </span>
-              <ThreadLine thread={thread} className="mt-0.5" />
+              <ThreadLine thread={thread} className="mt-0.5" away={away === 'snoozed' ? undefined : away} now={now} />
             </button>
             {held !== undefined ? (
               // As tall as the buttons it stands in for, so the rows under it stay where they are.
@@ -180,26 +202,36 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
                 {options.map((label, at) => (
                   <Button key={label} size="compact" tabIndex={-1} variant="outline" title={at < 3 ? `${label} (${at + 1})` : undefined} onClick={() => answerFromRow(thread, label)}>
                     {label}
+                    {/* Its number shows only while the keyboard is on the row, which is when the number picks it. */}
+                    {at < 3 ? <span aria-hidden data-testid="auto-row-key" className="ml-1.5 hidden font-mono text-metadata text-foreground-tertiary group-has-[[data-auto-row]:focus-visible]:inline">{at + 1}</span> : null}
                   </Button>
                 ))}
               </div>
             ) : null}
             {/* The row's actions take the time's place while the pointer is on the row, the keyboard is, or their menu is open. */}
             <div className={rowActions}>
-              {snoozed ? (
-                <IconButton label="Bring back" tabIndex={-1} data-testid={`auto-back-${thread.id}`} onClick={() => void snoozeThread(thread, null)}>
+              {archived ? (
+                <IconButton label="Bring back" shortcut="E" tabIndex={-1} data-testid={`auto-restore-${thread.id}`} onClick={() => void restoreThread(thread)}>
                   <Undo2 aria-hidden className="h-3.5 w-3.5" />
                 </IconButton>
-              ) : null}
-              <SnoozeButton thread={thread} now={now} from="row" open={snoozing} onOpenChange={setSnoozing} tabIndex={-1} />
-              {digestEntry ? (
-                <IconButton label="Done" shortcut="D" tabIndex={-1} data-testid={`auto-done-${thread.id}`} onClick={() => void archiveThread(thread, { done: true })}>
-                  <Check aria-hidden className="h-3.5 w-3.5" />
-                </IconButton>
-              ) : null}
-              <IconButton label="Archive" shortcut="E" tabIndex={-1} data-testid={`auto-archive-${thread.id}`} onClick={() => void archiveThread(thread)}>
-                <Archive aria-hidden className="h-3.5 w-3.5" />
-              </IconButton>
+              ) : (
+                <>
+                  {snoozed ? (
+                    <IconButton label="Bring back" tabIndex={-1} data-testid={`auto-back-${thread.id}`} onClick={() => void snoozeThread(thread, null)}>
+                      <Undo2 aria-hidden className="h-3.5 w-3.5" />
+                    </IconButton>
+                  ) : null}
+                  <SnoozeButton thread={thread} from="row" open={snoozing} onOpenChange={setSnoozing} tabIndex={-1} />
+                  {digestEntry ? (
+                    <IconButton label="Done" shortcut="D" tabIndex={-1} data-testid={`auto-done-${thread.id}`} onClick={() => void archiveThread(thread, { done: true })}>
+                      <Check aria-hidden className="h-3.5 w-3.5" />
+                    </IconButton>
+                  ) : null}
+                  <IconButton label="Archive" shortcut="E" tabIndex={-1} data-testid={`auto-archive-${thread.id}`} onClick={() => void archiveThread(thread)}>
+                    <Archive aria-hidden className="h-3.5 w-3.5" />
+                  </IconButton>
+                </>
+              )}
             </div>
           </div>
         </ContextMenuTrigger>
@@ -211,6 +243,25 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
             else focusRowAfterClose(event, thread.id);
           }}
         >
+          {archived ? (
+            <ContextMenuItem onSelect={() => void restoreThread(thread)}>
+              Bring back
+              <ContextMenuShortcut aria-hidden>E</ContextMenuShortcut>
+            </ContextMenuItem>
+          ) : (
+            <RowMenuItems thread={thread} now={now} snoozed={snoozed} marked={marked} mark={mark} />
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    </li>
+  );
+}
+
+/** What a row's right-click menu offers for a thread that is not archived. */
+function RowMenuItems({ thread, now, snoozed, marked, mark }: { thread: AutoThread; now: number; snoozed: boolean; marked: boolean; mark: () => void }) {
+  const digestEntry = fromDigest(thread);
+  return (
+    <>
           {snoozed ? <ContextMenuItem onSelect={() => void snoozeThread(thread, null)}>Bring back</ContextMenuItem> : null}
           <ContextMenuLabel className="flex items-center">
             {snoozed ? 'Snooze until another time' : 'Snooze'}
@@ -236,8 +287,79 @@ function ThreadRow({ thread, now, current, tabStop, snoozed = false, drop = null
             Archive
             <ContextMenuShortcut aria-hidden>E</ContextMenuShortcut>
           </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+    </>
+  );
+}
+
+interface AwayLineProps {
+  id: string;
+  label: string;
+  /** How many it holds. The archive's line says none: only what is snoozed or waiting is counted. */
+  count: number | null;
+  open: boolean;
+  tabStop: boolean;
+  onToggle: () => void;
+  testId: string;
+}
+
+/** One line over the rows of a kind that is put away. A click, Enter or Space opens and closes it. */
+function AwayLine({ id, label, count, open, tabStop, onToggle, testId }: AwayLineProps) {
+  return (
+    <button
+      type="button"
+      data-auto-row
+      data-row-id={id}
+      data-testid={testId}
+      tabIndex={tabStop ? 0 : -1}
+      aria-expanded={open}
+      onClick={onToggle}
+      className={cn(rowButton, 'flex h-row-compact w-full items-center gap-1 px-2 text-ui text-foreground-tertiary transition-hover hover:bg-surface-hover hover:text-foreground')}
+    >
+      <ChevronRight aria-hidden className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-quick', open && 'rotate-90')} />
+      <span className="flex-1 text-left">{label}</span>
+      {count !== null ? <span className="text-metadata tabular-nums">{count}</span> : null}
+    </button>
+  );
+}
+
+/** A digest he archived, in the archive: its day, a way to read it, and the way back to the list. */
+function DigestAwayRow({ date, tabStop }: { date: string; tabStop: boolean }) {
+  const bringBack = () => {
+    void useDigestStore.getState().archive(date, false);
+  };
+  const read = () => {
+    useThreadStore.getState().open(DIGEST_QUEUE);
+    void useDigestStore.getState().show(date);
+  };
+  return (
+    <li>
+      <div data-testid={`auto-archived-digest-${date}`} className="auto-row group relative rounded-row transition-hover hover:bg-surface-hover">
+        <button
+          type="button"
+          data-auto-row
+          data-row-id={digestRow(date)}
+          tabIndex={tabStop ? 0 : -1}
+          aria-keyshortcuts="E"
+          onClick={read}
+          onKeyDown={(event) => {
+            if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'e') return;
+            event.preventDefault();
+            bringBack();
+          }}
+          className={cn(rowButton, 'flex w-full min-w-0 flex-col px-2 py-1.5')}
+        >
+          <span className="flex w-full min-w-0 items-center gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">Digest</span>
+            <span style={{ minWidth: '1.5rem' }} className="shrink-0" />
+          </span>
+          <span className="mt-0.5 text-control text-foreground-tertiary">{shortDay(date)}</span>
+        </button>
+        <div className={rowActions}>
+          <IconButton label="Bring back" shortcut="E" tabIndex={-1} data-testid={`auto-restore-digest-${date}`} onClick={bringBack}>
+            <Undo2 aria-hidden className="h-3.5 w-3.5" />
+          </IconButton>
+        </div>
+      </div>
     </li>
   );
 }
@@ -325,7 +447,11 @@ function GroupRows({ group, apart, now, openId, tabStop }: GroupProps) {
 export function ThreadList({ narrow }: { narrow: boolean }) {
   const threads = useAutoStore((state) => state.threads);
   const snoozedOpen = useAutoStore((state) => state.snoozedOpen);
-  const toggleSnoozed = useAutoStore((state) => state.toggleSnoozed);
+  const waitingOpen = useAutoStore((state) => state.waitingOpen);
+  const archive = useAutoStore((state) => state.archive);
+  const loaded = useAutoStore((state) => state.loaded);
+  const { toggleSnoozed, toggleWaiting, toggleArchive, loadArchive } = useAutoStore.getState();
+  const archivedDays = useDigestStore((state) => state.archivedDays);
   const editAddress = useAutoStore((state) => state.editAddress);
   const focusRow = useAutoStore((state) => state.focusRow);
   const openId = useThreadStore((state) => state.openId);
@@ -341,11 +467,28 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
   // Beside the thread, with no thread open, the empty thread is the one in view.
   const onNew = openId === NEW_THREAD || (openId === null && !narrow);
 
-  // One row is the list's Tab stop: the one the keyboard was last on, else the open pane's.
+  // An archived digest is off the list until the next one. It stays readable from the archive.
+  const showsDigest = !digest?.archived;
+  // The archive shows its newest few until he asks for the rest.
+  const moreArchived = archive.total > archive.threads.length;
+
+  // One row is the list's Tab stop. While the keyboard is in the list it is the row the keyboard is on;
+  // coming into the list from outside, it is the open pane's row.
   const [active, setActive] = React.useState<string | null>(null);
   const rows = React.useMemo(
-    () => new Set([NEW_THREAD, DIGEST_QUEUE, ...view.groups.flatMap((group) => group.threads.map((thread) => thread.id)), ...(view.snoozed.length > 0 ? [SNOOZED_LINE] : []), ...(snoozedOpen ? view.snoozed.map((thread) => thread.id) : [])]),
-    [view, snoozedOpen]
+    () =>
+      new Set([
+        NEW_THREAD,
+        ...(showsDigest ? [DIGEST_QUEUE] : []),
+        ...view.groups.flatMap((group) => group.threads.map((thread) => thread.id)),
+        ...(view.waiting.length > 0 ? [WAITING_LINE] : []),
+        ...(waitingOpen ? view.waiting.map((thread) => thread.id) : []),
+        ...(view.snoozed.length > 0 ? [SNOOZED_LINE] : []),
+        ...(snoozedOpen ? view.snoozed.map((thread) => thread.id) : []),
+        ...(loaded ? [ARCHIVED_LINE] : []),
+        ...(archive.open ? [...archivedDays.map(digestRow), ...archive.threads.map((thread) => thread.id), ...(moreArchived ? [ARCHIVED_ALL] : [])] : []),
+      ]),
+    [view, snoozedOpen, waitingOpen, showsDigest, loaded, archive, archivedDays, moreArchived]
   );
   const tabStop = active && rows.has(active) ? active : openId && rows.has(openId) ? openId : NEW_THREAD;
 
@@ -355,6 +498,18 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
     const element = rowElement(rows.has(focusRow) ? focusRow : NEW_THREAD);
     element?.focus();
     useAutoStore.getState().requestFocus(null);
+  });
+
+  // The keyboard stays with its row when the row is drawn again in another group: a thread that gains a reply,
+  // a mark or a question moves, and the element the keyboard was on goes with the old place.
+  const keyboardOn = React.useRef<HTMLElement | null>(null);
+  React.useLayoutEffect(() => {
+    const was = keyboardOn.current;
+    if (!was || was.isConnected || document.activeElement !== document.body) return;
+    keyboardOn.current = null;
+    const id = was.getAttribute('data-row-id');
+    // A row that has left the list is not followed: the action that took it away says where the keyboard goes.
+    if (id && rows.has(id)) rowElement(id)?.focus();
   });
 
   // The list is where he left it.
@@ -386,7 +541,18 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
       onKeyDown={onKeyDown}
       onFocus={(event) => {
         const id = (event.target as HTMLElement).getAttribute?.('data-row-id');
-        if (id) setActive(id);
+        if (id) {
+          setActive(id);
+          keyboardOn.current = event.target as HTMLElement;
+        }
+      }}
+      onBlur={(event) => {
+        // The keyboard has left the list: Tab back in lands on the open thread's row, not on the row it left from.
+        // A menu or a dialog opened from a row gives the keyboard back to that row when it closes.
+        const to = event.relatedTarget as HTMLElement | null;
+        if (to && !event.currentTarget.contains(to) && !to.closest('[role="menu"], [role="dialog"]')) setActive(null);
+        // He moved the keyboard somewhere, or put it down: only a row taken out from under it is followed.
+        if (to || (event.target as HTMLElement).isConnected) keyboardOn.current = null;
       }}
       className={cn('flex min-h-0 shrink-0 flex-col', narrow ? 'w-full' : 'w-auto-list border-r border-border-subtle')}
     >
@@ -420,7 +586,8 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
           </div>
         </div>
 
-        {/* The digest, as a queue. Not a thread: it does not drag, snooze or archive. */}
+        {/* The digest, as a queue. Not a thread: it does not drag or snooze. Archived, it is off the list until the next one. */}
+        {showsDigest ? (
         <div className={cn('rounded-row transition-hover', openId === DIGEST_QUEUE ? 'bg-surface-selected' : 'hover:bg-surface-hover')}>
           <button
             type="button"
@@ -442,6 +609,7 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
             </span>
           </button>
         </div>
+        ) : null}
         {/* What the list holds, so a glance is enough. Left out when there is nothing to count. */}
         {summary ? <p data-testid="auto-summary" className="truncate px-2 pb-1 pt-2 text-metadata text-foreground-tertiary">{summary}</p> : <div className="h-0.5" />}
       </div>
@@ -475,31 +643,80 @@ export function ThreadList({ narrow }: { narrow: boolean }) {
           ))}
         </div>
 
-        {view.snoozed.length > 0 ? (
-          <section aria-label="Snoozed" className="mt-3">
-            <button
-              type="button"
-              data-auto-row
-              data-row-id={SNOOZED_LINE}
-              data-testid="auto-snoozed-line"
-              tabIndex={tabStop === SNOOZED_LINE ? 0 : -1}
-              aria-expanded={snoozedOpen}
-              onClick={toggleSnoozed}
-              className={cn(rowButton, 'flex h-row-compact w-full items-center gap-1 px-2 text-ui text-foreground-tertiary transition-hover hover:bg-surface-hover hover:text-foreground')}
-            >
-              <ChevronRight aria-hidden className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-quick', snoozedOpen && 'rotate-90')} />
-              <span className="flex-1">Snoozed</span>
-              <span className="text-metadata tabular-nums">{view.snoozed.length}</span>
-            </button>
-            {snoozedOpen ? (
-              <ul className="mt-0.5 flex flex-col gap-0.5" data-testid="auto-snoozed">
-                {view.snoozed.map((thread) => (
-                  <ThreadRow key={thread.id} thread={thread} now={now} current={thread.id === openId} tabStop={tabStop === thread.id} snoozed />
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
+        {/* What is put away, each kind behind a line of its own: waiting on a reply, snoozed to a time, archived. */}
+        <div className="mt-3 flex flex-col gap-0.5">
+          {view.waiting.length > 0 ? (
+            <section aria-label="Waiting on a reply">
+              <AwayLine id={WAITING_LINE} label="Waiting on a reply" count={view.waiting.length} open={waitingOpen} tabStop={tabStop === WAITING_LINE} onToggle={toggleWaiting} testId="auto-waiting-line" />
+              {waitingOpen ? (
+                <ul className="mt-0.5 flex flex-col gap-0.5" data-testid="auto-waiting">
+                  {view.waiting.map((thread) => (
+                    <ThreadRow key={thread.id} thread={thread} now={now} current={thread.id === openId} tabStop={tabStop === thread.id} away="waiting" />
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
+
+          {view.snoozed.length > 0 ? (
+            <section aria-label="Snoozed">
+              <AwayLine id={SNOOZED_LINE} label="Snoozed" count={view.snoozed.length} open={snoozedOpen} tabStop={tabStop === SNOOZED_LINE} onToggle={toggleSnoozed} testId="auto-snoozed-line" />
+              {snoozedOpen ? (
+                <ul className="mt-0.5 flex flex-col gap-0.5" data-testid="auto-snoozed">
+                  {view.snoozed.map((thread) => (
+                    <ThreadRow key={thread.id} thread={thread} now={now} current={thread.id === openId} tabStop={tabStop === thread.id} away="snoozed" />
+                  ))}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
+
+          {/* The archive only grows, so its line carries no count. It is read when the line is opened. */}
+          {loaded ? (
+            <section aria-label="Archived">
+              <AwayLine
+                id={ARCHIVED_LINE}
+                label="Archived"
+                count={null}
+                open={archive.open}
+                tabStop={tabStop === ARCHIVED_LINE}
+                onToggle={toggleArchive}
+                testId="auto-archived-line"
+              />
+              {archive.open ? (
+                <ul className="mt-0.5 flex flex-col gap-0.5" data-testid="auto-archived">
+                  {archivedDays.map((date) => (
+                    <DigestAwayRow key={date} date={date} tabStop={tabStop === digestRow(date)} />
+                  ))}
+                  {archive.threads.map((thread) => (
+                    <ThreadRow key={thread.id} thread={thread} now={now} current={thread.id === openId} tabStop={tabStop === thread.id} away="archived" />
+                  ))}
+                  {moreArchived ? (
+                    <li className="px-2 py-1.5">
+                      <Button
+                        size="compact"
+                        variant="outline"
+                        data-auto-row
+                        data-row-id={ARCHIVED_ALL}
+                        data-testid="auto-archived-all"
+                        tabIndex={tabStop === ARCHIVED_ALL ? 0 : -1}
+                        disabled={archive.loading}
+                        onClick={() => void loadArchive(true)}
+                      >
+                        Show all {archive.total}
+                      </Button>
+                    </li>
+                  ) : null}
+                  {archive.threads.length === 0 && archivedDays.length === 0 ? (
+                    <li data-testid="auto-archived-empty" role={archive.problem ? 'alert' : undefined} className="px-2 py-1.5 text-control text-foreground-tertiary">
+                      {archive.problem ?? (archive.loaded ? 'Nothing is archived.' : 'Loading the archive.')}
+                    </li>
+                  ) : null}
+                </ul>
+              ) : null}
+            </section>
+          ) : null}
+        </div>
       </div>
 
       {/* What the last action did, and the way back. */}

@@ -1,10 +1,13 @@
 import type { AutoThread } from '@/types/auto';
+import { elapsed, isWaitingOnReply, waitBack } from './awayModel';
+import { clockTime, startOfDay } from './clock';
 
 /*
  * The list: the threads he marked for the Mac first, then the ones that wait
  * on him, then what is new to him (a reply he has not read, a thread back
- * from snooze), then the rest in the order he keeps, and snoozed ones behind
- * one line at the bottom. Snoozed wins over every group.
+ * from snooze), then the rest in the order he keeps. What is put away sits
+ * behind lines at the bottom: the threads waiting on a reply, the snoozed
+ * ones, and the archive. Put away wins over every group.
  */
 
 export interface ListGroup {
@@ -56,7 +59,9 @@ const GROUPS: readonly GroupRule[] = [
 export interface ListView {
   /** The groups that hold a thread. */
   groups: ListGroup[];
-  /** Hidden behind the Snoozed line, the first to come back first. */
+  /** Put away until someone replies, behind their own line: the one that gives up soonest first. */
+  waiting: AutoThread[];
+  /** Snoozed to a time, behind the Snoozed line: the first to come back first. */
   snoozed: AutoThread[];
   /** How many threads wait on him. */
   needs: number;
@@ -64,7 +69,7 @@ export interface ListView {
 
 export function listView(threads: readonly AutoThread[]): ListView {
   const shown = threads.filter((thread) => !thread.archived && thread.snoozed === null);
-  const snoozed = threads
+  const away = threads
     .filter((thread) => !thread.archived && thread.snoozed !== null)
     .sort((left, right) => (left.snoozed ?? 0) - (right.snoozed ?? 0));
   const groups = GROUPS.map((rule): ListGroup => ({ key: rule.key, heading: rule.heading, movable: rule.movable, threads: [] }));
@@ -77,7 +82,8 @@ export function listView(threads: readonly AutoThread[]): ListView {
   });
   return {
     groups: groups.filter((group) => group.threads.length > 0),
-    snoozed,
+    waiting: away.filter(isWaitingOnReply),
+    snoozed: away.filter((thread) => !isWaitingOnReply(thread)),
     // Whichever group they show in.
     needs: shown.filter((thread) => thread.status === 'waiting').length,
   };
@@ -121,10 +127,10 @@ export function listSummary(threads: readonly AutoThread[]): string {
   ].filter(Boolean).join(', ');
 }
 
-/** The threads' ids in the order the list shows them: each group in turn, then the snoozed ones when their line is open. */
-export function shownOrder(threads: readonly AutoThread[], snoozedOpen: boolean): string[] {
+/** The threads' ids in the order the list shows them: each group in turn, then what is put away, where its line is open. */
+export function shownOrder(threads: readonly AutoThread[], open: { waiting: boolean; snoozed: boolean }): string[] {
   const view = listView(threads);
-  return [...view.groups.flatMap((group) => group.threads), ...(snoozedOpen ? view.snoozed : [])].map((thread) => thread.id);
+  return [...view.groups.flatMap((group) => group.threads), ...(open.waiting ? view.waiting : []), ...(open.snoozed ? view.snoozed : [])].map((thread) => thread.id);
 }
 
 /** What takes a row's place when it leaves: the one below it, else the one above, else nothing. */
@@ -203,8 +209,10 @@ export interface RowLine {
   /**
    * `idle`: nobody has started it. `yours`: the next move is his. Both are
    * said in the text's own colour, with the last line quiet under them.
+   * `back`: it has come back from a wait, and says who replied and what
+   * they said, or that nobody did.
    */
-  kind: 'ask' | 'live' | 'failed' | 'idle' | 'yours' | 'plain';
+  kind: 'ask' | 'live' | 'failed' | 'idle' | 'yours' | 'back' | 'plain';
   text: string;
   /** The quiet line under "Not started" and "Your move": the entry's first words, or the reply's first line. */
   under: string;
@@ -212,6 +220,9 @@ export interface RowLine {
 
 export function rowLine(thread: AutoThread): RowLine {
   const rest = thread.status === 'stopped' ? 'Stopped' : thread.last;
+  // Back from a wait, until he opens it: the reply's line, or that nobody replied.
+  const back = thread.wait && thread.woke !== null && !isWaiting(thread) && !isWorking(thread) ? waitBack(thread.wait) : null;
+  if (back) return { kind: 'back', text: back, under: '' };
   if (thread.waits) return { kind: 'idle', text: 'Not started', under: rest };
   if (isYours(thread)) return { kind: 'yours', text: `Your move: ${thread.yours}`, under: rest };
   if (isWaiting(thread) && thread.ask) return { kind: 'ask', text: thread.ask.text, under: '' };
@@ -230,14 +241,7 @@ export function rowOptions(thread: AutoThread): string[] {
 /** A thread that came from a digest entry: Done archives it and marks its entry done in the digest. */
 export const fromDigest = (thread: AutoThread): boolean => thread.digest !== null;
 
-const startOfDay = (date: Date): number => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-
-/** "3:10 pm". */
-export function clockTime(seconds: number): string {
-  return new Date(seconds * 1000)
-    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    .replace(/\s?([AP]M)$/i, (_match, half: string) => ` ${half.toLowerCase()}`);
-}
+export { clockTime };
 
 /** The day a time falls on, seen from now: Today, Yesterday, Tomorrow, the weekday inside a week, else the date. */
 export function dayLabel(seconds: number, now: number): string {
@@ -258,11 +262,13 @@ export function dayLabel(seconds: number, now: number): string {
 /**
  * A row's time: the clock today, then Yesterday, the weekday, or the date.
  * A thread back from snooze says "Back" and when, until it is opened. A
- * thread at work, and an entry nobody has started, show none.
+ * thread at work says how long it has been working ("now", "12 min", "1 h
+ * 5 min"). An entry nobody has started shows none.
  */
 export function rowTime(thread: AutoThread, now: number): string {
+  if (thread.waits || !thread.updated) return '';
+  if (isWorking(thread)) return elapsed(thread.updated, now);
   if (thread.woke) return `Back ${clockTime(thread.woke)}`;
-  if (thread.status === 'working' || thread.status === 'queued' || thread.waits || !thread.updated) return '';
   const day = dayLabel(thread.updated, now);
   if (day !== 'Today') return day;
   return now - thread.updated * 1000 < 60_000 ? 'now' : clockTime(thread.updated);

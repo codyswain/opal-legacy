@@ -333,12 +333,13 @@ describe('the list', () => {
   });
 
   it('snoozes from the row’s clock, with the times each choice means', async () => {
-    // The choices follow the clock: a Saturday evening offers neither Tonight nor This weekend, and Tomorrow is not yet Next week.
-    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2031, 2, 8, 19, 0) });
+    // A Wednesday morning: what the menu offers depends on the day and the hour.
+    vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 10, 11, 10, 0).getTime());
     await open();
     await userEvent.setup().click(screen.getByTestId('auto-snooze-bread'));
     const menu = within(await screen.findByTestId('auto-snooze-menu'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent?.replace(/\d.*$/, '').replace(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ?$/, '')).filter((label) => label !== 'Later today')).toEqual(['Tomorrow', 'Next week', 'Pick a time…']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent?.replace(/\d.*$/, '').replace(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ?$/, ''))).toEqual(['Later today', 'Tonight', 'Tomorrow', 'This weekend', 'Next week', 'Pick a time…', 'Until a reply…']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(0, 5)).toEqual(['Later today1:00 pm', 'Tonight7:00 pm', 'TomorrowThu 9:00 am', 'This weekendSat 9:00 am', 'Next weekMon 9:00 am']);
     const before = Date.now() / 1000;
     fireEvent.click(menu.getByRole('menuitem', { name: /^Tomorrow/ }));
     await waitFor(() => expect(last('snooze')?.id).toBe('bread'));
@@ -351,7 +352,7 @@ describe('the list', () => {
     const pointer = userEvent.setup();
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('bread')).getAllByRole('button')[0] });
     let menu = within(await screen.findByTestId('auto-row-menu-bread'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Pick a time…', 'Mark for the MacM', 'Rename', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Until a reply…', 'Mark for the MacM', 'Rename', 'ArchiveE']);
     // The keys beside the items are for the eye; an item is still called by its name.
     expect(menu.getByRole('menuitem', { name: 'Mark for the Mac' })).toBeInTheDocument();
     fireEvent.click(menu.getByRole('menuitem', { name: 'Archive' }));
@@ -575,7 +576,9 @@ describe('a thread', () => {
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'p1', allow: true }));
     fireEvent.click(card.getByRole('button', { name: 'Deny' }));
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'p1', allow: false }));
-    expect(box().placeholder).toBe('Your answer');
+    // Words here are a no with a reason, and the box says so.
+    expect(box().placeholder).toBe('Say no, with a reason');
+    expect(box().getAttribute('aria-label')).toBe('Why not');
     await type('Use the trash');
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'p1', allow: false, message: 'Use the trash' }));
     expect(auto.asked('message')).toEqual([]);

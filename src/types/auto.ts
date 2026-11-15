@@ -19,6 +19,38 @@ export interface AutoAsk {
   question: string | null;
 }
 
+export type AutoWaitState = 'finding' | 'watching' | 'met' | 'expired';
+
+/**
+ * What a thread put away until someone replies waits on. `finding`: Auto is
+ * still naming the conversation. `watching`: the service checks it. `met`:
+ * the reply came. `expired`: the time ran out. A finished wait stays on the
+ * thread until his next message there.
+ */
+export interface AutoWait {
+  /** Who or what he waits for, in his own words; '' when he asked in the thread itself. */
+  say: string;
+  state: AutoWaitState;
+  /** Who he waits on; '' while `finding`. */
+  on: string;
+  /** For what. */
+  what: string;
+  /** Where the conversation is, in the service's own word (`Slack`, `Gmail`, `WhatsApp`, `Messages`, or one named later); '' when it names none. */
+  where: string;
+  /** The conversation. Opened only when it starts with `http`: a chat's id or a text's number (`whatsapp:…`, `imessage:…`) never is. */
+  link: string;
+  /** Which reply ends the wait. */
+  check: string;
+  /** Unix seconds. */
+  since: number | null;
+  /** When the wait gives up. */
+  expires: number | null;
+  /** Their newest message, one line, when it did not answer what he waits for; else ''. */
+  heard: string;
+  /** One line of the reply, once it has come; else ''. */
+  reply: string;
+}
+
 /** A thread's list entry. */
 export interface AutoThread {
   id: string;
@@ -38,10 +70,16 @@ export interface AutoThread {
   error: string | null;
   queued: number;
   archived: boolean;
-  /** When it comes back, in Unix seconds, or null. */
+  /** When he archived it, in Unix seconds, or null when it is not archived. */
+  archivedAt: number | null;
+  /** When it comes back, in Unix seconds, or null. For a thread that waits on a reply, when the wait gives up. */
   snoozed: number | null;
+  /** When he put it away, or null when it is not snoozed. */
+  snoozedAt: number | null;
   /** When it came back from snooze, until it is next opened. */
   woke: number | null;
+  /** What it waits on, when it was put away until someone replies; else null. */
+  wait: AutoWait | null;
   /** The digest entry it was started from. */
   digest: { date: string; id: string } | null;
   /** An entry nobody has started: it holds its words and has run no turn. */
@@ -93,13 +131,16 @@ export interface AutoDigest {
   path: string;
   /** How many entries are still open. */
   left: number;
+  /** He put this day's digest away: it is off the list until the next one, and reads as before. */
+  archived: boolean;
   sections: AutoDigestSection[];
 }
 
-/** The days that have a digest, newest first. */
+/** The days that have a digest, newest first, and which of them he archived. */
 export interface AutoDigestDays {
   days: string[];
   latest: string | null;
+  archived: string[];
 }
 
 export interface AutoStep {
@@ -211,6 +252,8 @@ export type AutoRoute =
   | { kind: 'status' }
   | { kind: 'check-status' }
   | { kind: 'threads' }
+  /** The threads he archived, newest archived first; the first `limit` of them, or all with null. */
+  | { kind: 'archived'; limit: number | null }
   | { kind: 'thread'; id: string }
   | { kind: 'create'; text: string; model: string; cid: string }
   | { kind: 'message'; id: string; text: string; cid: string }
@@ -220,13 +263,20 @@ export type AutoRoute =
   | { kind: 'rename'; id: string; title: string }
   | { kind: 'archive'; id: string; archived: boolean; done?: boolean }
   | { kind: 'move'; id: string; before: string | null }
-  | { kind: 'snooze'; id: string; until: number | null }
+  /**
+   * Snoozes until a time, or brings the thread back with null. With `wait`
+   * it is put away until someone replies, and `until` is when the wait gives
+   * up (the service's own default with null).
+   */
+  | { kind: 'snooze'; id: string; until: number | null; wait?: { say: string } }
   | { kind: 'start'; id: string }
   /** Marks a thread for the Mac, or takes the mark off. */
   | { kind: 'desk'; id: string; on: boolean }
   /** A day's digest; the latest with no date. */
   | { kind: 'digest'; date: string | null }
   | { kind: 'digests' }
+  /** Puts a day's digest away, or brings it back. */
+  | { kind: 'digest-archive'; date: string; archived: boolean }
   /** Resolves entries of one day, or reopens them. */
   | { kind: 'digest-resolve'; date: string; ids: string[]; resolved: boolean }
   /** His note on an entry; empty text removes it. */
@@ -242,6 +292,8 @@ export interface AutoRouteData {
   status: AutoStatus;
   'check-status': AutoStatus;
   threads: { threads: AutoThread[]; cursor: string | null };
+  /** `total` counts every archived thread, before the limit. */
+  archived: { threads: AutoThread[]; total: number };
   thread: AutoSnapshot;
   create: { thread: AutoThread };
   message: { queued: boolean };
@@ -256,6 +308,7 @@ export interface AutoRouteData {
   desk: { thread: AutoThread };
   digest: AutoDigest;
   digests: AutoDigestDays;
+  'digest-archive': AutoDigest;
   'digest-resolve': AutoDigest;
   'digest-note': AutoDigest;
   'digest-thread': { thread: AutoThread };

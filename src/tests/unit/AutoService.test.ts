@@ -480,6 +480,201 @@ describe('the mark for the Mac', () => {
   });
 });
 
+describe('what is put away', () => {
+  const GLASS = '5a000000000a';
+  const TRELLIS = '5a0000000005';
+  const HOUR = 3600;
+  const listed = (id: string) => events('list').flatMap((message) => (message.event.kind === 'thread' && message.event.thread.id === id ? [message.event.thread] : []));
+  const tomorrow = () => Math.floor(Date.now() / 1000) + 24 * HOUR;
+
+  it('reads what he archived, newest first, each with when, the count of all of it, and a first few by number', async () => {
+    const auto = await connected();
+    const all = await auto.request({ kind: 'archived', limit: null });
+    expect(asked.at(-1)?.url).toBe(`${standIn.url}/api/threads?archived=1`);
+    const whole = (all.success ? all.data : null) as { threads: AutoThread[]; total: number };
+    expect(whole.total).toBe(12);
+    expect(whole.threads.map((thread) => thread.title).slice(0, 3)).toEqual(['Fence paint', 'Bird feeder', 'Leaf mould bin']);
+    expect(whole.threads.every((thread) => thread.archived && typeof thread.archivedAt === 'number')).toBe(true);
+    const times = whole.threads.map((thread) => thread.archivedAt ?? 0);
+    expect(times).toEqual([...times].sort((left, right) => right - left));
+
+    const some = await auto.request({ kind: 'archived', limit: 10 });
+    expect(asked.at(-1)?.url).toBe(`${standIn.url}/api/threads?archived=1&limit=10`);
+    const first = (some.success ? some.data : null) as { threads: AutoThread[]; total: number };
+    expect(first.threads).toHaveLength(10);
+    expect(first.total).toBe(12);
+    // The list he works from never carries them.
+    const list = await auto.request({ kind: 'threads' });
+    expect(list.success && (list.data as { threads: AutoThread[] }).threads.some((thread) => thread.archived)).toBe(false);
+  });
+
+  it('serves an archived thread like any other, and a restore puts it back where it sat with no time of archiving', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const before = (await auto.request({ kind: 'threads' })) as { success: true; data: { threads: AutoThread[] } };
+    const order = before.data.threads.map((thread) => thread.id);
+
+    const gone = await auto.request({ kind: 'archive', id: TRELLIS, archived: true });
+    expect(gone.success && (gone.data as { thread: AutoThread }).thread).toMatchObject({ archived: true, archivedAt: expect.any(Number) });
+    const archive = await auto.request({ kind: 'archived', limit: 10 });
+    // Archived a moment ago: first of the 13.
+    expect(archive.success && (archive.data as { threads: AutoThread[]; total: number })).toMatchObject({ total: 13, threads: expect.arrayContaining([expect.objectContaining({ id: TRELLIS })]) });
+    expect(archive.success && (archive.data as { threads: AutoThread[] }).threads[0].id).toBe(TRELLIS);
+    const read = await auto.request({ kind: 'thread', id: TRELLIS });
+    expect(read.success && (read.data as AutoSnapshot).items.at(-1)).toMatchObject({ role: 'assistant', text: 'String lines every 20 cm hold a vine up to two metres.' });
+
+    messages.length = 0;
+    const back = await auto.request({ kind: 'archive', id: TRELLIS, archived: false });
+    expect(standIn.requests.at(-1)).toMatchObject({ path: `/api/threads/${TRELLIS}/archive`, body: { archived: false } });
+    expect(back.success && (back.data as { thread: AutoThread }).thread).toMatchObject({ archived: false, archivedAt: null });
+    await until(() => kinds('list').includes('order'), 'the order');
+    const after = (await auto.request({ kind: 'threads' })) as { success: true; data: { threads: AutoThread[] } };
+    expect(after.data.threads.map((thread) => thread.id)).toEqual(order);
+  });
+
+  it('reads a wait on a thread: who he waits on, where, until when, and what was heard', async () => {
+    const auto = await connected();
+    const list = (await auto.request({ kind: 'threads' })) as { success: true; data: { threads: AutoThread[] } };
+    const glass = list.data.threads.find((thread) => thread.id === GLASS);
+    expect(glass).toMatchObject({ snoozed: expect.any(Number), snoozedAt: expect.any(Number) });
+    expect(glass?.wait).toEqual({
+      say: 'until Sam sends the quote for the glass', state: 'watching', on: 'Sam', what: 'the quote for the greenhouse glass', where: 'Gmail',
+      link: 'https://mail.example/mail/u/0/#all/18c2f0a1b2c3d4e5', check: 'Any reply from Sam with a price',
+      since: expect.any(Number), expires: glass?.snoozed, heard: 'Sam: I will measure the frames on Monday.', reply: '',
+    });
+    // A thread nobody waits for has none.
+    expect(list.data.threads.find((thread) => thread.id === BREAD)?.wait).toBeNull();
+  });
+
+  it('puts a thread away until a reply: his words go as they are, Auto finds the conversation, then the service watches it', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const until_ = tomorrow();
+    const put = await auto.request({ kind: 'snooze', id: TRELLIS, until: until_, wait: { say: 'Robin, about the seed swap' } });
+    expect(standIn.requests.at(-1)).toMatchObject({ path: `/api/threads/${TRELLIS}/snooze`, body: { until: until_, wait: { say: 'Robin, about the seed swap' } } });
+    expect(put.success && (put.data as { thread: AutoThread }).thread).toMatchObject({
+      snoozed: until_, snoozedAt: expect.any(Number), woke: null,
+      wait: { say: 'Robin, about the seed swap', state: 'finding', on: '', what: '', where: '', link: '', expires: until_, heard: '', reply: '' },
+    });
+    await until(() => listed(TRELLIS).at(-1)?.wait?.state === 'watching', 'the wait to be watched');
+    const watching = listed(TRELLIS).at(-1);
+    expect(watching).toMatchObject({ snoozed: until_, wait: { on: 'Robin', where: 'Slack', what: 'an answer about the seed swap', link: 'https://chat.example/archives/C0SEEDS/p1794700000123456' } });
+    // His words show in the thread as his message, as the service writes them.
+    await until(() => standIn.thread(TRELLIS)?.status === 'idle' && !standIn.thread(TRELLIS)?.live, 'the turn to end');
+    const snapshot = await auto.request({ kind: 'thread', id: TRELLIS });
+    const items = snapshot.success ? (snapshot.data as AutoSnapshot).items : [];
+    expect(items.some((item) => item.role === 'user' && item.text === 'Wait for a reply: Robin, about the seed swap')).toBe(true);
+    expect(items.at(-1)).toMatchObject({ role: 'assistant', text: expect.stringMatching(/^Waiting on Robin in Slack\. The wait gives up /) });
+  });
+
+  it('asks who he means when his words name nobody, which brings the thread back until he answers', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const until_ = tomorrow();
+    await auto.request({ kind: 'snooze', id: TRELLIS, until: until_, wait: { say: 'someone at the club' } });
+    // A question brings a snoozed thread back at once. The wait stays, with no conversation named yet.
+    await until(() => listed(TRELLIS).at(-1)?.status === 'waiting', 'the question');
+    expect(listed(TRELLIS).at(-1)).toMatchObject({ snoozed: null, ask: { kind: 'ask', text: 'Who are you waiting on?', options: ['Robin', 'Sam'] }, wait: { state: 'finding', on: '' } });
+    const snapshot = await auto.request({ kind: 'thread', id: TRELLIS });
+    const question = snapshot.success ? (snapshot.data as AutoSnapshot).live?.question : null;
+    await auto.request({ kind: 'answer', id: TRELLIS, answer: { id: question?.id ?? '', answers: { 'Who are you waiting on?': 'Sam' } } });
+    await until(() => listed(TRELLIS).at(-1)?.wait?.state === 'watching', 'the wait to be watched');
+    expect(listed(TRELLIS).at(-1)).toMatchObject({ snoozed: until_, wait: { on: 'Sam', expires: until_ } });
+  });
+
+  it('reads a wait on a text: the place is Messages, and its link is a number that is no web address', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    await auto.request({ kind: 'snooze', id: TRELLIS, until: tomorrow(), wait: { say: 'a text from Robin' } });
+    await until(() => listed(TRELLIS).at(-1)?.wait?.state === 'watching', 'the wait to be watched');
+    expect(listed(TRELLIS).at(-1)?.wait).toMatchObject({ on: 'Robin', where: 'Messages', link: 'imessage:+15550100' });
+    await until(() => standIn.thread(TRELLIS)?.status === 'idle' && !standIn.thread(TRELLIS)?.live, 'the turn to end');
+    standIn.reply(TRELLIS, 'Robin: Saturday at ten.');
+    await until(() => listed(TRELLIS).at(-1)?.wait?.state === 'met' && standIn.thread(TRELLIS)?.status === 'idle' && !standIn.thread(TRELLIS)?.live, 'the reply');
+    const snapshot = await auto.request({ kind: 'thread', id: TRELLIS });
+    const items = snapshot.success ? (snapshot.data as AutoSnapshot).items : [];
+    // The number is in the wait's link and in nothing Auto says.
+    expect(JSON.stringify(items)).not.toContain('+15550100');
+    expect(items.at(-1)).toMatchObject({ role: 'assistant', text: 'Robin replied in Messages: Saturday at ten.' });
+  });
+
+  it('gives a wait with no time of his own the service’s: two working days on at 5 pm', async () => {
+    const auto = await connected();
+    const put = await auto.request({ kind: 'snooze', id: TRELLIS, until: null, wait: { say: 'Robin' } });
+    expect(standIn.requests.at(-1)?.body).toEqual({ wait: { say: 'Robin' } });
+    const thread = (put.success ? (put.data as { thread: AutoThread }).thread : null) as AutoThread;
+    const gives = new Date((thread.snoozed ?? 0) * 1000);
+    expect([gives.getHours(), gives.getMinutes()]).toEqual([17, 0]);
+    expect([0, 6]).not.toContain(gives.getDay());
+    expect(thread.wait?.expires).toBe(thread.snoozed);
+  });
+
+  it('brings the thread back on top when the reply arrives, with the reply’s line and a note in its history', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    standIn.heard(GLASS, 'Sam: Still waiting on the supplier.');
+    await until(() => listed(GLASS).at(-1)?.wait?.heard === 'Sam: Still waiting on the supplier.', 'what was heard');
+    expect(listed(GLASS).at(-1)).toMatchObject({ snoozed: expect.any(Number), wait: { state: 'watching' } });
+
+    standIn.reply(GLASS, 'Sam: 4 mm toughened, 86 for the lot.');
+    await until(() => listed(GLASS).at(-1)?.wait?.state === 'met', 'the reply');
+    const met = listed(GLASS).find((thread) => thread.wait?.state === 'met');
+    expect(met).toMatchObject({ snoozed: null, snoozedAt: null, woke: expect.any(Number), last: 'Sam: 4 mm toughened, 86 for the lot.', wait: { state: 'met', on: 'Sam', reply: 'Sam: 4 mm toughened, 86 for the lot.' } });
+    await until(() => standIn.thread(GLASS)?.status === 'idle' && !standIn.thread(GLASS)?.live, 'the turn to end');
+    const list = (await auto.request({ kind: 'threads' })) as { success: true; data: { threads: AutoThread[] } };
+    expect(list.data.threads[0].id).toBe(GLASS);
+    const snapshot = await auto.request({ kind: 'thread', id: GLASS });
+    const items = snapshot.success ? (snapshot.data as AutoSnapshot).items : [];
+    expect(items.at(-2)).toEqual({ role: 'note', text: 'Sam replied' });
+    expect(items.at(-1)).toMatchObject({ role: 'assistant', text: expect.stringContaining('4 mm toughened, 86 for the lot.') });
+
+    // His next words end the finished wait.
+    await auto.request({ kind: 'message', id: GLASS, text: 'Order it', cid: 'a1b2c5' });
+    await until(() => listed(GLASS).at(-1)?.wait === null, 'the wait to clear');
+  });
+
+  it('brings it back when the time runs out, saying nobody replied', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    standIn.expire(GLASS);
+    await until(() => listed(GLASS).at(-1)?.wait?.state === 'expired', 'the wait to run out');
+    expect(listed(GLASS).find((thread) => thread.wait?.state === 'expired')).toMatchObject({ snoozed: null, woke: expect.any(Number), last: 'No reply from Sam.', wait: { state: 'expired', reply: '' } });
+    await until(() => standIn.thread(GLASS)?.status === 'idle' && !standIn.thread(GLASS)?.live, 'the turn to end');
+    const snapshot = await auto.request({ kind: 'thread', id: GLASS });
+    const items = snapshot.success ? (snapshot.data as AutoSnapshot).items : [];
+    expect(items.at(-2)).toMatchObject({ role: 'note', text: expect.stringMatching(/^No reply by /) });
+  });
+
+  it('ends a wait when he brings the thread back, when he snoozes it to a time, and when he archives it', async () => {
+    const auto = await connected();
+    const back = await auto.request({ kind: 'snooze', id: GLASS, until: null });
+    expect(standIn.requests.at(-1)?.body).toEqual({ until: null });
+    expect(back.success && (back.data as { thread: AutoThread }).thread).toMatchObject({ snoozed: null, snoozedAt: null, woke: null, wait: null });
+
+    const until_ = tomorrow();
+    await auto.request({ kind: 'snooze', id: TRELLIS, until: until_, wait: { say: 'Robin' } });
+    const plain = await auto.request({ kind: 'snooze', id: TRELLIS, until: until_ + HOUR });
+    expect(plain.success && (plain.data as { thread: AutoThread }).thread).toMatchObject({ snoozed: until_ + HOUR, wait: null });
+
+    await auto.request({ kind: 'snooze', id: BREAD, until: until_, wait: { say: 'Robin' } });
+    const gone = await auto.request({ kind: 'archive', id: BREAD, archived: true });
+    expect(gone.success && (gone.data as { thread: AutoThread }).thread).toMatchObject({ archived: true, snoozed: null, wait: null });
+  });
+
+  it('gives the service’s sentence for a time it will not take', async () => {
+    const auto = await connected();
+    const past = await auto.request({ kind: 'snooze', id: TRELLIS, until: 1_000, wait: { say: 'Robin' } });
+    expect(past.success === false && past.error).toMatchObject({ kind: 'refused', message: 'Pick a time in the future.' });
+    expect(standIn.thread(TRELLIS)?.wait ?? null).toBeNull();
+  });
+});
+
 describe('the digest queue', () => {
   const DAY = '2026-11-13';
   const entry = (digest: AutoDigest, id: string) => digest.sections.flatMap((section) => section.entries).find((each) => each.id === id);
@@ -501,7 +696,33 @@ describe('the digest queue', () => {
     expect(earlier.success && (earlier.data as AutoDigest).date).toBe('2026-11-12');
     expect(asked.at(-1)?.url).toBe(`${standIn.url}/api/digest?date=2026-11-12`);
     const days = await auto.request({ kind: 'digests' });
-    expect(days.success && (days.data as AutoDigestDays)).toEqual({ days: [DAY, '2026-11-12', '2026-11-11'], latest: DAY });
+    expect(days.success && (days.data as AutoDigestDays)).toEqual({ days: [DAY, '2026-11-12', '2026-11-11'], latest: DAY, archived: [] });
+  });
+
+  it('archives a digest and puts it back, and says which days are archived', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const before = (await auto.request({ kind: 'digest', date: null })) as { success: true; data: AutoDigest };
+    expect(before.data.archived).toBe(false);
+
+    const archived = await auto.request({ kind: 'digest-archive', date: DAY, archived: true });
+    expect(standIn.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/digest/archive', body: { date: DAY, archived: true } });
+    // A mark for the screens: the day comes back whole, with nothing in it changed.
+    expect(archived.success && archived.data).toEqual({ ...before.data, archived: true });
+    await until(() => events('list').some((message) => message.event.kind === 'digest' && message.event.date === DAY), 'the digest event');
+    const days = await auto.request({ kind: 'digests' });
+    expect(days.success && days.data).toEqual({ days: [DAY, '2026-11-12', '2026-11-11'], latest: DAY, archived: [DAY] });
+    // It stays readable, by its day and as the latest.
+    const again = await auto.request({ kind: 'digest', date: DAY });
+    expect(again.success && (again.data as AutoDigest).archived).toBe(true);
+
+    const back = await auto.request({ kind: 'digest-archive', date: DAY, archived: false });
+    expect(back.success && (back.data as AutoDigest).archived).toBe(false);
+    const after = await auto.request({ kind: 'digests' });
+    expect(after.success && (after.data as AutoDigestDays).archived).toEqual([]);
+    const noDay = await auto.request({ kind: 'digest-archive', date: '2020-01-01', archived: true });
+    expect(noDay.success === false && noDay.error).toMatchObject({ kind: 'refused', message: 'No digest.' });
   });
 
   it('says there is no digest in the service’s own words', async () => {
@@ -510,7 +731,7 @@ describe('the digest queue', () => {
     const auto = await connected();
     expect(await auto.request({ kind: 'digest', date: null })).toEqual({ success: false, error: { kind: 'refused', message: 'No digest.', status: 404, code: 'not_found' } });
     const days = await auto.request({ kind: 'digests' });
-    expect(days.success && days.data).toEqual({ days: [], latest: null });
+    expect(days.success && days.data).toEqual({ days: [], latest: null, archived: [] });
   });
 
   it('resolves one entry or several, reopens them, and gets the day back each time', async () => {

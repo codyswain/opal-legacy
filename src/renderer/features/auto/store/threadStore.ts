@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AutoAnswer, AutoStreamMessage } from '@/types/auto';
+import type { AutoAnswer, AutoQuestion, AutoStreamMessage } from '@/types/auto';
 import {
   NEW_THREAD,
   cidFor,
@@ -16,7 +16,7 @@ import {
 } from '../model/outbox';
 import { DIGEST_QUEUE, paneThread } from '../model/pane';
 import { forgetPlaces } from '../model/places';
-import { answerNo, answerTyped, mayAnswer, type Picks } from '../model/questionModel';
+import { answerNo, answerPicks, answerTyped, isSingle, mayAnswer, picksReady, type Picks } from '../model/questionModel';
 import { applyEvent, fromSnapshot, unconfirmed, type PendingMessage, type ThreadView } from '../model/threadModel';
 import { autoApi, unconfirmedThreads, useAutoStore } from './autoStore';
 import { useSaidStore } from './saidStore';
@@ -29,8 +29,20 @@ import { useSaidStore } from './saidStore';
  * snapshot loads.
  */
 
-/** The sends to allow whose "no" from the box is on its way, so a second Enter does not say it twice. */
-const refusing = new Set<string>();
+/** The questions whose answer from the box is on its way, so a second Enter does not say it twice. */
+const answering = new Set<string>();
+
+/**
+ * The record of questions that found words in the box, after one thread's
+ * question changed: marked when the box of that thread holds words now,
+ * since they were begun before the question came, and cleared otherwise.
+ */
+function begunBefore(earlier: Record<string, string>, box: BoxState, thread: string, question: AutoQuestion | null): Record<string, string> {
+  const next = { ...earlier };
+  if (question && (box.drafts[thread] ?? '').trim()) next[thread] = question.id;
+  else delete next[thread];
+  return next;
+}
 
 /** How many threads' last views are kept. */
 const KEPT_LIMIT = 40;
@@ -73,6 +85,13 @@ export interface ThreadStore {
   notSent: { thread: string; text: string } | null;
   failed: Failed | null;
   picks: Picks;
+  /**
+   * By thread, the question that arrived while its box already held words.
+   * Those words were begun as a message, so they stay one: Enter sends
+   * them, and the box becomes the card's answer field only once it has
+   * been emptied.
+   */
+  earlier: Record<string, string>;
   /** What the service said to an answer it did not take. */
   cardProblem: string | null;
   /** The model a new thread starts with. */
@@ -196,6 +215,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     problem: null,
     stale: false,
     openedUnread: false,
+    earlier: {},
     boxFocus: 0,
     token: null,
     watching: false,
@@ -281,7 +301,17 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       }
       const view = fromSnapshot(result.data);
       remember(view);
-      set({ view, ghost: null, loading: false, slow: false, problem: null, stale: false, pending: unconfirmed(get().pending, view) });
+      set({
+        view,
+        ghost: null,
+        loading: false,
+        slow: false,
+        problem: null,
+        stale: false,
+        pending: unconfirmed(get().pending, view),
+        // A question that came while he was away finds the box as it is now; one he had already seen keeps what was known.
+        ...(view.question?.id === get().view?.question?.id ? {} : { earlier: begunBefore(get().earlier, get().box, id, view.question) }),
+      });
       // A message the service could not hand to the agent goes back into an empty box.
       if (view.unsent && !(get().box.drafts[id] ?? '').trim()) {
         keep(setDraft(get().box, id, view.unsent));
@@ -318,6 +348,9 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         view: next,
         pending: unconfirmed(get().pending, next),
         ...(event.kind === 'question' ? { picks: {}, cardProblem: null } : {}),
+        // A card that arrives while he is typing finds words that were begun as a message. The same card
+        // said again finds only what he has typed under it since.
+        ...(event.kind === 'question' && next.question?.id !== view.question?.id ? { earlier: begunBefore(get().earlier, get().box, view.thread.id, next.question) } : {}),
         ...(event.kind === 'turn' ? { notSent: null } : {}),
       });
       if (event.kind === 'thread') useAutoStore.getState().upsert(event.thread);
@@ -327,6 +360,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const key = draftKey(get().openId);
       keep(setDraft(get().box, key, text));
       if (get().notSent?.thread === key) set({ notSent: null });
+      // Emptied once, the box is the card's answer field.
+      if (text === '' && get().earlier[key] !== undefined) set({ earlier: begunBefore(get().earlier, get().box, key, null) });
     },
 
     editNext: (line) => {
@@ -342,19 +377,22 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (!words || openId === DIGEST_QUEUE) return false;
       // While a question waits, the box is its answer field: his words answer it and are not queued behind it.
       const question = get().view?.question;
-      if (question && typed) {
-        if (question.kind !== 'grant') {
+      // Words begun before the card arrived are not its answer: they go as the message they were begun as.
+      if (question && typed && get().earlier[key] !== question.id) {
+        const picked = question.kind === 'ask' && !isSingle(question) && picksReady(question, get().picks);
+        if (question.kind !== 'grant' && !picked) {
           const took = await get().answer(answerTyped(question, words, get().picks));
           if (took && get().openId === openId) keep(setDraft(get().box, key, ''));
           return took;
         }
-        // A send he is asked to allow reads only the no, never words sent with it. So the no goes alone, and
-        // once the service has taken it his words follow as an ordinary message. If the no is not taken,
-        // the words stay in the box and nothing is sent.
-        if (refusing.has(question.id)) return false;
-        refusing.add(question.id);
-        const took = await get().answer(answerNo(question));
-        refusing.delete(question.id);
+        // Two answers take no words. A send he is asked to allow reads only the no. A question whose every
+        // part has its pick is answered by the picks. So the answer goes alone, and once the service has
+        // taken it his words follow as an ordinary message. If it is not taken, the words stay in the box
+        // and nothing is sent.
+        if (answering.has(question.id)) return false;
+        answering.add(question.id);
+        const took = await get().answer(question.kind === 'grant' ? answerNo(question) : answerPicks(question as Extract<AutoQuestion, { kind: 'ask' }>, get().picks));
+        answering.delete(question.id);
         if (!took || get().openId !== openId) return false;
       }
       // While the service is out of reach the box is left as it is.
@@ -371,6 +409,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         notSent: null,
         failed: null,
         view: view ? { ...view, next: [] } : view,
+        // The box is empty again: what is typed next under a card is its answer.
+        ...(typed ? { earlier: begunBefore(get().earlier, get().box, key, null) } : {}),
       });
       const went = await deliver(entry);
       if (went && !thread && get().openId === openId) {
@@ -423,6 +463,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const result = await autoApi()?.request({ kind: 'start', id }).catch((): null => null);
       if (result?.success) useAutoStore.getState().upsert(result.data.thread);
       else set({ cardProblem: result?.error.message ?? "Can't reach Auto." });
+      // The button has gone with the hand-over: the keyboard goes to the box.
+      if (get().openId === id) get().focusBox();
     },
 
     rename: async (title) => {

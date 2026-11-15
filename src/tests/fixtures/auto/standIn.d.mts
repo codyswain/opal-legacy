@@ -47,6 +47,14 @@ export interface StandIn {
   hold: (name: string) => void;
   release: (name: string) => void;
   wake: (id: string) => void;
+  /** Moves a thread's time of last change back, so a thread at work has been at it that much longer. */
+  age: (id: string, seconds: number) => void;
+  /** The reply a waiting thread waits for arrives: one line, as the reply check gives it. */
+  reply: (id: string, line: string) => void;
+  /** A wait's time runs out with no reply. */
+  expire: (id: string) => void;
+  /** The other side wrote, but not what he waits for. */
+  heard: (id: string, line: string) => void;
   sendWaiting: (id: string) => void;
   sendWent: (id: string) => void;
   raw: (text: string, id?: string) => void;

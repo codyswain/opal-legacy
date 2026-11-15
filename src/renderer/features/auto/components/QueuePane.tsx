@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { ArrowUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUp, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { AutoDigest, AutoDigestEntry } from '@/types/auto';
-import { Button, IconButton, Tooltip, TooltipContent, TooltipTrigger } from '@/renderer/shared/ui';
+import { Button, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
 import {
@@ -142,14 +142,26 @@ function DraftedReply({ entry }: { entry: AutoDigestEntry }) {
   );
 }
 
-/** The box under an open entry. Enter starts a thread with the entry and these words, and opens it. */
+/**
+ * The box under an open entry: the one way to make a thread of it. Enter
+ * starts a thread with the entry and these words, and opens it. With no
+ * words Enter does nothing, and "Make it without words" makes a thread that
+ * waits in the list, not started. Nothing is made if he leaves the box.
+ */
 function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   const key = wordsKey(date, entry.id);
   const words = useDigestStore((state) => state.words[key] ?? '');
   const notSent = useDigestStore((state) => state.notSent === key);
+  const wanted = useDigestStore((state) => state.boxWanted === entry.id);
   const [sending, setSending] = React.useState(false);
   const area = React.useRef<HTMLTextAreaElement>(null);
   useGrow(area, words, 0.3);
+  // "Thread" on the entry, or T on its row, puts the caret here.
+  React.useEffect(() => {
+    if (!wanted) return;
+    area.current?.focus();
+    useDigestStore.setState({ boxWanted: null });
+  }, [wanted]);
   const submit = () => {
     if (!words.trim() || sending) return;
     setSending(true);
@@ -181,9 +193,9 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
         <textarea
           ref={area}
           rows={1}
-          aria-label="What to do with it"
+          aria-label="What you want done"
           data-testid="auto-entry-box"
-          placeholder="Say what to do with it"
+          placeholder="Say what you want done"
           value={sending ? '' : words}
           readOnly={sending}
           onChange={(event) => useDigestStore.getState().setWords(entry.id, event.target.value)}
@@ -200,6 +212,19 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           <ArrowUp aria-hidden className="h-4 w-4" />
         </IconButton>
       </form>
+      {/* The one-step thread, one step further in. It leaves once he has words. */}
+      {!words.trim() && !sending ? (
+        <Button
+          size="compact"
+          variant="ghost"
+          data-testid="auto-entry-wordless"
+          title="Puts it in the list, not started"
+          className="-ml-2 mt-1 font-normal text-foreground-tertiary"
+          onClick={() => void useDigestStore.getState().makeThread(entry.id)}
+        >
+          Make it without words
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -234,11 +259,13 @@ interface EntryProps {
 /**
  * One entry. Closed, it is a title line and at most two quiet lines. A click
  * opens it in place to its whole text, his note, a drafted reply and a box.
- * One that became a thread shows that thread's line, and opens the thread.
+ * "Thread" opens it with the caret in that box: a thread is made only once
+ * he says what he wants done. One that became a thread shows that thread's
+ * line, and opens the thread.
  */
 function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
   const thread = useAutoStore((state) => (entry.thread === null ? undefined : state.threads.find((candidate) => candidate.id === entry.thread)));
-  const { resolve, makeThread } = useDigestStore.getState();
+  const { resolve, openBox } = useDigestStore.getState();
   const resolved = entry.state === 'resolved';
   const became = entry.state === 'thread';
   const row = closedRow(entry);
@@ -255,7 +282,8 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
     const key = event.key.toLowerCase();
     if (key === 'enter' || key === ' ') activate();
     else if (key === 'e') void resolve([entry.id], !resolved);
-    else if (key === 't' && entry.state === 'open') void makeThread(entry.id);
+    // A thread starts with his words: T opens the entry with the caret in its box, and makes nothing yet.
+    else if (key === 't' && entry.state === 'open') openBox(entry.id);
     else if (key === 'n') useDigestStore.getState().openNote(entry.id);
     else if (key === 'escape' && open) useDigestStore.getState().open(null);
     else return;
@@ -268,7 +296,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
   ) : (
     <>
       <Act label="Resolve" hint="E" onClick={() => void resolve([entry.id], true)} />
-      {became ? null : <Act label="Thread" hint="T" onClick={() => void makeThread(entry.id)} />}
+      {became ? null : <Act label="Thread" hint="T" onClick={() => openBox(entry.id)} />}
     </>
   );
   // An entry that opens is brought into view whole, its box included: the last one would open under the fold.
@@ -426,6 +454,12 @@ function Queue({ day, roomy }: { day: AutoDigest; roomy: boolean }) {
             Show all {empty.showAll}
           </Button>
         ) : null}
+        {/* Worked through, it can be put away: off the list until the next one. */}
+        {filter === 'left' && !day.archived ? (
+          <Button size="compact" variant="outline" data-testid="auto-digest-archive-done" onClick={() => void useDigestStore.getState().archive(day.date, true)}>
+            Archive the digest
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -522,6 +556,25 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
     if (narrow) useThreadStore.getState().open(null);
   };
 
+  /** The queue's own keys, from anywhere in it but a field: [ and ] step a day, A switches between Left and All. */
+  const onPaneKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !day) return;
+    if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.closest('[role="menu"]')) return;
+    const key = event.key.toLowerCase();
+    if (key === '[' || key === ']') {
+      const back = key === '[';
+      if (!(back ? older : newer)) return;
+      event.preventDefault();
+      // The keyboard goes to the day's first entry, as when the queue opens.
+      void step(back).then(() => useDigestStore.getState().requestFocus(QUEUE_FIRST));
+    } else if (key === 'a' && !event.shiftKey) {
+      event.preventDefault();
+      useDigestStore.getState().setFilter(filter === 'left' ? 'all' : 'left');
+      useDigestStore.getState().requestFocus(QUEUE_FIRST);
+    }
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     if (!target.hasAttribute('data-auto-entry') || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -539,7 +592,7 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
   };
 
   return (
-    <section ref={pane} data-testid="auto-queue-pane" aria-label="Digest" className="flex min-w-0 flex-1 flex-col">
+    <section ref={pane} data-testid="auto-queue-pane" aria-label="Digest" onKeyDown={onPaneKeyDown} className="flex min-w-0 flex-1 flex-col">
       <header className={cn('auto-beside-talk shrink-0 border-b', scrolled ? 'border-border-subtle' : 'border-transparent')}>
         <div className="auto-column">
           <div className="flex h-header items-center gap-1">
@@ -548,16 +601,29 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
                 <ChevronLeft aria-hidden className="h-4 w-4" />
               </IconButton>
             ) : null}
-            <h1 data-testid="auto-queue-day" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{day ? dayTitle(day.date) : 'Digest'}</h1>
+            <h1 data-testid="auto-queue-day" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
+              {day ? dayTitle(day.date) : 'Digest'}
+            </h1>
             {/* At the far right, as on the phone: they stay put whatever the day is called, and sit away from the back arrow. */}
             {day ? (
               <div className="-mr-1.5 flex shrink-0 items-center">
-                <IconButton ref={earlier} label="Earlier day" disabled={!older} onClick={() => stepTo(true)}>
+                <IconButton ref={earlier} label="Earlier day" shortcut="[" disabled={!older} onClick={() => stepTo(true)}>
                   <ChevronLeft aria-hidden className="h-4 w-4" />
                 </IconButton>
-                <IconButton ref={later} label="Later day" disabled={!newer} onClick={() => stepTo(false)}>
+                <IconButton ref={later} label="Later day" shortcut="]" disabled={!newer} onClick={() => stepTo(false)}>
                   <ChevronRight aria-hidden className="h-4 w-4" />
                 </IconButton>
+                <Menu>
+                  <MenuTrigger asChild>
+                    <IconButton label="Digest menu" data-testid="auto-digest-menu">
+                      <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
+                    </IconButton>
+                  </MenuTrigger>
+                  <MenuContent align="end">
+                    {/* Archived, the digest is off the list until the next one. It stays readable here and in the archive. */}
+                    <MenuItem onSelect={() => void useDigestStore.getState().archive(day.date, !day.archived)}>{day.archived ? 'Bring back' : 'Archive the digest'}</MenuItem>
+                  </MenuContent>
+                </Menu>
               </div>
             ) : null}
           </div>
@@ -586,7 +652,8 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
       >
         <div className="auto-column flex flex-col pb-6">
           {day ? (
-            <Queue day={day} roomy={roomy} />
+            // Each day has its own Tab stop: entries of different days share ids such as "item-1".
+            <Queue key={day.date} day={day} roomy={roomy} />
           ) : status === 'none' ? (
             <p data-testid="auto-queue-empty" className="py-6 text-ui text-foreground-secondary">No digest yet.</p>
           ) : status === 'unknown' ? (
@@ -603,6 +670,22 @@ export function QueuePane({ narrow }: { narrow: boolean }) {
       {narrow ? (
         <div className="auto-beside-talk shrink-0 pb-3">
           <div className="auto-column"><SaidBar /></div>
+        </div>
+      ) : null}
+      {/* An archived digest says so at its foot, as an archived thread does, with the same way back. */}
+      {day?.archived ? (
+        <div className="auto-beside-talk shrink-0 pb-3">
+          <div data-testid="auto-queue-archived" className="auto-column">
+            <div className="flex items-center gap-3 border-t border-border-subtle pt-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-ui text-foreground">Archived</p>
+                <p className="text-control text-foreground-tertiary">It is off the list until the next digest.</p>
+              </div>
+              <Button size="compact" variant="outline" data-testid="auto-digest-back" onClick={() => void useDigestStore.getState().archive(day.date, false)}>
+                Bring back
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

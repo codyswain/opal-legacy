@@ -89,7 +89,23 @@ rsync --archive --delete --exclude ".cache" --exclude "*.tmp" ~/Garden/plans/ /V
 
 That is everything.`;
 
-const firstLine = (text) => (text.split('\n').find((line) => line.trim()) ?? '').replace(/^#+\s*/, '').slice(0, 200);
+/**
+ * The first line of some words as the service keeps it for a list row:
+ * without its Markdown marks, a link by its text, and cut with an ellipsis.
+ */
+function firstLine(text, limit = 160) {
+  for (const raw of (text ?? '').split('\n')) {
+    const line = raw
+      .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)+/, '')
+      .replace(/\*\*|__|`/g, '')
+      .trim()
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1')
+      .split(/\s+/).filter(Boolean).join(' ');
+    if (line) return line.length <= limit ? line : `${line.slice(0, limit - 1).trimEnd()}…`;
+  }
+  return '';
+}
 /** A line's words without their Markdown marks, links by their text. */
 const plainWords = (text) => text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim();
 
@@ -132,7 +148,42 @@ function fixtureThreads(kind) {
     base('5a0000000009', 'Rain barrel', { status: 'stopped', last: 'Stopped', updated: t - 86400 * 9,
       items: [{ role: 'user', text: 'Size the rain barrel for the shed roof.' }, { role: 'note', text: 'Stopped' }] }),
     ...snoozed,
+    // Put away until someone replies: the service is watching the conversation.
+    base('5a000000000a', 'Greenhouse glass', { last: 'Waiting on Sam in Gmail. The wait gives up in two days.', updated: t - 5 * 3600,
+      snoozed: t + 2 * 86400, snoozed_at: t - 5 * 3600,
+      wait: { say: 'until Sam sends the quote for the glass', state: 'watching', on: 'Sam', what: 'the quote for the greenhouse glass', where: 'Gmail',
+        link: 'https://mail.example/mail/u/0/#all/18c2f0a1b2c3d4e5', check: 'Any reply from Sam with a price',
+        since: t - 5 * 3600, expires: t + 2 * 86400, checked: t - 600, heard: 'Sam: I will measure the frames on Monday.', reply: null },
+      items: [
+        { role: 'user', text: 'Ask Sam for a quote on the greenhouse glass.' },
+        { role: 'assistant', text: 'The request is drafted for you to send.' },
+        { role: 'user', text: 'Wait for a reply: until Sam sends the quote for the glass' },
+        { role: 'assistant', text: 'Waiting on Sam in Gmail. The wait gives up in two days.' },
+      ] }),
+    ...archivedThreads(t, base),
   ];
+}
+
+/** What he archived, each with when: enough of them that the archive shows its newest few first. */
+function archivedThreads(t, base) {
+  const titles = [
+    ['Fence paint', 'Two coats of the dark green cover the north side.'],
+    ['Bird feeder', 'Hang it two metres up, away from the hedge.'],
+    ['Leaf mould bin', 'Four posts and chicken wire, one metre square.'],
+    ['Shed shelf', 'Three brackets carry the seed boxes.'],
+    ['Onion sets', 'Plant them 10 cm apart in rows 30 cm apart.'],
+    ['Hose reel', 'Mount it by the tap, at hip height.'],
+    ['Path edging', 'Twelve metres of timber edging, pegged every metre.'],
+    ['Cold frame', 'The old window fits a frame of 90 by 60 cm.'],
+    ['Wormery', 'Feed it a handful of peelings twice a week.'],
+    ['Bean poles', 'Eight poles, 2.4 m, tied at the top.'],
+    ['Gutter for the shed', 'Three metres of gutter and one downpipe.'],
+    ['Slug traps', 'Sink the jars to their rims by the lettuces.'],
+  ];
+  return titles.map(([title, last], at) => base(`5b00000000${String(at + 1).padStart(2, '0')}`, title, {
+    last, archived: true, archived_at: t - (at + 1) * 86400 - at * 600, updated: t - (at + 2) * 86400,
+    items: [{ role: 'user', text: `About the ${title.toLowerCase()}.` }, { role: 'assistant', text: last }],
+  }));
 }
 
 /** The made-up digests, by day. Each entry keeps what he did with it. */
@@ -222,6 +273,8 @@ export async function startStandIn(options = {}) {
   const unsigned = [];
   const ticks = [];
   const digests = fixtureDigests(options.digests ?? 'default');
+  /** The days whose digest he archived. */
+  const archivedDays = new Set();
   const threads = new Map();
   let order = [];
   const list = { n: 0, events: [], clients: new Set() };
@@ -277,6 +330,18 @@ export async function startStandIn(options = {}) {
       ask: askOf(thread), unread: thread.unread, model: thread.model, created: thread.created, updated: thread.updated,
       error: thread.status === 'failed' ? thread.error : null, queued: thread.queue.length, archived: thread.archived,
       snoozed: thread.snoozed, woke: thread.woke, desk: thread.desk ?? null, yours: thread.yours ?? '', digest: thread.digest, ...(thread.waits ? { waits: true } : {}),
+      snoozed_at: thread.snoozed ? thread.snoozed_at ?? thread.updated : null,
+      archived_at: thread.archived ? thread.archived_at ?? thread.updated : null,
+      wait: waitOf(thread.wait),
+    };
+  }
+
+  /** A thread's wait as clients read it: every key there, whatever state it is in. */
+  function waitOf(wait) {
+    if (!wait) return null;
+    return {
+      say: wait.say || '', state: wait.state || 'finding', on: wait.on || '', what: wait.what || '', where: wait.where || '', link: wait.link || '', check: wait.check || '',
+      since: wait.since ?? null, expires: wait.expires ?? null, checked: wait.checked ?? null, heard: wait.heard ?? null, reply: wait.reply ?? null,
     };
   }
 
@@ -314,6 +379,7 @@ export async function startStandIn(options = {}) {
     })).filter((section) => section.entries.length > 0);
     return {
       date, path: digest.path, today: date === days()[0],
+      archived: archivedDays.has(date),
       left: count.open, resolved: count.resolved, threads: count.thread, total: count.open + count.resolved + count.thread,
       sections,
     };
@@ -616,11 +682,18 @@ export async function startStandIn(options = {}) {
     return ['Show the watering schedule', 'Draft the shopping list'];
   }
 
-  function startTurn(thread, user) {
+  /**
+   * Starts a turn. `run` is the script it follows, by default the one picked
+   * by a word in his message. With `own` it is a turn the service started
+   * itself: a finished wait stays on the thread through it.
+   */
+  function startTurn(thread, user, play = null, { own = false } = {}) {
     const run = { stopped: false };
     thread.run = run;
     thread.status = 'working';
     thread.next = [];
+    // A finished wait has said what it had to once he takes the thread up.
+    if (!own && !play && (thread.wait?.state === 'met' || thread.wait?.state === 'expired')) thread.wait = null;
     // His move goes when he sends from the thread, or when the next turn ends without one.
     thread.yours = '';
     thread.unsent = null;
@@ -633,7 +706,7 @@ export async function startStandIn(options = {}) {
     thread.activity = '';
     emitThread(thread, 'turn', { items: [user], state: 'working', activity: '' });
     changed(thread);
-    void script(context(thread, run), user.text).then(
+    void (play ? play(context(thread, run)) : script(context(thread, run), user.text)).then(
       (next) => endTurn(thread, run, 'done', null, next),
       (error) => endTurn(thread, run, error instanceof Stopped || run.stopped ? 'stopped' : 'failed', error.failed ? error.message : null, []),
     );
@@ -652,6 +725,12 @@ export async function startStandIn(options = {}) {
     if (outcome === 'stopped') thread.items.push({ role: 'note', text: 'Stopped' });
     const reply = [...items].reverse().find((item) => item.role === 'assistant' && item.text);
     thread.status = outcome === 'done' ? 'idle' : outcome;
+    // The turn that was to name the conversation ended with none named: nothing watches, and the thread is not put away.
+    if (thread.wait?.state === 'finding') {
+      const was = thread.snoozed !== null;
+      Object.assign(thread, { wait: null, snoozed: null, snoozed_at: null });
+      if (was) toTop(thread);
+    }
     thread.error = outcome === 'failed' ? error ?? 'The turn did not finish.' : null;
     thread.last = outcome === 'stopped' ? 'Stopped' : reply ? firstLine(reply.text) : thread.last;
     thread.unread = thread.clients.size === 0 && outcome !== 'stopped';
@@ -692,15 +771,100 @@ export async function startStandIn(options = {}) {
   // Snoozed threads come back at their time: on top, with `woke` set.
   const waker = setInterval(() => {
     for (const thread of threads.values()) {
-      if (thread.snoozed && thread.snoozed <= now()) wake(thread);
+      if (!thread.snoozed || thread.snoozed > now() || thread.archived) continue;
+      // A wait that runs out returns as expired; a timed snooze just comes back.
+      if (thread.wait?.state === 'watching') waitOver(thread, 'expired');
+      else wake(thread);
     }
   }, 100);
 
   function wake(thread) {
+    // While Auto is still naming the conversation, a return drops the wait: nothing was ever watched.
+    if (thread.wait?.state === 'finding') thread.wait = null;
     thread.snoozed = null;
+    thread.snoozed_at = null;
     thread.woke = now();
     toTop(thread);
     changed(thread);
+  }
+
+  /** Two working days on, at 5 pm: the default give-up time of a wait. */
+  function defaultGiveUp(at) {
+    const day = new Date(at * 1000);
+    let left = 2;
+    while (left > 0) {
+      day.setDate(day.getDate() + 1);
+      if (day.getDay() !== 0 && day.getDay() !== 6) left -= 1;
+    }
+    day.setHours(17, 0, 0, 0);
+    return day.getTime() / 1000;
+  }
+
+  /** "Tue 5:00 pm", or "Nov 24, 5:00 pm" when it is more than six days off. */
+  function clock(at) {
+    const when = new Date(at * 1000);
+    const hour = when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (_all, half) => ` ${half.toLowerCase()}`);
+    const days = Math.abs(Math.round((new Date(when).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000));
+    return days <= 6 ? `${when.toLocaleDateString('en-US', { weekday: 'short' })} ${hour}` : `${when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${hour}`;
+  }
+
+  /**
+   * The turn in which Auto names the conversation a thread waits on. His
+   * words show as his message. The thread is snoozed from the start and
+   * stays so. Words that name nobody ("someone") make Auto ask, which
+   * brings the thread back with its question until he answers. Words that
+   * speak of a text make it a wait in Messages.
+   */
+  function find(thread) {
+    const began = thread.wait.since;
+    startTurn(thread, { role: 'user', text: `Wait for a reply: ${thread.wait.say}` }, async (ctx) => {
+      ctx.activity('Finding the conversation');
+      await ctx.wait(pace * 2);
+      let on = 'Robin';
+      if (/\bsomeone\b/i.test(thread.wait?.say ?? '')) {
+        // A question brings a snoozed thread back at once. The wait stays, still finding.
+        Object.assign(thread, { snoozed: null, snoozed_at: null, woke: now() });
+        toTop(thread);
+        const answer = await ctx.ask({ kind: 'ask', questions: [{ question: 'Who are you waiting on?', header: 'Who', multiSelect: false, options: [{ label: 'Robin', description: '' }, { label: 'Sam', description: '' }] }] });
+        on = String(Object.values(answer.answers ?? {})[0] ?? 'Robin');
+      }
+      // He brought it back meanwhile: there is nothing to wait for now.
+      if (!thread.wait || thread.wait.since !== began) {
+        await ctx.say('You brought this thread back, so there is nothing to wait for now.');
+        return [];
+      }
+      // A wait on a text is watched in Messages, and its link is the number, which no client opens.
+      const byText = /\btexts?\b/i.test(thread.wait.say);
+      const where = byText ? 'Messages' : 'Slack';
+      const link = byText ? 'imessage:+15550100' : 'https://chat.example/archives/C0SEEDS/p1794700000123456';
+      Object.assign(thread.wait, { state: 'watching', on, what: 'an answer about the seed swap', where, link, check: `Any reply from ${on}`, checked: now() });
+      Object.assign(thread, { snoozed: thread.wait.expires, snoozed_at: thread.snoozed_at ?? now(), woke: null });
+      changed(thread);
+      await ctx.say(`Waiting on ${on} in ${where}. The wait gives up ${clock(thread.wait.expires)}.`);
+      return [];
+    });
+  }
+
+  /** The reply came, or the time ran out: the thread returns on top, and a turn of the service's own says what happened. */
+  function waitOver(thread, outcome, line = '') {
+    const wait = thread.wait;
+    const who = wait.on || 'them';
+    Object.assign(wait, { state: outcome, reply: outcome === 'met' ? line : null, checked: now() });
+    Object.assign(thread, { snoozed: null, snoozed_at: null, woke: now(), last: outcome === 'met' ? firstLine(line, 300) : `No reply from ${who}.`, updated: now() });
+    toTop(thread);
+    changed(thread);
+    // The turn opens with a note in place of his words, and Auto says in a line or two what happened.
+    const note = outcome === 'met' ? `${line.includes(': ') ? line.split(': ')[0] : who} replied` : `No reply by ${clock(wait.expires)}`;
+    startTurn(thread, { role: 'note', text: note }, async (ctx) => {
+      ctx.activity('Reading the conversation');
+      await ctx.wait(pace * 2);
+      // The conversation is linked only when it has a web address: a text's number stays out of the thread.
+      const place = /^https?:/.test(wait.link) ? `[the conversation](${wait.link})` : wait.where || 'the conversation';
+      await ctx.say(outcome === 'met'
+        ? `${who} replied in ${place}: ${line.includes(': ') ? line.split(': ').slice(1).join(': ') : line}`
+        : `Nobody has replied in ${place} yet.`);
+      return [];
+    }, { own: true });
   }
 
   const answer = (response, code, body) => {
@@ -782,6 +946,12 @@ export async function startStandIn(options = {}) {
     if (path === '/api/status/check' && isWrite) return answer(response, 200, status());
     if (path === '/api/events' && !isWrite) return stream(request, response, list);
     if (path === '/api/threads' && !isWrite) {
+      if (url.searchParams.get('archived') === '1') {
+        // What he archived, newest archived first. An entry nobody started is left out: the service put those away.
+        const limit = url.searchParams.get('limit') ?? '';
+        const rows = [...threads.values()].filter((thread) => thread.archived && !thread.seed).map(entry).sort((left, right) => (right.archived_at ?? 0) - (left.archived_at ?? 0));
+        return answer(response, 200, { threads: /^\d+$/.test(limit) && Number(limit) > 0 ? rows.slice(0, Number(limit)) : rows, total: rows.length, cursor: `${boot}.${list.n}` });
+      }
       return answer(response, 200, { threads: shown().map((id) => entry(threads.get(id))), cursor: `${boot}.${list.n}` });
     }
     if (path === '/api/threads' && isWrite) {
@@ -801,7 +971,7 @@ export async function startStandIn(options = {}) {
     }
 
     const client = request.headers['x-auto-client'] ?? 'web';
-    if (path === '/api/digests' && !isWrite) return answer(response, 200, { days: days(), latest: days()[0] ?? null });
+    if (path === '/api/digests' && !isWrite) return answer(response, 200, { days: days(), latest: days()[0] ?? null, archived: days().filter((day) => archivedDays.has(day)) });
     if (path === '/api/digest' && !isWrite) {
       const date = url.searchParams.get('date') ?? days()[0];
       const digest = date ? digestOf(date) : null;
@@ -811,6 +981,17 @@ export async function startStandIn(options = {}) {
       const digest = digests.get(data.date);
       if (path === '/api/digest/inbox') return answer(response, 200, { date: data.date ?? days()[0] ?? null, made: 0 });
       if (!digest) return refuse(response, 404, 'not_found', 'No digest.');
+      if (path === '/api/digest/archive') {
+        // A mark for the screens: no entry and no thread changes.
+        const on = data.archived ?? true;
+        if (typeof on !== 'boolean') return refuse(response, 400, 'bad_request', 'Send archived, true or false.');
+        if (archivedDays.has(data.date) !== on) {
+          if (on) archivedDays.add(data.date);
+          else archivedDays.delete(data.date);
+          emitList('digest', { date: data.date });
+        }
+        return answer(response, 200, digestOf(data.date));
+      }
       const find = (id) => entriesOf(digest).find((found) => found.id === id);
       if (path === '/api/digest/tick') {
         const item = entriesOf(digest).find((found) => found.kind === 'item' && found.n === data.n);
@@ -869,7 +1050,8 @@ export async function startStandIn(options = {}) {
 
     const match = /^\/api\/threads\/([^/]+)(?:\/([a-z]+))?$/.exec(path);
     const thread = match ? threads.get(match[1]) : null;
-    if (!match || !thread || (thread.archived && match[2] !== 'archive')) return refuse(response, 404, 'not_found', match ? 'No such thread.' : 'Not found.');
+    // An archived thread is served like any other: it is only left out of the list.
+    if (!match || !thread) return refuse(response, 404, 'not_found', match ? 'No such thread.' : 'Not found.');
     const action = match[2] ?? '';
 
     if (!isWrite) {
@@ -946,10 +1128,14 @@ export async function startStandIn(options = {}) {
         thread.desk = data.on ? { at: now(), by: client } : null;
         changed(thread);
         return answer(response, 200, { thread: entry(thread) });
-      case 'archive':
+      case 'archive': {
+        const was = thread.archived;
         thread.archived = data.archived !== false;
+        if (thread.archived !== was) thread.archived_at = thread.archived ? now() : null;
         if (thread.archived) {
           thread.desk = null;
+          // Put away for good: nothing is watched for it.
+          if (thread.wait) Object.assign(thread, { wait: null, snoozed: null, snoozed_at: null });
           // Done also marks the entry the thread came from.
           if (data.done === true && thread.digest) {
             ticks.push({ ...thread.digest });
@@ -965,9 +1151,10 @@ export async function startStandIn(options = {}) {
         } else {
           // Restored, it is back where it was in his order.
           changed(thread);
-          emitList('order', { ids: shown() });
+          if (was) emitList('order', { ids: shown() });
         }
         return answer(response, 200, { thread: entry(thread) });
+      }
       case 'move': {
         if (data.before !== null && (!threads.has(data.before) || data.before === thread.id || !shown().includes(data.before))) {
           return refuse(response, 400, 'bad_request', 'Move it before another thread, or to the end.');
@@ -977,20 +1164,35 @@ export async function startStandIn(options = {}) {
         emitList('order', { ids: shown() });
         return answer(response, 200, { ids: shown() });
       }
-      case 'snooze':
-        if (data.until === null) {
-          thread.snoozed = null;
-          toTop(thread);
+      case 'snooze': {
+        let until = data.until ?? null;
+        const wait = data.wait ?? null;
+        if (wait !== null) {
+          if (typeof wait !== 'object' || typeof wait.say !== 'string' || !wait.say.trim()) return refuse(response, 400, 'bad_request', 'Send wait as {"say": who or what he is waiting for}.');
+          if (wait.say.length > 2000) return refuse(response, 400, 'bad_request', 'Say who or what he is waiting for in fewer words.');
+          // With no time of his own the wait gives up two working days on, at 5 pm.
+          if (until === null) until = defaultGiveUp(now());
+        }
+        if (until === null) {
+          // Brought back now: on top, with no "Back", and a wait ends with it.
+          const was = thread.snoozed !== null;
+          Object.assign(thread, { snoozed: null, snoozed_at: null, woke: was ? null : thread.woke, wait: null });
+          if (was) toTop(thread);
           changed(thread);
           return answer(response, 200, { thread: entry(thread) });
         }
-        if (typeof data.until !== 'number' || data.until <= now() || data.until > now() + 366 * 86400) {
-          return refuse(response, 400, 'bad_request', 'Snooze until a time in the next year.');
-        }
-        thread.snoozed = data.until;
-        thread.woke = null;
+        if (typeof until !== 'number' || Number.isNaN(until)) return refuse(response, 400, 'bad_request', 'Give the time to snooze until, in seconds.');
+        if (until <= now()) return refuse(response, 400, 'bad_request', 'Pick a time in the future.');
+        if (until > now() + 366 * 86400) return refuse(response, 400, 'bad_request', 'Pick a time within a year.');
+        // A plain snooze replaces a wait.
+        Object.assign(thread, {
+          snoozed: until, snoozed_at: now(), woke: null,
+          wait: wait ? { say: wait.say.split(/\s+/).filter(Boolean).join(' '), state: 'finding', on: '', what: '', where: '', link: '', check: '', since: now(), expires: until, checked: null, heard: null, reply: null } : null,
+        });
         changed(thread);
+        if (thread.wait) find(thread);
         return answer(response, 200, { thread: entry(thread) });
+      }
       default:
         return refuse(response, 404, 'not_found', 'Not found.');
     }
@@ -1061,6 +1263,32 @@ export async function startStandIn(options = {}) {
     /** Brings a snoozed thread back now, as its time passing does. */
     wake(id) {
       wake(threads.get(id));
+    },
+    /** A thread at work has been at it this many seconds longer: its time of last change moves back. */
+    age(id, seconds) {
+      const thread = threads.get(id);
+      if (!thread) return;
+      thread.updated -= seconds;
+      emitThread(thread, 'thread', entry(thread));
+      emitList('thread', entry(thread));
+    },
+    /** The reply a thread waits for arrives: one line, as the reply check gives it ("Robin: Saturday works."). */
+    reply(id, line) {
+      const thread = threads.get(id);
+      if (thread?.wait?.state === 'watching') waitOver(thread, 'met', line);
+    },
+    /** The wait's time runs out with no reply. */
+    expire(id) {
+      const thread = threads.get(id);
+      if (thread?.wait?.state === 'watching') waitOver(thread, 'expired');
+    },
+    /** The other side wrote, but not what he waits for: one line. A check is no news, so the row's time stays. */
+    heard(id, line) {
+      const thread = threads.get(id);
+      if (thread?.wait?.state !== 'watching') return;
+      Object.assign(thread.wait, { heard: line, checked: now() });
+      emitThread(thread, 'thread', entry(thread));
+      emitList('thread', entry(thread));
     },
     /** A send that waits to be confirmed on the phone, and one that went out. */
     sendWaiting(id) {

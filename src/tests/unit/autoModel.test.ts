@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  toArchived,
   toDigest,
   toDigestDays,
   toItem,
@@ -11,6 +12,7 @@ import {
   toThread,
   toThreadEvent,
   toThreads,
+  toWait,
   validCid,
   validCursor,
   validDate,
@@ -39,8 +41,62 @@ const ENTRY = {
 
 describe("reading the service's answers", () => {
   it('keeps a list entry as the service gives it', () => {
-    expect(toThread(ENTRY)).toEqual({ ...ENTRY, waits: false, desk: null, yours: '' });
+    expect(toThread(ENTRY)).toEqual({ ...ENTRY, archivedAt: null, snoozedAt: null, wait: null, waits: false, desk: null, yours: '' });
     expect(toThread({ ...ENTRY, waits: true })?.waits).toBe(true);
+  });
+
+  it('reads when a thread was put away: archived, and snoozed', () => {
+    expect(toThread({ ...ENTRY, archived: true, archived_at: 1794700000.5 })).toMatchObject({ archived: true, archivedAt: 1794700000.5 });
+    // A time with no archive, or a snooze time with no snooze, says nothing.
+    expect(toThread({ ...ENTRY, archived: false, archived_at: 1794700000 })?.archivedAt).toBeNull();
+    expect(toThread({ ...ENTRY, snoozed: 1794800000, snoozed_at: 1794700000 })).toMatchObject({ snoozed: 1794800000, snoozedAt: 1794700000 });
+    expect(toThread({ ...ENTRY, snoozed: null, snoozed_at: 1794700000 })?.snoozedAt).toBeNull();
+    for (const other of ['yesterday', -5, NaN, null, {}]) expect(toThread({ ...ENTRY, archived: true, archived_at: other })?.archivedAt).toBeNull();
+  });
+
+  it('reads what a thread waits on, each line cut and nothing else kept', () => {
+    const wait = {
+      say: 'until Sam sends the quote', state: 'watching', on: 'Sam', what: 'the quote for the glass', where: 'Gmail',
+      link: 'https://mail.example/mail/u/0/#all/18c2f0a1', check: 'Any reply from Sam', since: 1794724000.0, expires: 1794963600.0, checked: 1794724300.0,
+      heard: 'Sam: I will measure on Monday.', reply: null as string | null,
+    };
+    expect(toWait(wait)).toEqual({
+      say: 'until Sam sends the quote', state: 'watching', on: 'Sam', what: 'the quote for the glass', where: 'Gmail',
+      link: 'https://mail.example/mail/u/0/#all/18c2f0a1', check: 'Any reply from Sam', since: 1794724000.0, expires: 1794963600.0,
+      heard: 'Sam: I will measure on Monday.', reply: '',
+    });
+    expect(toThread({ ...ENTRY, snoozed: 1794963600, wait })?.wait?.on).toBe('Sam');
+    for (const state of ['finding', 'watching', 'met', 'expired']) expect(toWait({ ...wait, state })?.state).toBe(state);
+    // A state this app does not know is read as still watched.
+    expect(toWait({ ...wait, state: 'paused' })).toMatchObject({ state: 'watching' });
+    // The place is the service's own word, whatever it is: a text, and a place this app has never heard of.
+    expect(toWait({ ...wait, where: 'Messages', link: 'imessage:+15550100' })).toMatchObject({ where: 'Messages', link: 'imessage:+15550100' });
+    expect(toWait({ ...wait, where: 'Pigeon post' })?.where).toBe('Pigeon post');
+    // One short line of plain text: trimmed, on one line, cut at 40 characters, and nothing that is not text.
+    expect(toWait({ ...wait, where: '  Pigeon\n post  ' })?.where).toBe('Pigeon post');
+    expect(toWait({ ...wait, where: 'p'.repeat(90) })?.where).toBe('p'.repeat(40));
+    expect(toWait({ ...wait, where: `${'p'.repeat(39)} post` })?.where).toBe('p'.repeat(39));
+    for (const other of [7, null, undefined, ['Slack'], { name: 'Slack' }, '   ']) expect(toWait({ ...wait, where: other })?.where).toBe('');
+    // Words from outside are cut to a length, and anything that is not text is left out.
+    expect(toWait({ say: 'x'.repeat(5_000), on: 'y'.repeat(500), what: 7, link: ['x'], heard: { text: 'no' }, reply: 'z'.repeat(9_000), since: 'now', expires: -1 })).toEqual({
+      say: 'x'.repeat(2_000), state: 'watching', on: 'y'.repeat(80), what: '', where: '', link: '', check: '', since: null, expires: null, heard: '', reply: 'z'.repeat(2_000),
+    });
+    for (const other of [null, undefined, 'waiting', 7, ['x']]) expect(toWait(other)).toBeNull();
+    expect(toThread({ ...ENTRY, wait: 'yes' })?.wait).toBeNull();
+  });
+
+  it('reads the archive: only archived threads, and how many there are before the limit', () => {
+    const gone = { ...ENTRY, id: 'a1', archived: true, archived_at: 1794700000 };
+    expect(toArchived({ threads: [gone, { ...ENTRY, id: 'b2' }, { ...gone, id: '../x' }, 'junk'], total: 14, cursor: 'b.1' })).toEqual({
+      threads: [expect.objectContaining({ id: 'a1', archived: true, archivedAt: 1794700000 })],
+      total: 14,
+    });
+    // A total the service did not give, or one smaller than what it sent, is what was sent.
+    expect(toArchived({ threads: [gone] })?.total).toBe(1);
+    expect(toArchived({ threads: [gone], total: 0 })?.total).toBe(1);
+    expect(toArchived({ threads: [gone], total: 'many' })?.total).toBe(1);
+    expect(toArchived({ total: 3 })).toBeNull();
+    expect(toArchived(null)).toBeNull();
   });
 
   it('reads the mark for the Mac, and none from anything else', () => {
@@ -68,7 +124,7 @@ describe("reading the service's answers", () => {
     const strange = toThread({ id: 'ok', title: ['x'], status: 'dancing', last: 7, ask: 'yes', unread: 'true', model: 'Not A Key', created: 'soon', snoozed: -1, woke: NaN, digest: 'item', queued: 2.9, error: '' });
     expect(strange).toEqual({
       id: 'ok', title: '', status: 'idle', last: '', activity: '', ask: null, unread: false, model: '', created: 0, updated: 0,
-      error: null, queued: 2, archived: false, snoozed: null, woke: null, digest: null, waits: false, desk: null, yours: '',
+      error: null, queued: 2, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null, digest: null, waits: false, desk: null, yours: '',
     });
     expect(toThread({ id: 'ok', title: 'x'.repeat(5_000) })?.title.length).toBe(300);
   });
@@ -184,7 +240,7 @@ describe("reading the service's answers", () => {
   });
 
   it('reads each list event, and nothing of a kind it does not know', () => {
-    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, waits: false, desk: null, yours: '' } });
+    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, archivedAt: null, snoozedAt: null, wait: null, waits: false, desk: null, yours: '' } });
     expect(toListEvent('order', { ids: ['a1', '../b', 7, 'c3'] })).toEqual({ kind: 'order', ids: ['a1', 'c3'] });
     expect(toListEvent('status', { auth: {} })?.kind).toBe('status');
     expect(toListEvent('reset', {})).toEqual({ kind: 'reset' });
@@ -247,6 +303,7 @@ describe("reading the service's answers", () => {
       date: '2026-11-13',
       path: 'Library/digests/2026-11-13 digest.md',
       left: 3,
+      archived: false,
       sections: [
         { title: 'Top 3', entries: [
           { id: 'item-1', kind: 'item', title: 'Order the seed trays', md: 'Two trays.', section: 'Top 3', state: 'open', thread: null, note: 'Ask about peat', priority: 'High', draft: { title: 'Garden centre', paste: 'Two trays, please.' } },
@@ -284,13 +341,17 @@ describe("reading the service's answers", () => {
       path: '',
       // The service gave no count, so Opal counts the open entries it can see.
       left: 2,
+      archived: false,
       sections: [{ title: 'News', entries: [
         { id: 'widget-1', kind: 'text', title: 'A chart', md: 'Three bars.', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null },
         // Said to be a thread, with no thread that can be named: still open.
         { id: 'item-9', kind: 'item', title: '', md: '', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null },
       ] }],
     });
-    expect(toDigest({ date: '2026-11-13' })).toEqual({ date: '2026-11-13', path: '', left: 0, sections: [] });
+    expect(toDigest({ date: '2026-11-13' })).toEqual({ date: '2026-11-13', path: '', left: 0, archived: false, sections: [] });
+    // He archived the day: a mark, read only from a plain true.
+    expect(toDigest({ date: '2026-11-13', archived: true })?.archived).toBe(true);
+    for (const other of ['true', 1, null, {}]) expect(toDigest({ date: '2026-11-13', archived: other })?.archived).toBe(false);
     expect(toDigest({ date: 'yesterday', sections: [] })).toBeNull();
     expect(toDigest({ sections: [] })).toBeNull();
     expect(toDigest('digest')).toBeNull();
@@ -302,9 +363,12 @@ describe("reading the service's answers", () => {
   });
 
   it('reads the days that have a digest, newest first', () => {
-    expect(toDigestDays({ days: ['2026-11-12', '2026-11-13', 'soon', 7, '2026-11-12'], latest: '2026-11-13' })).toEqual({ days: ['2026-11-13', '2026-11-12'], latest: '2026-11-13' });
-    expect(toDigestDays({ days: ['2026-11-12'], latest: 'today' })).toEqual({ days: ['2026-11-12'], latest: '2026-11-12' });
-    expect(toDigestDays({ days: [] })).toEqual({ days: [], latest: null });
+    expect(toDigestDays({ days: ['2026-11-12', '2026-11-13', 'soon', 7, '2026-11-12'], latest: '2026-11-13' })).toEqual({ days: ['2026-11-13', '2026-11-12'], latest: '2026-11-13', archived: [] });
+    expect(toDigestDays({ days: ['2026-11-12'], latest: 'today' })).toEqual({ days: ['2026-11-12'], latest: '2026-11-12', archived: [] });
+    expect(toDigestDays({ days: [] })).toEqual({ days: [], latest: null, archived: [] });
+    // Which of them he archived: only days that have a digest, newest first, each once.
+    expect(toDigestDays({ days: ['2026-11-11', '2026-11-12', '2026-11-13'], latest: '2026-11-13', archived: ['2026-11-11', '2026-11-13', '2026-11-11', '2026-10-01', 'soon', 7] })?.archived).toEqual(['2026-11-13', '2026-11-11']);
+    expect(toDigestDays({ days: ['2026-11-13'], archived: 'all' })?.archived).toEqual([]);
     expect(toDigestDays({ latest: '2026-11-13' })).toBeNull();
     expect(toDigestDays(null)).toBeNull();
   });

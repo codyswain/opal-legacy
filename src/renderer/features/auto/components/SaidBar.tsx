@@ -7,10 +7,13 @@ const word =
 
 /**
  * What the last action did, with the way back: at the foot of the list, or
- * above the box when the list is hidden. The thread's or entry's name comes
- * first; what happened stays whole, on a second line when the list is too
- * narrow for both. It says how many more actions Undo can reach. A refusal is
- * the service's own sentence.
+ * above the box when the list is hidden. A put-away is said in the phone's
+ * sentence, whole ("Snoozed until tomorrow 9:00 am.", "Archived: Seed
+ * order"). For anything else the thread's or entry's name comes first and
+ * what happened stays whole, on a second line when the list is too narrow
+ * for both. It says how many more actions Undo can reach. A refusal is the
+ * service's own sentence, whole, and then a shortened name, so a long title
+ * cannot hide why.
  */
 export function SaidBar({ className }: { className?: string }) {
   const said = useSaidStore(selectSaid);
@@ -25,9 +28,21 @@ export function SaidBar({ className }: { className?: string }) {
       className={cn('flex min-h-control shrink-0 items-center gap-1.5 rounded-card bg-primary px-3 py-1.5 text-ui text-primary-foreground', className)}
     >
       {said.problem ? (
-        <p className="min-w-0 flex-1 truncate">
-          {said.name ? <span className="font-medium">{said.name}: </span> : null}
-          {said.text}
+        // The reason first and whole, on as many lines as it needs; then what it was about, cut short.
+        <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
+          <span data-testid="auto-said-reason" className="min-w-0 break-words">{said.text}</span>
+          {said.name ? <span data-testid="auto-said-about" className="min-w-0 max-w-[12rem] truncate opacity-75" title={said.name}>{said.name}</span> : null}
+        </p>
+      ) : said.whole ? (
+        // A sentence of its own, whole: "Snoozed until tomorrow 9:00 am.", or "Archived:" and then the name, cut if it must be.
+        <p className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1" title={said.name || undefined}>
+          <span data-testid="auto-said-what" className="min-w-0 break-words">{said.text}</span>
+          {said.text.endsWith(':') && said.name ? (
+            <>
+              {' '}
+              <span data-testid="auto-said-name" className="min-w-0 max-w-full truncate font-medium">{said.name}</span>
+            </>
+          ) : null}
         </p>
       ) : (
         // On one line when both fit. When they do not, what happened goes under the name, so the name is cut

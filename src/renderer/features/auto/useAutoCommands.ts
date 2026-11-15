@@ -5,7 +5,8 @@ import { selectCurrentLocation, useTabsStore } from '@/renderer/features/disk-ex
 import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import { DIGEST_QUEUE, NEW_THREAD, paneThread } from './model/pane';
 import { openAutoTab } from './openAutoTab';
-import { archiveThread } from './store/actions';
+import { turnRuns } from './model/threadModel';
+import { archiveThread, restoreThread, snoozeThread } from './store/actions';
 import { useAutoStore } from './store/autoStore';
 import { useThreadStore } from './store/threadStore';
 
@@ -19,8 +20,11 @@ function register(commands: Command[]): () => void {
 
 /**
  * Auto in the palette, once an address is set: a new thread, the digest,
- * and every thread by its title. While the Auto tab is in front with a
- * thread open, that thread can be archived, snoozed and marked from there.
+ * and every thread by its title, the archived ones too once the archive
+ * has been read. While the Auto tab is in front with a thread open, that
+ * thread can be archived, snoozed, marked and renamed from there, a running
+ * turn stopped, and a thread that is put away (archived, snoozed or waiting
+ * on a reply) brought back.
  */
 export function useAutoCommands(): void {
   const { navigateFiles } = useShell();
@@ -28,10 +32,17 @@ export function useAutoCommands(): void {
   const inFront = useTabsStore((state) => isAutoLocation(selectCurrentLocation(state)));
   const openThread = useThreadStore((state) => paneThread(state.openId));
   const open = useAutoStore((state) => (openThread ? state.threads.find((thread) => thread.id === openThread) : undefined));
+  // The open thread is one from the archive: it can be read and brought back, and nothing else.
+  const gone = useAutoStore((state) => (openThread && !open ? state.archive.threads.find((thread) => thread.id === openThread) : undefined));
+  const running = useThreadStore((state) => turnRuns(state.view));
   const marked = open ? open.desk !== null : false;
   const acts = address !== null && inFront && open !== undefined ? open.id : null;
+  // What is put away, of any kind, comes back by the one verb: archived, snoozed to a time, or waiting on a reply.
+  const away = gone ?? (open && open.snoozed !== null ? open : undefined);
+  const returns = address !== null && inFront && away !== undefined ? away.id : null;
   // Only ids and titles matter here: the list changes far more often than they do.
   const titles = useAutoStore((state) => state.threads.map((thread) => `${thread.id}\t${thread.title}`).join('\n'));
+  const archived = useAutoStore((state) => state.archive.threads.map((thread) => `${thread.id}\t${thread.title}`).join('\n'));
 
   useEffect(() => {
     if (!address) return;
@@ -39,15 +50,35 @@ export function useAutoCommands(): void {
       openAutoTab(navigateFiles);
       useThreadStore.getState().open(pane);
     };
+    const named = (lines: string, hint: string) =>
+      lines.split('\n').filter(Boolean).map((line): Command => {
+        const [id, title = ''] = line.split('\t');
+        return { id: `auto.thread.${id}`, name: title || 'Untitled', label: title || 'Untitled', hint, searchOnly: true, type: 'navigation', keywords: ['thread', 'auto'], perform: () => show(id) };
+      });
     return register([
       { id: 'auto.newThread', name: 'New Auto thread', label: 'New Auto thread', type: 'action', keywords: ['message', 'ask', 'agent', 'start'], perform: () => show(NEW_THREAD) },
       { id: 'auto.openDigest', name: 'Open Auto digest', label: 'Open Auto digest', type: 'navigation', keywords: ['queue', 'today', 'entries'], perform: () => show(DIGEST_QUEUE) },
-      ...titles.split('\n').filter(Boolean).map((line): Command => {
-        const [id, title = ''] = line.split('\t');
-        return { id: `auto.thread.${id}`, name: title || 'Untitled', label: title || 'Untitled', hint: 'Auto thread', searchOnly: true, type: 'navigation', keywords: ['thread', 'auto'], perform: () => show(id) };
-      }),
+      ...named(titles, 'Auto thread'),
+      // Findable once the archive has been read: he opens it to read it, and brings it back from there.
+      ...named(archived, 'Archived Auto thread'),
     ]);
-  }, [address, titles, navigateFiles]);
+  }, [address, titles, archived, navigateFiles]);
+
+  useEffect(() => {
+    if (!returns) return;
+    return register([
+      {
+        id: 'auto.bringBackThread', name: 'Bring back thread', label: 'Bring back thread', type: 'action', keywords: ['auto', 'restore', 'unarchive', 'archive', 'unsnooze', 'snooze', 'wake'],
+        perform: () => {
+          const { archive, threads } = useAutoStore.getState();
+          const listed = threads.find((candidate) => candidate.id === returns);
+          const archived = archive.threads.find((candidate) => candidate.id === returns);
+          if (listed && listed.snoozed !== null) void snoozeThread(listed, null, { from: 'pane' });
+          else if (!listed && archived) void restoreThread(archived, { from: 'pane' });
+        },
+      },
+    ]);
+  }, [returns]);
 
   useEffect(() => {
     if (!acts) return;
@@ -77,6 +108,20 @@ export function useAutoCommands(): void {
           if (now) void useAutoStore.getState().desk(now, now.desk === null);
         },
       },
+      {
+        id: 'auto.renameThread', name: 'Rename thread', label: 'Rename thread', type: 'action', keywords: ['auto', 'title', 'name'],
+        // The palette closes first; the title's field then takes the keyboard.
+        perform: () => window.setTimeout(() => useThreadStore.getState().startRename(acts), 0),
+      },
+      // Only while a turn runs: there is nothing else to stop.
+      ...(running
+        ? [{
+            id: 'auto.stopThread', name: 'Stop', label: 'Stop', type: 'action' as const, keywords: ['auto', 'cancel', 'halt', 'turn'],
+            perform: () => {
+              void useThreadStore.getState().stop();
+            },
+          }]
+        : []),
     ]);
-  }, [acts, marked]);
+  }, [acts, marked, running]);
 }

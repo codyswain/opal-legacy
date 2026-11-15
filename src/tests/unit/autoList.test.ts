@@ -30,7 +30,7 @@ const at = (year: number, month: number, day: number, hour = 0, minute = 0) => n
 function thread(id: string, fields: Partial<AutoThread> = {}): AutoThread {
   return {
     id, title: `Thread ${id}`, status: 'idle', last: `Last of ${id}`, activity: '', ask: null, unread: false, model: '',
-    created: at(2026, 11, 13, 9), updated: at(2026, 11, 14, 14, 0), error: null, queued: 0, archived: false, snoozed: null, woke: null,
+    created: at(2026, 11, 13, 9), updated: at(2026, 11, 14, 14, 0), error: null, queued: 0, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null,
     digest: null, waits: false, desk: null, yours: '', ...fields,
   };
 }
@@ -276,8 +276,14 @@ describe('a row', () => {
     expect(rowTime(thread('a', { woke: null, updated: at(2026, 11, 3, 12) }), NOW)).toBe('Nov 3');
   });
 
-  it('shows no time while it works, or for an entry nobody has started', () => {
-    expect(rowTime(thread('a', { status: 'working' }), NOW)).toBe('');
+  it('says how long a thread has been working, and shows no time for an entry nobody has started', () => {
+    // It began at 2:00 and it is 3:10: the phone's words.
+    expect(rowTime(thread('a', { status: 'working' }), NOW)).toBe('1 h 10 min');
+    expect(rowTime(thread('a', { status: 'working', updated: at(2026, 11, 14, 15, 9) + 30 }), NOW)).toBe('now');
+    expect(rowTime(thread('a', { status: 'queued', updated: at(2026, 11, 14, 14, 58) }), NOW)).toBe('12 min');
+    expect(rowTime(thread('a', { status: 'working', updated: at(2026, 11, 14, 13, 10) }), NOW)).toBe('2 h');
+    // Working wins over "Back": it says what is happening now.
+    expect(rowTime(thread('a', { status: 'working', updated: at(2026, 11, 14, 15, 5), woke: at(2026, 11, 14, 15, 0) }), NOW)).toBe('5 min');
     expect(rowTime(thread('a', { waits: true }), NOW)).toBe('');
   });
 

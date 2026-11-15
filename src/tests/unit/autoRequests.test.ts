@@ -71,6 +71,8 @@ const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
   [{ kind: 'status' }, 'GET', '/api/status', undefined],
   [{ kind: 'check-status' }, 'POST', '/api/status/check', {}],
   [{ kind: 'threads' }, 'GET', '/api/threads', undefined],
+  [{ kind: 'archived', limit: null }, 'GET', '/api/threads?archived=1', undefined],
+  [{ kind: 'archived', limit: 10 }, 'GET', '/api/threads?archived=1&limit=10', undefined],
   [{ kind: 'thread', id: ID }, 'GET', `/api/threads/${ID}`, undefined],
   [{ kind: 'create', text: 'Plan the beds', model: '', cid: 'a1b2c3d4e5' }, 'POST', '/api/threads', { text: 'Plan the beds', model: '', cid: 'a1b2c3d4e5' }],
   [{ kind: 'message', id: ID, text: 'send it', cid: 'a1b2c3d4e5' }, 'POST', `/api/threads/${ID}/messages`, { text: 'send it', cid: 'a1b2c3d4e5' }],
@@ -87,12 +89,16 @@ const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
   [{ kind: 'move', id: ID, before: null }, 'POST', `/api/threads/${ID}/move`, { before: null }],
   [{ kind: 'snooze', id: ID, until: 1_800_000_000 }, 'POST', `/api/threads/${ID}/snooze`, { until: 1_800_000_000 }],
   [{ kind: 'snooze', id: ID, until: null }, 'POST', `/api/threads/${ID}/snooze`, { until: null }],
+  [{ kind: 'snooze', id: ID, until: 1_800_000_000, wait: { say: 'Sam, about the glass' } }, 'POST', `/api/threads/${ID}/snooze`, { until: 1_800_000_000, wait: { say: 'Sam, about the glass' } }],
+  [{ kind: 'snooze', id: ID, until: null, wait: { say: 'Sam, about the glass' } }, 'POST', `/api/threads/${ID}/snooze`, { wait: { say: 'Sam, about the glass' } }],
   [{ kind: 'start', id: ID }, 'POST', `/api/threads/${ID}/start`, {}],
   [{ kind: 'desk', id: ID, on: true }, 'POST', `/api/threads/${ID}/desk`, { on: true }],
   [{ kind: 'desk', id: ID, on: false }, 'POST', `/api/threads/${ID}/desk`, { on: false }],
   [{ kind: 'digest', date: null }, 'GET', '/api/digest', undefined],
   [{ kind: 'digest', date: '2026-11-13' }, 'GET', '/api/digest?date=2026-11-13', undefined],
   [{ kind: 'digests' }, 'GET', '/api/digests', undefined],
+  [{ kind: 'digest-archive', date: '2026-11-13', archived: true }, 'POST', '/api/digest/archive', { date: '2026-11-13', archived: true }],
+  [{ kind: 'digest-archive', date: '2026-11-13', archived: false }, 'POST', '/api/digest/archive', { date: '2026-11-13', archived: false }],
   [{ kind: 'digest-resolve', date: '2026-11-13', ids: ['item-1'], resolved: true }, 'POST', '/api/digest/resolve', { date: '2026-11-13', id: 'item-1', resolved: true }],
   [{ kind: 'digest-resolve', date: '2026-11-13', ids: ['item-1', 'text-news-3d20bff3'], resolved: false }, 'POST', '/api/digest/resolve', { date: '2026-11-13', ids: ['item-1', 'text-news-3d20bff3'], resolved: false }],
   [{ kind: 'digest-note', date: '2026-11-13', id: 'item-1', text: 'Ask about peat' }, 'POST', '/api/digest/note', { date: '2026-11-13', id: 'item-1', text: 'Ask about peat' }],
@@ -179,6 +185,42 @@ describe('what the page may ask for', () => {
     expect(validRoute({ kind: 'answer', id: ID, answer: { id: 'q1' } })).toBeNull();
     expect(validRoute({ kind: 'answer', id: ID, answer: { id: 'q1', answers: {} } })).toBeNull();
     expect(validRoute({ kind: 'answer', id: ID, answer: { id: '../q', allow: true } })).toBeNull();
+  });
+
+  it('asks for what he archived, all of it or a first whole number of threads', () => {
+    expect(validRoute({ kind: 'archived', limit: null, cursor: 'x' })).toEqual({ kind: 'archived', limit: null });
+    expect(validRoute({ kind: 'archived', limit: 10 })).toEqual({ kind: 'archived', limit: 10 });
+    expect(validRoute({ kind: 'archived', limit: 500 })).toEqual({ kind: 'archived', limit: 500 });
+    for (const limit of [0, -1, 501, 1.5, '10', '10&archived=0', Number.NaN, Number.POSITIVE_INFINITY, undefined, {}]) {
+      expect(validRoute({ kind: 'archived', limit }), `limit ${String(limit)}`).toBeNull();
+    }
+    expect(validRoute({ kind: 'archived' })).toBeNull();
+  });
+
+  it('puts a thread away until a reply with his words alone, trimmed and held to 2,000 characters', () => {
+    expect(validRoute({ kind: 'snooze', id: ID, until: 1_800_000_000, wait: { say: '  Sam, about the glass  ', on: 'Sam', link: 'https://x.example', state: 'met' }, sends: true })).toEqual({
+      kind: 'snooze', id: ID, until: 1_800_000_000, wait: { say: 'Sam, about the glass' },
+    });
+    expect(validRoute({ kind: 'snooze', id: ID, until: null, wait: { say: 'Sam' } })).toEqual({ kind: 'snooze', id: ID, until: null, wait: { say: 'Sam' } });
+    expect(validRoute({ kind: 'snooze', id: ID, until: null, wait: { say: 'x'.repeat(2_000) } })).not.toBeNull();
+    expect(validRoute({ kind: 'snooze', id: ID, until: null, wait: { say: 'x'.repeat(2_001) } })).toBeNull();
+    for (const wait of [null, 'Sam', 7, [], {}, { say: '' }, { say: '   ' }, { say: 7 }, { say: null }]) {
+      expect(validRoute({ kind: 'snooze', id: ID, until: 1_800_000_000, wait }), `wait ${JSON.stringify(wait)}`).toBeNull();
+    }
+    expect(validRoute({ kind: 'snooze', id: ID, until: 'tomorrow', wait: { say: 'Sam' } })).toBeNull();
+    expect(validRoute({ kind: 'snooze', id: '../x', until: null, wait: { say: 'Sam' } })).toBeNull();
+  });
+
+  it('archives a digest by its day, on or off and nothing else', () => {
+    const DAY = '2026-11-13';
+    expect(validRoute({ kind: 'digest-archive', date: DAY, archived: true, ids: ['item-1'] })).toEqual({ kind: 'digest-archive', date: DAY, archived: true });
+    expect(validRoute({ kind: 'digest-archive', date: DAY, archived: false })).toEqual({ kind: 'digest-archive', date: DAY, archived: false });
+    for (const archived of ['true', 1, null, undefined]) {
+      expect(validRoute({ kind: 'digest-archive', date: DAY, archived }), `archived ${String(archived)}`).toBeNull();
+    }
+    for (const date of ['', '2026-11-13?x=1', '2026-11-13/../x', '13-11-2026', null, undefined]) {
+      expect(validRoute({ kind: 'digest-archive', date, archived: true }), `date ${String(date)}`).toBeNull();
+    }
   });
 
   it('takes the mark for the Mac as on or off', () => {

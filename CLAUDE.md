@@ -225,9 +225,10 @@ not exist.
 - **Auto:** a tab (the sidebar's Auto row, under Recent) that is a screen
   for a service on another machine that runs agent threads. Opal holds no
   sign-in and starts no run itself; it reads, answers, starts, stops,
-  snoozes, reorders, marks and archives threads through the service's HTTP
-  API, and works through the day's digest as a queue (resolve, note, make a
-  thread). No control in it starts or confirms a send to anyone; a drafted
+  snoozes (to a time, or until someone replies), reorders, marks, archives
+  and brings back threads through the service's HTTP API, and works through
+  the day's digest as a queue (resolve, note, make a thread, archive the
+  day). No control in it starts or confirms a send to anyone; a drafted
   reply can only be copied. A send the service asks him to allow up front
   (a `grant` question) shows as his phone draws it, the title, the exact
   words and the detail, with one button, "No": the yes is signed on his
@@ -255,7 +256,11 @@ not exist.
   reply, back from snooze), then the rest in his order; the line over the
   list, "1 needs you, 2 new"; a row's line, with "Your move: …" for a
   thread the service says is his and "Not started" for one nobody has
-  started; and the snooze choices), `threadModel.ts` (a thread
+  started; a thread at work says how long it has been working in its time
+  slot; and the snooze choices), `awayModel.ts` (the words for what is put
+  away, which are the phone's: "Waiting on Sam until Tue 5:00 pm", "Returns
+  tomorrow 9:00 am", "Archived Nov 12.", "Sam replied: …", "No reply from
+  Sam.", and when a wait gives up), `threadModel.ts` (a thread
   reduced from its snapshot and events), `outbox.ts` (a message is kept
   until the service has it; a failed one returns to the box), `digestModel.ts`
   and `digestStore.ts` (the queue: Left and All, the day shown, and every
@@ -264,10 +269,30 @@ not exist.
   or nothing), and `markdown/` (replies and digest entries parsed with
   `@lezer/markdown` and drawn as elements, never as HTML). The service ends
   the Mac mark and says when a digest changed; Opal only follows. It never
-  calls the service's tick or inbox routes. `store/actions.ts` holds what he
-  does to a thread (archive, done, snooze): the row leaves at once, the
+  calls the service's tick or inbox routes. What is put away sits behind
+  three quiet lines at the foot of the list, each opened by a click:
+  "Waiting on a reply" (a thread whose `wait` is still open; `toWait` in
+  `autoModel.ts` reads it: the place is the service's own word, kept as a
+  short line of plain text and never matched to a list; the link opens
+  only when it is a web address, so a chat's id or a text's number never
+  does; and whether the wait is over is the service's `state` alone, never
+  the clock), "Snoozed", and "Archived", which carries no count and reads
+  `GET /api/threads?archived=1` when it opens, the newest ten and then all
+  (`archive` in `autoStore.ts`); archived digests are listed first there.
+  One verb, "Bring back", returns anything from any of them: on its row,
+  above the box of the open thread, on E for an archived row, and in the
+  palette. A thread from a digest entry starts with his words: "Thread" and
+  T open the entry with the caret in its box, and nothing is made until he
+  sends them or picks "Make it without words". `store/actions.ts` holds what he
+  does to a thread (archive, done, snooze, bring back): the row leaves at once, the
   next thread takes its place, and the row returns with the service's
-  sentence if the post fails. An option picked on a row is held four
+  sentence if the post fails. A put-away says what it did in the phone's
+  sentence ("Snoozed until tomorrow 9:00 am.", "Waiting on a reply until Tue
+  5:00 pm." and then who Auto found, "Archived: <title>", "Back in the
+  list."). Undo leaves nothing behind: of a Done it also opens the digest
+  entry again, of a snooze it moves the thread back where it sat
+  (`heldPlaces` keeps the row there until the move has landed), of an
+  archive it sets the Mac mark again. An option picked on a row is held four
   seconds before it is posted, so it can be taken back. What an action did
   is said in one line at the foot of the list (`saidStore.ts`,
   `SaidBar.tsx`), name first, never in the app's corner toast. Undo is on
@@ -276,17 +301,27 @@ not exist.
   own post has landed, and the offers go with the address. Until those
   posts have landed, what he did is laid over every copy of the thread or
   the day that arrives (`model/unconfirmed.ts`), so the service's own word
-  of an archive he has taken back does not take the row away again. The last view of each thread and his place in each
+  of an archive he has taken back does not take the row away again. An undo
+  that opens the thread again holds its change until the snapshot it asked
+  for has arrived (`paneRead` in `actions.ts`): that read can reach the
+  service before the undo's post does, and still say archived. The last view of each thread and his place in each
   thread, the list and the queue are kept in memory for the session
   (`threadStore.ts`, `model/places.ts`) and dropped with the address. The
   list and the queue are each one Tab stop with a roving focus
-  (`components/focus.ts`); single keys act only on a focused row or entry,
+  (`components/focus.ts`); a row drawn again in another group (a thread
+  that gains a reply, a mark or a question) keeps the keyboard; single keys act only on a focused row or entry,
   and Cmd+. and Cmd+Z act only while the tab is in front with the keyboard
   in it. In a field, Cmd+Z is the field's own undo while it holds text and
-  takes the last action back when it is empty. While a question waits, the box is its answer field. A page's
+  takes the last action back when it is empty. While a question waits, the box is its answer field,
+  except for words begun before the card arrived (`earlier` in
+  `threadStore.ts`): those go as the message they were begun as, and the
+  box becomes the answer field once it has been emptied. Words typed after
+  every part of a several-part question has its pick follow the picks as an
+  ordinary message. A page's
   header, its scrolling part and its foot each hold an `.auto-column`, so
   they share their edges at every width. `useAutoCommands.ts` puts Auto's
-  commands and every thread's title in the palette. A vault path in a step,
+  commands and every thread's title in the palette, archived ones too once
+  the archive has been read. A vault path in a step,
   a reply or an entry is looked up by `autoPages.ts` through `RootRegistry`
   and opens as a page in its own tab; a page opened while the Auto tab is
   in front goes to the tab that shows it or to a new one (`tabsStore.ts`),

@@ -1,8 +1,10 @@
 import type { AutoThread } from '@/types/auto';
-import { fromDigest, nextAfter, putBack, shortUntil, shownOrder, upsertThread } from '../model/listModel';
+import { isWaitingOnReply, lower, returns, waitLine } from '../model/awayModel';
+import { nextAfter, putBack, shownOrder, upsertThread } from '../model/listModel';
 import { NEW_THREAD } from '../model/pane';
-import { autoApi, unconfirmedThreads, useAutoStore } from './autoStore';
-import { useSaidStore } from './saidStore';
+import { autoApi, heldPlaces, unconfirmedThreads, useAutoStore } from './autoStore';
+import { useDigestStore } from './digestStore';
+import { UNDO_MS, useSaidStore } from './saidStore';
 import { useThreadStore } from './threadStore';
 
 /*
@@ -14,14 +16,45 @@ import { useThreadStore } from './threadStore';
  * row comes back with the service's sentence and the offer goes. Until the
  * posts have landed, what he did holds against whatever the service says of
  * the thread meanwhile (`unconfirmedThreads`): its own word of an archive he
- * has since undone would take the row away a second time.
+ * has since undone would take the row away a second time. A put-away says
+ * what it did in the phone's words: "Snoozed until tomorrow 9:00 am.",
+ * "Waiting on a reply until Tue 5:00 pm.", "Archived: Seed order", and
+ * "Back in the list." for what is brought back.
  */
 
 /** Where the action came from: a row keeps the keyboard in the list, the open thread's header keeps it in the box. */
 export type From = 'row' | 'pane';
 
 const UNREACHABLE = "Can't reach Auto.";
+/** What the line says of anything brought back: a snoozed thread, a waiting one, an archived one. */
+export const BACK = 'Back in the list.';
 const name = (thread: AutoThread): string => thread.title || 'Untitled';
+
+/**
+ * A thread just put on a wait says "Waiting on a reply". Once Auto has named
+ * the conversation, the line says who it waits on, with the same way back.
+ * It stops when the line has gone, or the thread came back with a question.
+ */
+function sayWhoOnceFound(id: string, offer: number): void {
+  let stop = (): void => undefined;
+  const timer = setTimeout(() => stop(), UNDO_MS);
+  const look = (threads: readonly AutoThread[]) => {
+    const now = threads.find((candidate) => candidate.id === id);
+    const onLine = useSaidStore.getState().stack.some((each) => each.id === offer);
+    const found = onLine && now && isWaitingOnReply(now) && now.wait?.state === 'watching';
+    // Still looking: the line stays as it is. Anything else ends the watch.
+    if (onLine && now && isWaitingOnReply(now) && !found) return;
+    if (found) useSaidStore.getState().reword(offer, `${waitLine(now, Date.now())}.`);
+    stop();
+  };
+  const unsubscribe = useAutoStore.subscribe((state, before) => {
+    if (state.threads !== before.threads) look(state.threads);
+  });
+  stop = () => {
+    clearTimeout(timer);
+    unsubscribe();
+  };
+}
 
 /**
  * Moves on from a thread that is about to leave the list. From its row,
@@ -30,7 +63,7 @@ const name = (thread: AutoThread): string => thread.title || 'Untitled';
  */
 function moveOn(thread: AutoThread, from: From): boolean {
   const auto = useAutoStore.getState();
-  const next = nextAfter(shownOrder(auto.threads, auto.snoozedOpen), thread.id);
+  const next = nextAfter(shownOrder(auto.threads, { waiting: auto.waitingOpen, snoozed: auto.snoozedOpen }), thread.id);
   const pane = useThreadStore.getState();
   const wasOpen = pane.openId === thread.id;
   if (wasOpen) pane.open(next, { focus: from === 'pane' });
@@ -47,44 +80,100 @@ function comeBack(thread: AutoThread, earlier: readonly AutoThread[], wasOpen: b
   if (from === 'row') useAutoStore.getState().requestFocus(thread.id);
 }
 
+/**
+ * Waits until the pane has finished reading this thread, if it is reading
+ * it. An undo opens the thread again while its own post is on the way, and
+ * the snapshot asked for at that moment can still say what the undo is
+ * taking back (archived, snoozed). What he did stays laid over the thread
+ * until that snapshot has arrived, so it cannot take the row away again or
+ * close the pane.
+ */
+function paneRead(id: string): Promise<void> {
+  const reading = (): boolean => {
+    const pane = useThreadStore.getState();
+    return pane.openId === id && pane.loading;
+  };
+  if (!reading()) return Promise.resolve();
+  return new Promise((resolve) => {
+    let stop = (): void => undefined;
+    const done = (): void => {
+      clearTimeout(timer);
+      stop();
+      resolve();
+    };
+    const timer = setTimeout(done, 5_000);
+    stop = useThreadStore.subscribe(() => {
+      if (!reading()) done();
+    });
+  });
+}
+
 const leave = (id: string) => useAutoStore.setState({ threads: useAutoStore.getState().threads.filter((candidate) => candidate.id !== id) });
+
+/** The thread that sat under this one in his order and is still in the list, or null when it was last. */
+function satAbove(thread: AutoThread, earlier: readonly AutoThread[]): string | null {
+  const here = new Set(useAutoStore.getState().threads.map((candidate) => candidate.id));
+  const after = earlier.slice(earlier.findIndex((candidate) => candidate.id === thread.id) + 1);
+  return after.find((candidate) => candidate.id !== thread.id && here.has(candidate.id))?.id ?? null;
+}
 
 /** Archives a thread; `done` also marks the digest entry it came from as done. */
 export async function archiveThread(thread: AutoThread, options: { done?: boolean; from?: From } = {}): Promise<void> {
   const { done = false, from = 'row' } = options;
   const api = autoApi();
   if (!api) return;
-  const earlier = useAutoStore.getState().threads;
+  const auto = useAutoStore.getState();
+  const earlier = auto.threads;
+  const entry = done ? thread.digest : null;
   const wasOpen = moveOn(thread, from);
   let kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, archived: true }));
   leave(thread.id);
+  // The archive, once read, shows it at once. Archiving ends the Mac mark and a wait, as the service does.
+  auto.archiveChanged({ ...thread, archived: true, archivedAt: Date.now() / 1000, desk: null, snoozed: null, snoozedAt: null, wait: null });
   const said = useSaidStore.getState();
-  const post = api.request({ kind: 'archive', id: thread.id, archived: true, ...(done && fromDigest(thread) ? { done: true } : {}) }).catch((): null => null);
+  // Done also resolves the entry. Whether it was open before is read first, so Undo can open it again.
+  const before = entry ? useDigestStore.getState().entryState(entry.date, entry.id) : Promise.resolve(null);
+  const post = before.then(() => api.request({ kind: 'archive', id: thread.id, archived: true, ...(entry ? { done: true } : {}) }).catch((): null => null));
   let undone = false;
   // On offer from the moment the row leaves, while the post is still on its way.
   const offer = said.offer({
     name: name(thread),
-    text: done ? 'done' : 'archived',
+    // The line names what went: a key is easy to land on the wrong row.
+    text: done ? 'Done:' : 'Archived:',
+    whole: true,
     subject: thread.id,
     undo: () => {
       undone = true;
-      kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, archived: false }));
+      // Back as it was, the Mac mark included: archiving took the mark off, and the undo sets it again.
+      kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, archived: false, archivedAt: null, ...(thread.desk ? { desk: thread.desk } : {}) }));
+      useAutoStore.getState().archiveChanged({ ...thread, archived: false, archivedAt: null });
       comeBack(thread, earlier, wasOpen, from);
       // The archive goes first, then its undoing: the service must not see them the other way round.
-      void post.then((result) => {
+      void post.then(async (result) => {
         if (!result?.success) {
           unconfirmedThreads.end(thread.id, kept);
           return;
         }
-        return api.request({ kind: 'archive', id: thread.id, archived: false }).catch((): null => null).then((back) => {
+        const back = await api.request({ kind: 'archive', id: thread.id, archived: false }).catch((): null => null);
+        if (!back?.success) {
           unconfirmedThreads.end(thread.id, kept);
-          if (back?.success) useAutoStore.getState().upsert(back.data.thread);
-          else {
-            // It is still archived: the row goes again, with why.
-            leave(thread.id);
-            useSaidStore.getState().refuse(back?.error.message ?? UNREACHABLE, name(thread));
-          }
-        });
+          // It is still archived: the row goes again, with why.
+          leave(thread.id);
+          useAutoStore.getState().archiveChanged({ ...thread, archived: true, archivedAt: Date.now() / 1000 });
+          useSaidStore.getState().refuse(back?.error.message ?? UNREACHABLE, name(thread));
+          return;
+        }
+        // The mark is kept on the row until the service has it again, so the row never leaves its group.
+        const marked = thread.desk ? await api.request({ kind: 'desk', id: thread.id, on: true }).catch((): null => null) : null;
+        await paneRead(thread.id);
+        unconfirmedThreads.end(thread.id, kept);
+        useAutoStore.getState().upsert(marked?.success ? marked.data.thread : back.data.thread);
+        // Done ticked its entry: an entry that was open before is open again.
+        if (entry && (await before) !== 'resolved') {
+          const reopened = await api.request({ kind: 'digest-resolve', date: entry.date, ids: [entry.id], resolved: false }).catch((): null => null);
+          if (reopened?.success) useDigestStore.getState().take(reopened.data);
+          else useSaidStore.getState().refuse(reopened?.error.message ?? UNREACHABLE, name(thread));
+        }
       });
     },
   });
@@ -94,58 +183,180 @@ export async function archiveThread(thread: AutoThread, options: { done?: boolea
   unconfirmedThreads.end(thread.id, kept);
   if (result?.success) return;
   said.drop(offer);
+  useAutoStore.getState().archiveChanged({ ...thread, archived: false, archivedAt: null });
   comeBack(thread, earlier, wasOpen, from);
   said.refuse(result?.error.message ?? UNREACHABLE, name(thread));
 }
 
-/** Snoozes a thread until a time, or brings it back with null. Snoozing can be undone. */
-export async function snoozeThread(thread: AutoThread, until: number | null, options: { from?: From } = {}): Promise<void> {
+/**
+ * Brings an archived thread back into the list. It shows on top at once;
+ * the service's order then puts it where it sat. It can be undone like any
+ * action, which archives it again.
+ */
+export async function restoreThread(thread: AutoThread, options: { from?: From } = {}): Promise<void> {
   const { from = 'row' } = options;
   const api = autoApi();
   if (!api) return;
+  const back: AutoThread = { ...thread, archived: false, archivedAt: null };
+  const gone: AutoThread = { ...thread, archived: true, archivedAt: thread.archivedAt ?? Date.now() / 1000 };
+  let kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, archived: false, archivedAt: null }));
+  useAutoStore.getState().upsert(back);
+  if (from === 'row') useAutoStore.getState().requestFocus(thread.id);
+  const said = useSaidStore.getState();
+  said.dropSubject(thread.id);
+  const post = api.request({ kind: 'archive', id: thread.id, archived: false }).catch((): null => null);
+  /** Back in the archive, and still open in the pane if he was reading it. */
+  const putAway = () => {
+    const wasOpen = useThreadStore.getState().openId === thread.id;
+    leave(thread.id);
+    useAutoStore.getState().archiveChanged(gone);
+    if (wasOpen) useThreadStore.getState().open(thread.id, { focus: false });
+  };
+  let undone = false;
+  const offer = said.offer({
+    name: name(thread),
+    text: BACK,
+    whole: true,
+    subject: thread.id,
+    undo: () => {
+      undone = true;
+      kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, archived: true, archivedAt: gone.archivedAt }));
+      putAway();
+      void post.then(async (result) => {
+        if (!result?.success) {
+          unconfirmedThreads.end(thread.id, kept);
+          return;
+        }
+        const again = await api.request({ kind: 'archive', id: thread.id, archived: true }).catch((): null => null);
+        await paneRead(thread.id);
+        unconfirmedThreads.end(thread.id, kept);
+        if (again?.success) useAutoStore.getState().upsert(again.data.thread);
+        else {
+          useAutoStore.getState().upsert(back);
+          useSaidStore.getState().refuse(again?.error.message ?? UNREACHABLE, name(thread));
+        }
+      });
+    },
+  });
+  const result = await post;
+  if (undone) return;
+  unconfirmedThreads.end(thread.id, kept);
+  if (result?.success) {
+    useAutoStore.getState().upsert(result.data.thread);
+    return;
+  }
+  said.drop(offer);
+  putAway();
+  said.refuse(result?.error.message ?? UNREACHABLE, name(thread));
+}
+
+/**
+ * Snoozes a thread until a time, or brings it back with null. With `wait`
+ * it is put away until someone replies: `say` is who or what he waits for,
+ * in his words, and `until` is when the wait gives up. Snoozing can be
+ * undone, which also puts the thread back where it sat in his order.
+ * Bringing back can be undone too, which puts it away again as it was.
+ */
+export async function snoozeThread(thread: AutoThread, until: number | null, options: { from?: From; wait?: { say: string } } = {}): Promise<void> {
+  const { from = 'row' } = options;
+  const api = autoApi();
+  if (!api) return;
+  const say = until !== null ? options.wait?.say.trim() ?? '' : '';
   const said = useSaidStore.getState();
   const earlier = useAutoStore.getState().threads;
   const hiding = until !== null && thread.snoozed === null;
   const wasOpen = hiding ? moveOn(thread, from) : false;
-  let kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, snoozed: until }));
-  useAutoStore.getState().upsert({ ...thread, snoozed: until });
+  const now = Date.now();
+  // As the service will have it: put away now, and, with a wait, still finding the conversation.
+  const away: AutoThread = {
+    ...thread,
+    snoozed: until,
+    snoozedAt: until === null ? null : now / 1000,
+    woke: until === null ? thread.woke : null,
+    wait: say ? { say, state: 'finding', on: '', what: '', where: '', link: '', check: '', since: now / 1000, expires: until, heard: '', reply: '' } : null,
+  };
+  let kept = unconfirmedThreads.keep(thread.id, (held) => ({ ...held, snoozed: until, ...(until === null ? { wait: null } : {}) }));
+  useAutoStore.getState().upsert(away);
   // An older line about this thread, such as "until Friday", no longer holds.
   said.dropSubject(thread.id);
-  const post = api.request({ kind: 'snooze', id: thread.id, until }).catch((): null => null);
+  const post = api.request({ kind: 'snooze', id: thread.id, until, ...(say ? { wait: { say } } : {}) }).catch((): null => null);
   let undone = false;
   let offer = 0;
   if (until !== null) {
     // Undo gives it the time it had, or brings it back if it had none.
-    const before = thread.snoozed !== null && thread.snoozed * 1000 > Date.now() ? thread.snoozed : null;
+    const before = thread.snoozed !== null && thread.snoozed * 1000 > now ? thread.snoozed : null;
+    const sat = satAbove(thread, earlier);
     offer = said.offer({
       name: name(thread),
-      text: `until ${shortUntil(until, Date.now())}`,
+      text: `${say ? 'Waiting on a reply' : 'Snoozed'} until ${lower(returns(until, now))}.`,
+      whole: true,
       subject: thread.id,
       undo: () => {
         undone = true;
-        kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, snoozed: before }));
-        useAutoStore.getState().upsert({ ...thread, snoozed: before });
-        if (hiding) comeBack({ ...thread, snoozed: before }, earlier, wasOpen, from);
-        void post.then((result) => {
+        kept = unconfirmedThreads.keep(thread.id, (held) => ({ ...held, snoozed: before, ...(before === null ? { wait: null } : {}) }));
+        // The service puts a thread brought back on top of his order. Undone, it stays where it sat.
+        if (hiding) heldPlaces.set(thread.id, sat);
+        const back = before === null ? { ...thread, snoozed: null, snoozedAt: null } : thread;
+        useAutoStore.getState().upsert(back);
+        if (hiding) comeBack(back, earlier, wasOpen, from);
+        void post.then(async (result) => {
           if (!result?.success) {
             unconfirmedThreads.end(thread.id, kept);
+            heldPlaces.delete(thread.id);
             return;
           }
-          return api.request({ kind: 'snooze', id: thread.id, until: before }).catch((): null => null).then((back) => {
-            unconfirmedThreads.end(thread.id, kept);
-            if (back?.success) useAutoStore.getState().upsert(back.data.thread);
-            else {
-              useAutoStore.getState().upsert({ ...thread, snoozed: until });
-              useSaidStore.getState().refuse(back?.error.message ?? UNREACHABLE, name(thread));
-            }
-          });
+          const returned = await api.request({ kind: 'snooze', id: thread.id, until: before }).catch((): null => null);
+          await paneRead(thread.id);
+          unconfirmedThreads.end(thread.id, kept);
+          if (!returned?.success) {
+            heldPlaces.delete(thread.id);
+            useAutoStore.getState().upsert(away);
+            useSaidStore.getState().refuse(returned?.error.message ?? UNREACHABLE, name(thread));
+            return;
+          }
+          useAutoStore.getState().upsert(returned.data.thread);
+          // The move says so to the service; until it has landed the row is held in its place here.
+          if (hiding) await useAutoStore.getState().move(thread.id, sat).finally(() => heldPlaces.delete(thread.id));
         });
       },
     });
-  } else if (from === 'row') {
+  } else {
     // Brought back, it is a row of the list again: the keyboard goes with it.
-    useAutoStore.getState().requestFocus(thread.id);
+    if (from === 'row') useAutoStore.getState().requestFocus(thread.id);
+    // It can be put away again as it was: to its time, or on its wait in the words he gave for it.
+    const again = thread.snoozed !== null && thread.snoozed * 1000 > now ? thread.snoozed : null;
+    const waited = isWaitingOnReply(thread);
+    const words = waited ? thread.wait?.say.trim() ?? '' : '';
+    if (again !== null && (!waited || words)) {
+      const back: AutoThread = { ...thread, snoozed: null, snoozedAt: null, wait: null };
+      offer = said.offer({
+        name: name(thread),
+        text: BACK,
+        whole: true,
+        subject: thread.id,
+        undo: () => {
+          undone = true;
+          kept = unconfirmedThreads.keep(thread.id, (held) => ({ ...held, snoozed: again, snoozedAt: held.snoozedAt ?? thread.snoozedAt, wait: held.wait ?? thread.wait }));
+          useAutoStore.getState().upsert(thread);
+          void post.then(async (result) => {
+            if (!result?.success) {
+              unconfirmedThreads.end(thread.id, kept);
+              return;
+            }
+            const put = await api.request({ kind: 'snooze', id: thread.id, until: again, ...(words ? { wait: { say: words } } : {}) }).catch((): null => null);
+            unconfirmedThreads.end(thread.id, kept);
+            if (put?.success) useAutoStore.getState().upsert(put.data.thread);
+            else {
+              useAutoStore.getState().upsert(back);
+              useSaidStore.getState().refuse(put?.error.message ?? UNREACHABLE, name(thread));
+            }
+          });
+        },
+      });
+    }
   }
+  // Auto names the conversation in a turn of the thread: the line then says who he waits on.
+  if (say && offer) sayWhoOnceFound(thread.id, offer);
   const result = await post;
   // Undone meanwhile: the undo ends what it kept, once its own post has landed.
   if (undone) return;
@@ -185,6 +396,8 @@ export function answerFromRow(thread: AutoThread, label: string): void {
     useAutoStore.setState({ held });
   };
   useAutoStore.setState({ held: { ...auto.held, [thread.id]: label } });
+  // The button that was clicked has gone with the pick: the keyboard stays on the row.
+  auto.requestFocus(thread.id);
   let offer = 0;
   const timer = setTimeout(() => {
     useSaidStore.getState().drop(offer);

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, MoreHorizontal, Square } from 'lucide-react';
+import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, MoreHorizontal, Square, Undo2 } from 'lucide-react';
 import type { AutoItem, AutoStep, AutoThread } from '@/types/auto';
 import {
   Button,
@@ -18,11 +18,12 @@ import {
 } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
+import { archivedWord, awayDetail, heardLine, isWaitingOnReply, returnsLine, waitLine, waitUrl } from '../model/awayModel';
 import { clockTime, fromDigest } from '../model/listModel';
 import { NEW_THREAD, paneThread } from '../model/pane';
 import { keepPlace, placeIn, placeOf, threadPlace } from '../model/places';
 import { failure, parseEntry, sentLine, showsNext, stepLines, stepsSummary, turnRuns, turnStart, waitingToGo } from '../model/threadModel';
-import { archiveThread, snoozeThread } from '../store/actions';
+import { archiveThread, restoreThread, snoozeThread } from '../store/actions';
 import { modelChoices, useAutoStore } from '../store/autoStore';
 import { draftKey, useThreadStore } from '../store/threadStore';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
@@ -415,13 +416,19 @@ function Title({ title, canRename, editing, setEditing }: { title: string; canRe
   );
 }
 
-/** Snooze, Done, Archive and a "…" menu for the open thread: the same as its row offers. */
+/** Snooze, Done, Archive and a "…" menu for the open thread: the same as its row offers. An archived thread has Bring back in their place. */
 function ThreadActions({ thread, onRename }: { thread: AutoThread; onRename: () => void }) {
-  const [now] = React.useState(() => Date.now());
   const marked = thread.desk !== null;
+  if (thread.archived) {
+    return (
+      <IconButton label="Bring back" data-testid="auto-restore-open" className="-mr-1.5" onClick={() => void restoreThread(thread, { from: 'pane' })}>
+        <Undo2 aria-hidden className="h-3.5 w-3.5" />
+      </IconButton>
+    );
+  }
   return (
     <>
-      <SnoozeButton thread={thread} now={now} from="pane" />
+      <SnoozeButton thread={thread} from="pane" />
       {fromDigest(thread) ? (
         <IconButton label="Done" data-testid="auto-done-open" onClick={() => void archiveThread(thread, { done: true, from: 'pane' })}>
           <Check aria-hidden className="h-3.5 w-3.5" />
@@ -458,8 +465,8 @@ function ThreadHeader({ narrow, scrolled }: { narrow: boolean; scrolled: boolean
   const view = useThreadStore((state) => state.view);
   const newModel = useThreadStore((state) => state.newModel);
   const status = useAutoStore((state) => state.status);
-  // The list's own entry: the title shows from it while the thread loads, or cannot be read.
-  const entry = useAutoStore((state) => state.threads.find((thread) => thread.id === openId));
+  // The list's own entry, or the archive's: the title shows from it while the thread loads, or cannot be read.
+  const entry = useAutoStore((state) => state.threads.find((thread) => thread.id === openId) ?? state.archive.threads.find((thread) => thread.id === openId));
   const renaming = useThreadStore((state) => state.renaming);
   // While the pane still holds the thread before, its header does too.
   const ghost = useThreadStore((state) => (state.view ? null : state.ghost));
@@ -538,6 +545,67 @@ export function useGrow(area: React.RefObject<HTMLTextAreaElement>, text: string
   }, [area, measure]);
 }
 
+/** Put away: archived, snoozed to a time, or waiting on a reply. */
+const isAway = (thread: AutoThread): boolean => thread.archived || thread.snoozed !== null;
+
+/**
+ * Above the box of a thread that is put away: what it waits for, and the
+ * way back into the list. Archived, it says so. Snoozed, when it returns
+ * and when he snoozed it. Waiting on a reply, who it waits on and until
+ * when, what for and where, and what was last heard. The conversation
+ * opens from the place's name, when the service gave a web address for it.
+ */
+function AwayBar({ thread }: { thread: AutoThread }) {
+  const now = Date.now();
+  const waiting = isWaitingOnReply(thread);
+  const lead = thread.archived ? 'Archived' : waiting ? waitLine(thread, now) : returnsLine(thread, now);
+  const detail = thread.archived ? archivedWord(thread, now).replace(/^Archived /, '').replace(/\.$/, '') : awayDetail(thread, now);
+  const heard = waiting && thread.wait ? heardLine(thread.wait) : '';
+  const url = waiting ? waitUrl(thread.wait) : null;
+  return (
+    <div data-testid="auto-away" className="mb-2 flex items-center gap-3 border-t border-border-subtle pt-2">
+      <div className="min-w-0 flex-1">
+        <p data-testid="auto-away-lead" className="text-ui text-foreground">{lead}</p>
+        {detail || heard || url ? (
+          <p data-testid="auto-away-detail" className="text-control text-foreground-tertiary">
+            {[thread.archived ? capital(detail) : detail, heard].filter(Boolean).join(' ')}
+            {url ? (
+              <>
+                {' '}
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={url}
+                  data-testid="auto-away-link"
+                  className="underline decoration-foreground-tertiary/50 underline-offset-2 hover:text-foreground"
+                  onClick={(event) => {
+                    // It leaves the app the way every other web link in Opal does: the main process decides.
+                    event.preventDefault();
+                    window.open(url, '_blank');
+                  }}
+                >
+                  Open the conversation
+                </a>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+      </div>
+      <Button
+        size="compact"
+        variant="outline"
+        data-testid="auto-bring-back"
+        onClick={() => void (thread.archived ? restoreThread(thread, { from: 'pane' }) : snoozeThread(thread, null, { from: 'pane' }))}
+      >
+        Bring back
+      </Button>
+    </div>
+  );
+}
+
+const capital = (words: string): string => (words ? words.charAt(0).toUpperCase() + words.slice(1) : '');
+
 /**
  * The box. Enter sends, Shift+Enter adds a line. While a question waits it
  * is the answer field. What waits behind a running turn shows above it, and
@@ -554,9 +622,14 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
   const { send, setDraft, stop } = useThreadStore.getState();
   const box = React.useRef<HTMLTextAreaElement>(null);
   const queue = view?.live ? waitingToGo(view, pending) : [];
-  const answering = view?.question != null;
-  // A send he is asked to allow: words here are a "no" with a reason, and nothing here is a yes.
-  const refusing = view?.question?.kind === 'grant';
+  // Words begun before the card arrived stay a message: the box is the card's answer field once it has been emptied.
+  const begunBefore = useThreadStore((state) => state.view?.question != null && state.earlier[key] === state.view.question.id);
+  const answering = view?.question != null && !begunBefore;
+  // A send he is asked to allow, or a tool that needs his yes: words here are a "no" with a reason, and nothing here is a yes.
+  const refusing = answering && (view?.question?.kind === 'grant' || view?.question?.kind === 'permission');
+  // The open thread's own entry, as the list or the archive has it: it says whether the thread is put away.
+  const entry = useAutoStore((state) => state.threads.find((thread) => thread.id === openId) ?? state.archive.threads.find((thread) => thread.id === openId));
+  const thread = entry ?? view?.thread ?? null;
   const running = turnRuns(view);
   useGrow(box, draft);
 
@@ -591,6 +664,7 @@ function Composer({ narrow, talk }: { narrow: boolean; talk: React.RefObject<HTM
       <div className="auto-column">
         {/* With the list hidden, what the last action did shows here, above the box and never over it. */}
         {narrow ? <SaidBar className="mb-2" /> : null}
+        {thread && isAway(thread) ? <AwayBar thread={thread} /> : null}
         {queue.length > 0 ? (
           <ul data-testid="auto-queue" aria-label="Waiting to go" className="mb-2 flex flex-col gap-1">
             {queue.map((message) => (
