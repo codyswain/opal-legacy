@@ -118,7 +118,9 @@ not exist.
   annotation, and the same filter takes out the blank lines it left
   showing and keeps the caret on a line that shows. A deletion that runs
   across a list's edge takes the blank line that only parted the list from
-  its neighbour with it. Backspace at an
+  its neighbour with it. A line under a list line that holds only an indent
+  is a later line being started (Enter at the end of one, or Shift+Enter)
+  and keeps its row. Backspace at an
   item's start takes three steps: marker off, text to the margin, text
   joined to the item above. Paste reads the clipboard's HTML into Markdown
   (`pasteHtml.ts`), and pasted lines become items (`clipboard.ts`). The

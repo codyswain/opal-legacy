@@ -390,6 +390,59 @@ for (const [name, page] of PAGES) {
       expect(rows(view)).toBe(3);
     });
 
+    it('moves the text of the last item out of a list written with blank lines between its items, with no row opened', () => {
+      const view = mount('Top\n\n- a\n\n- b\n\n- ‸c\n\nEnd', page);
+      expect(rows(view)).toBe(5);
+      press(view, 'Backspace');
+      expect(rows(view)).toBe(5);
+      press(view, 'Backspace');
+      expect(marked(view)).toBe('Top\n\n- a\n\n- b\n\n‸c\nEnd');
+      expect(rows(view)).toBe(5);
+      press(view, 'Backspace');
+      expect(rows(view)).toBe(4);
+      // An item's own second paragraph does the same on its first press.
+      const later = mount('Top\n\n- a\n\n  ‸more\n\nEnd', page);
+      expect(rows(later)).toBe(4);
+      press(later, 'Backspace');
+      expect(marked(later)).toBe('Top\n\n- a\n\n‸more\nEnd');
+      expect(rows(later)).toBe(4);
+    });
+
+    it('breaks the line inside an item on Shift+Enter, with the caret on the new line', () => {
+      const view = mount('- a‸\n- b', page);
+      press(view, 'Enter', { shiftKey: true });
+      expect(marked(view)).toBe('- a\n  ‸\n- b');
+      expect(rows(view)).toBe(3);
+      expect(caretShown(view)).toBe(true);
+      type(view, 'x');
+      expect(marked(view)).toBe('- a\n  x‸\n- b');
+      const last = mount('Text\n\n- a\n- b‸\n\nMore', page);
+      press(last, 'Enter', { shiftKey: true });
+      expect(marked(last)).toBe('Text\n\n- a\n- b\n  ‸\n\nMore');
+      expect(rows(last)).toBe(5);
+      expect(caretShown(last)).toBe(true);
+    });
+
+    it('makes text pasted onto the empty line right under a list a paragraph', () => {
+      const view = mount('- a\n- b\n‸', page);
+      view.dispatch(view.state.update({ changes: { from: 8, insert: 'Hello' }, selection: { anchor: 13 }, userEvent: 'input.paste' }));
+      expect(marked(view)).toBe('- a\n- b\n\nHello‸');
+      expect(rows(view)).toBe(3);
+      expect(view.contentDOM.querySelectorAll('.cm-md-list-cont')).toHaveLength(0);
+    });
+
+    it('moves an item past its neighbour in a list written with blank lines between its items', () => {
+      const view = mount('Top\n\n1. a\n\n2. b‸\n\n3. c\n\nEnd', page);
+      press(view, 'ArrowUp', { ctrlKey: true, shiftKey: true });
+      expect(marked(view)).toBe('Top\n\n1. b‸\n\n2. a\n\n3. c\n\nEnd');
+      press(view, 'ArrowDown', { ctrlKey: true, shiftKey: true });
+      press(view, 'ArrowDown', { ctrlKey: true, shiftKey: true });
+      expect(marked(view)).toBe('Top\n\n1. a\n\n2. c\n\n3. b‸\n\nEnd');
+      // Past the list's end it stays, as in a list written tight.
+      press(view, 'ArrowDown', { ctrlKey: true, shiftKey: true });
+      expect(marked(view)).toBe('Top\n\n1. a\n\n2. c\n\n3. b‸\n\nEnd');
+    });
+
     it('redoes an edit that kept its rows as one step', () => {
       const view = mount('Text\n\n- ‸a\n- b', page);
       press(view, 'Backspace');

@@ -129,6 +129,10 @@ export const ROWS = [
   { id: 'E20', area: 'List edges', does: 'A list written with a blank line between its items is drawn with no empty rows', start: '- a\n\n- b\n\n- c‸', keys: ['t:x'], expect: '- a\n\n- b\n\n- cx‸', shows: ['bullet::0', 'bullet::0', 'bullet::0'], rows: 3 },
   { id: 'E21', area: 'List edges', does: 'A line of digits typed right under a list, then Enter: two paragraphs at the margin', start: '- one\n- two\n‸', keys: ['t:2024', 'Enter', 't:x'], expect: '- one\n- two\n\n2024\nx‸', shows: ['bullet::0', 'bullet::0'], rows: 4 },
   { id: 'E22', area: 'List edges', does: 'Emptying the first line of the page, over a list, changes no row', start: 'T‸\n\n- a\n- b', keys: ['Backspace'], expect: '‸\n\n- a\n- b', rows: 3 },
+  { id: 'E23', area: 'List edges', does: 'A second Backspace at the start of the last item of a list written with blank lines between its items opens no row', start: 'Top\n\n- a\n\n- b\n\n- ‸c\n\nEnd', keys: ['Backspace', 'Backspace'], expect: 'Top\n\n- a\n\n- b\n\n‸c\nEnd', rows: 5 },
+  { id: 'E24', area: 'List edges', does: 'Shift+Enter at the end of an item breaks the line inside the item', start: '- a‸\n- b', keys: ['Shift+Enter', 't:x'], expect: '- a\n  x‸\n- b', rows: 3 },
+  { id: 'E25', area: 'List edges', does: 'Paste text on the empty line right under a list: a paragraph at the margin', start: '- a\n- b\n‸', keys: ['paste:Hello'], expect: '- a\n- b\n\nHello‸', shows: ['bullet::0', 'bullet::0'], rows: 3 },
+  { id: 'E26', area: 'List edges', does: 'Ctrl+Shift+Up in a list written with blank lines between its items moves the item, and the numbers follow', start: '1. a\n\n2. b‸\n\n3. c', keys: ['Control+Shift+ArrowUp'], expect: '1. b‸\n\n2. a\n\n3. c', rows: 3 },
 
   // ---- Caret and selection across items
   { id: 'S1', area: 'Caret', does: 'Left at the start of an item goes to the end of the item above', start: '- one\n- ‸two', keys: ['ArrowLeft'], expect: '- one‸\n- two' },

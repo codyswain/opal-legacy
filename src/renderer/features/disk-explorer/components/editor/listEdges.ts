@@ -56,6 +56,8 @@ const listy = (kind: Kind) => kind === 'item' || kind === 'more';
 
 // A marker written out as text, with the backslash that keeps it text: "\\-", "\\- " or "1\\. " alone on a line.
 const LITERAL_MARKER = /^[ \t]*(?:\\[-+*]|\d{1,9}\\[.)])[ \t]?$/;
+// A line that holds an indent and nothing else.
+const STARTED = /^[ \t]+$/;
 // An item line's indent and marker, or a marker alone at the line's end.
 const MARK = /^([ \t]*)([-+*]|\d{1,9}([.)]))(?:[ \t]|$)/;
 
@@ -121,6 +123,7 @@ function edgeGaps(tr: Transaction): { changes: ChangeSpec[]; emptied: { from: nu
   // typed right under a list and ended with Enter, it is a paragraph, and gets its blank line then.
   const caretWas = tr.startState.selection.ranges.length === 1 ? oldDoc.lineAt(tr.startState.selection.main.head) : null;
   const caretIs = newDoc.lineAt(tr.newSelection.main.head).number;
+  const pasted = tr.isUserEvent('input.paste') || tr.isUserEvent('input.drop');
   const left = caretWas && lineKind(caretWas.text) === 'pending' ? tr.changes.mapPos(caretWas.from, -1) : -1;
   for (const number of [...pairs].sort((a, b) => a - b)) {
     const above = newDoc.line(number - 1);
@@ -137,7 +140,10 @@ function edgeGaps(tr: Transaction): { changes: ChangeSpec[]; emptied: { from: nu
     // Lines that were neighbours of the same kinds before the edit stay as written, unless the list under the text can no longer be read.
     const oldAbove = before(above);
     const oldBelow = before(below);
-    const stood = !typedOut && oldAbove !== null && oldBelow !== null && oldAbove.number + 1 === oldBelow.number
+    // Text pasted or dropped onto the empty line right under a list did not stand there before: it is as new as
+    // text typed there, which gets its blank line from the typing rule (listKeys.ts).
+    const fresh = pasted && oldBelow !== null && lineKind(oldBelow.text) === 'blank' && listy(upper) && lower === 'text';
+    const stood = !typedOut && !fresh && oldAbove !== null && oldBelow !== null && oldAbove.number + 1 === oldBelow.number
       && listy(lineKind(oldAbove.text)) === listy(upper) && listy(lineKind(oldBelow.text)) === listy(lower);
     const body = below.text.slice(quoteOf(below.text).length);
     const unreadable = lower === 'item' && (EMPTY_ITEM.test(body) || PAST_ONE.test(body));
@@ -358,13 +364,15 @@ export function listGaps(doc: Text, first: number, last: number): number[] {
     if (lineKind(line.text) !== 'blank') continue;
     const above = doc.line(number - 1);
     const below = doc.line(number + 1);
-    const upper = lineKind(above.text);
     const lower = lineKind(below.text);
     const depth = depthOf(line.text);
-    // Under a list line. Between two list lines, a line that holds an indent is a later line of the item being
-    // started, by Enter at the end of one, and keeps its row: a blank line as files hold them is empty.
+    // An item's later line being started, an indent and nothing yet, is a line of the list to the one under it.
+    const startedAbove = number > 2 && STARTED.test(above.text.slice(quoteOf(above.text).length)) && listy(lineKind(doc.line(number - 2).text));
+    const upper = startedAbove ? 'more' : lineKind(above.text);
+    // Under a list line. A line that holds an indent is a later line of the item being started, by Enter at the
+    // end of one or by Shift+Enter, and keeps its row: a blank line as files hold them is empty.
     if (listy(upper) && depthOf(above.text) === depth) {
-      const started = (lower === 'item' || lower === 'more') && /[ \t]/.test(line.text.slice(quoteOf(line.text).length));
+      const started = STARTED.test(line.text.slice(quoteOf(line.text).length));
       if (!started) gaps.push(number);
       continue;
     }

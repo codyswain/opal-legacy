@@ -228,6 +228,26 @@ const enterAfterParagraph: StateCommand = ({ state, dispatch }) => {
   return true;
 };
 
+/**
+ * Shift+Enter in a list item breaks the line inside the item, as in a word
+ * processor: the new line starts under the item's text, as a later line of
+ * it. A bare line break there would be a blank line, which the page gives no
+ * room and the caret cannot rest on.
+ */
+const breakInItem: StateCommand = ({ state, dispatch }) => {
+  const { main } = state.selection;
+  if (!state.facet(docMode) || state.readOnly || state.selection.ranges.length > 1) return false;
+  const line = state.doc.lineAt(main.from);
+  const node = itemAround(state, line.to);
+  const item = node && itemOf(state, node);
+  if (!item || !hasText(line) || !['Paragraph', 'ListItem'].includes(blockAt(state, line.to)?.name ?? '')) return false;
+  const quote = quoteOf(line.text);
+  const width = Math.max(1, textColumn(state, item) - column(quote));
+  const insert = `\n${quote}${usesTabs(state, item) ? '\t'.repeat(Math.ceil(width / TAB)) : ' '.repeat(width)}`;
+  dispatch(state.update({ changes: { from: main.from, to: main.to, insert }, selection: { anchor: main.from + insert.length }, scrollIntoView: true, userEvent: 'input' }));
+  return true;
+};
+
 /** Cmd+Option+Enter, as in a word processor, or Cmd+Enter: checks or unchecks the task on the caret's line. */
 const toggleTaskHere: StateCommand = ({ state, dispatch }) => {
   const line = state.doc.lineAt(state.selection.main.head);
@@ -352,8 +372,11 @@ const listBackspace = deleteHandlers.of({
     const lead = state.doc.sliceString(line.from, main.head);
     const quote = quoteOf(line.text);
     const gap = quote.replace(/[ \t]+$/, '');
-    // The second step: a later line of an item, at its text's start or empty, moves out to the margin.
-    if (lead.length > quote.length && !/\S/.test(lead.slice(quote.length)) && hasText(above) && itemAround(state, above.to)) {
+    // The second step: a later line of an item, at its text's start or empty, moves out to the margin. In a list
+    // written with blank lines between its items, the line above is one of those, and the item is above that.
+    let held = above;
+    while (!hasText(held) && held.number > 1) held = state.doc.line(held.number - 1);
+    if (lead.length > quote.length && !/\S/.test(lead.slice(quote.length)) && hasText(held) && itemAround(state, held.to)) {
       const empty = !hasText(line);
       // A task's text is the item's own, with no paragraph node around it.
       const inItem = empty ? main.head === line.to : (itemAround(state, line.to) !== null && ['Paragraph', 'ListItem'].includes(blockAt(state, line.to)?.name ?? ''));
@@ -361,7 +384,8 @@ const listBackspace = deleteHandlers.of({
       const next = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
       // A numbered item below stays a list only after a blank line; a bullet reads as one right under text.
       const below = !empty && next && /^[\s>]*\d+[.)](?:[ \t]|$)/.test(next.text) ? [{ from: line.to, insert: `\n${gap}` }] : [];
-      const insert = `${gap}\n${quote}`;
+      // The blank line that parts the text from the list is there already when one stands above it.
+      const insert = hasText(above) ? `${gap}\n${quote}` : quote;
       // The text moves out and no row with it: under the list's last item, the blank line over the text below is
       // the list's no longer, and goes (listEdges.ts).
       view.dispatch({
@@ -488,7 +512,7 @@ export const docListKeys: Extension = [
   paragraphUnderList,
   Prec.high(keymap.of([
     { key: 'Tab', run: docTab(true), shift: docTab(false) },
-    { key: 'Enter', run: enterAfterParagraph },
+    { key: 'Enter', run: enterAfterParagraph, shift: breakInItem },
     { key: 'Mod-Enter', run: toggleTaskHere },
     { key: 'Mod-Alt-Enter', run: toggleTaskHere },
   ])),
