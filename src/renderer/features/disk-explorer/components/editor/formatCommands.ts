@@ -621,8 +621,10 @@ export function setHeading(level: number): StateCommand {
       const previous = line.number > 1 ? state.doc.line(line.number - 1) : null;
       const next = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
       const converted = (other: Line) => lines.some((each) => each.number === other.number) && headingOf(state, other) !== null;
-      if (previous && /[^\s>]/.test(previous.text) && !converted(previous) && takesLine(state, previous, line)) marks.unshift({ from: line.from, insert: `${blankFor(line)}\n` });
-      if (next && /[^\s>]/.test(next.text) && joinsBelow(state, next)) marks.push({ from: line.to, insert: `\n${blankFor(line)}` });
+      // A heading on a list item's own line stays that item: its marker already keeps it apart.
+      const ownItem = listItemOf(state, line) !== null;
+      if (!ownItem && previous && /[^\s>]/.test(previous.text) && !converted(previous) && takesLine(state, previous, line)) marks.unshift({ from: line.from, insert: `${blankFor(line)}\n` });
+      if (!ownItem && next && /[^\s>]/.test(next.text) && joinsBelow(state, next)) marks.push({ from: line.to, insert: `\n${blankFor(line)}` });
       return marks;
     });
     dispatch(state.update({ changes, scrollIntoView: true, userEvent: 'input' }));

@@ -171,7 +171,7 @@ export function pasteSpec(state: EditorState, text: string, literal: boolean): T
     }
     return writeLink(state, range, state.sliceDoc(range.from, range.to), address, null);
   }
-  if (!literal) return listIntoItem(state, pasted) ?? linesIntoItems(state, pasted);
+  if (!literal) return listIntoItem(state, pasted) ?? linesIntoItems(state, withoutMarkers(state, pasted)) ?? linesIntoItems(state, pasted);
   const prefix = containerPrefix(state, range.from);
   const insert = literalText(state, range.from, range.to, pasted, { prefix, table: inTable(state, range.from) });
   return {
@@ -220,6 +220,21 @@ function listIntoItem(state: EditorState, pasted: string): TransactionSpec | nul
     userEvent: 'input.paste',
     annotations: prefixed.of(true),
   };
+}
+
+/**
+ * A pasted list as plain lines, for a caret in the middle of an item's
+ * text, where a word processor joins the first pasted item to the text
+ * before the caret and makes each further one an item of the list being
+ * typed in. `pasted` as it is for anything else.
+ */
+function withoutMarkers(state: EditorState, pasted: string): string {
+  const range = state.selection.main;
+  const line = state.doc.lineAt(range.from);
+  const item = listItemOf(state, line);
+  const lines = pasted.replace(/\n+$/, '').split('\n');
+  if (!item || range.from <= item.textFrom || range.from >= line.to || lines.length < 2 || !lines.every((each) => !/\S/.test(each) || LIST_LINE.test(each))) return pasted;
+  return lines.map((each) => each.replace(/^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+\[[ xX]\])?[ \t]*/, '')).join('\n');
 }
 
 // A line that is a Markdown block of its own: a list item, heading, quote, fence, table row or indented code.
@@ -289,6 +304,9 @@ export async function pasteAndMatchStyle(target: Element | null = document.activ
   view.dispatch(spec ?? { ...view.state.replaceSelection(text.replace(/\r\n?/g, '\n')), scrollIntoView: true, userEvent: 'input.paste' });
 }
 
+// Marks only Markdown source holds: a link between notes, a Markdown link, a highlight, a fence, a list marker or heading at a line start.
+const MARKDOWN_SOURCE = /\[\[[^\]\n]+\]\]|\]\([^)\s]+\)|==[^=\n]+==|(?:^|\n) {0,3}(?:```|#{1,6} |[-+*] |\d{1,9}[.)] |> )/;
+
 const clipboardEvents = EditorView.domEventHandlers({
   copy(event, view) {
     if (!view.state.facet(docMode) || view.state.selection.ranges.some((range) => !range.empty)) return false;
@@ -306,7 +324,9 @@ const clipboardEvents = EditorView.domEventHandlers({
     const plain = data?.getData('text/plain') ?? '';
     // Formatting comes from the clipboard's HTML, except into code, which takes the plain text.
     const html = data && data.files.length === 0 && !rawAt(view.state, view.state.selection.main.from) ? data.getData('text/html') : '';
-    const rich = html ? markdownFromHtml(html) : null;
+    // Plain text that is Markdown already, as an app that draws Markdown copies it, is the better copy: it keeps
+    // what the HTML beside it has lost, such as a link between notes.
+    const rich = html && !MARKDOWN_SOURCE.test(plain) ? markdownFromHtml(html) : null;
     const text = rich ?? plain;
     if (!text) return false;
     const spec = pasteSpec(view.state, text, false)

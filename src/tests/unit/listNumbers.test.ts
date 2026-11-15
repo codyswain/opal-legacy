@@ -4,7 +4,7 @@ import { EditorState, Transaction } from '@codemirror/state';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { pasteSpec } from '@/renderer/features/disk-explorer/components/editor/clipboard';
 import { editingSetup, markdownEditorExtensions } from '@/renderer/features/disk-explorer/components/editor/editorSetup';
-import { toggleList } from '@/renderer/features/disk-explorer/components/editor/formatCommands';
+import { setHeading, toggleList } from '@/renderer/features/disk-explorer/components/editor/formatCommands';
 import { followLinkClicks } from '@/renderer/features/disk-explorer/components/editor/linkEditorEffect';
 import { levelNumeral } from '@/renderer/features/disk-explorer/components/editor/listNumbers';
 import { docMode } from '@/renderer/features/disk-explorer/components/editor/livePreview';
@@ -187,7 +187,7 @@ describe('Enter and Backspace at an item\'s start', () => {
     press(view, 'Backspace');
     expect(marked(view)).toBe('1. one\n\n‸two\n\n2. three\n');
     press(view, 'Backspace');
-    expect(marked(view)).toBe('1. one‸two\n\n2. three\n');
+    expect(marked(view)).toBe('1. one‸two\n2. three\n');
   });
 
   it('joins a paragraph one blank line under a list to the list\'s last item, and leaves other paragraphs alone', () => {
@@ -268,5 +268,128 @@ describe('paste into a list', () => {
     expect(pasted('1. ‸one\n2. two\n', '3. three\n')).toBe('1. three\n2. ‸one\n3. two\n');
     expect(pasted('1. one‸\n2. two\n', '7. x\n8. y')).toBe('1. one\n2. x\n3. y‸\n4. two\n');
     expect(pasted('- one\n- ‸\n', '- a\n  - b\n')).toBe('- one\n- a\n  - b‸\n');
+  });
+});
+
+describe('what the fresh review found', () => {
+  /** Types `typed` at the caret, one key at a time, through the page's own input handlers. */
+  function type(view: EditorView, typed: string) {
+    for (const character of typed) {
+      const at = view.state.selection.main.head;
+      const insert = () => view.state.update({ changes: { from: at, insert: character }, selection: { anchor: at + 1 }, userEvent: 'input.type' });
+      if (!view.state.facet(EditorView.inputHandler).some((handler) => handler(view, at, at, character, insert))) view.dispatch(insert());
+    }
+  }
+
+  it('keeps the line under a typed bullet or number a paragraph, with a blank line the first undo takes back', () => {
+    for (const typed of ['- ', '1. ']) {
+      const view = mount('Alpha\n‸Beta\nGamma\n');
+      type(view, typed);
+      expect(text(view)).toBe(`Alpha\n${typed}Beta\n\nGamma\n`);
+      undo(view);
+      expect(text(view).endsWith('Beta\nGamma\n')).toBe(true);
+    }
+    // A box started on an empty line over text: the text typed into it later never takes that line in.
+    const box = mount('Alpha\n\n‸\nGamma\n');
+    type(box, '[] x');
+    expect(text(box)).toBe('Alpha\n\n- [ ] x\n\nGamma\n');
+    // Nothing is added over a blank line, another item or a heading.
+    for (const below of ['', '- next', '## Head']) {
+      const view = mount(`‸Beta\n${below}\n`);
+      type(view, '- ');
+      expect(text(view)).toBe(`- Beta\n${below}\n`);
+    }
+  });
+
+  it('keeps nested lines inside an item whose number grows a digit', () => {
+    const items = Array.from({ length: 9 }, (_, index) => `${index + 1}. item`);
+    const view = mount(`${items[0]}‸\n${items.slice(1).join('\n')}\n   - kid\n     - deep\n\n   more\n`);
+    press(view, 'Enter');
+    expect(text(view).endsWith('9. item\n10. item\n    - kid\n      - deep\n\n    more\n')).toBe(true);
+    // Back to nine and up to ten again: the lines already reach, so nothing more is added.
+    undo(view);
+    press(view, 'Enter');
+    expect(text(view).endsWith('10. item\n    - kid\n      - deep\n\n    more\n')).toBe(true);
+    expect(after('98. a‸\n99. b\n    - kid\n', 'Enter')).toBe('98. a\n99. \n100. b\n     - kid\n');
+  });
+
+  it('keeps nested lines inside items when bullets become numbers', () => {
+    const bullets = Array.from({ length: 10 }, (_, index) => `- item ${index + 1}`);
+    const view = mount(`‸${bullets.join('\n')}‸\n  - kid\n`);
+    toggleList('number')(view);
+    expect(text(view).endsWith('9. item 9\n10. item 10\n    - kid\n')).toBe(true);
+    const first = mount('- one\n  - kid\n- tw‸o\n');
+    toggleList('number')(first);
+    expect(text(first)).toBe('1. one\n   - kid\n2. two\n');
+  });
+
+  it('leaves a list as written when the edit is on the line next to it', () => {
+    const under = mount('1. a\n1. b\n1. c\n‸');
+    type(under, '-');
+    expect(text(under)).toBe('1. a\n1. b\n1. c\n-');
+    expect(after('intro‸\n1. a\n1. b\n1. c\n', 'Enter')).toBe('intro\n\n1. a\n1. b\n1. c\n');
+    expect(after('1. a\n2. b‸\n1) x\n5) y\n', 'Enter')).toBe('1. a\n2. b\n3. \n1) x\n5) y\n');
+  });
+
+  it('takes a box off in the same three steps, and the blank line under the text goes when it joins', () => {
+    const boxes = mount('- [ ] one\n- [ ] ‸two\n');
+    press(boxes, 'Backspace');
+    press(boxes, 'Backspace');
+    expect(marked(boxes)).toBe('- [ ] one\n\n‸two\n');
+    const middle = mount('- one\n- ‸two\n- three\n');
+    press(middle, 'Backspace');
+    press(middle, 'Backspace');
+    press(middle, 'Backspace');
+    expect(marked(middle)).toBe('- one‸two\n- three\n');
+  });
+
+  it('never joins text to a table, a formula or HTML that ends the item above', () => {
+    for (const block of ['  | a | b |\n  |---|---|\n  | 1 | 2 |', '  <div>x</div>']) {
+      const doc = `- one\n\n${block}\n\n‸Para\n`;
+      const view = mount(doc);
+      press(view, 'Backspace');
+      expect(text(view)).toContain(`${block}\n`);
+      expect(text(view)).toContain('Para');
+      expect(text(view)).not.toContain('|Para');
+      expect(text(view)).not.toContain('</div>Para');
+    }
+  });
+
+  it('pulls the paragraph under a list up on Delete at the list\'s end', () => {
+    const view = mount('- one‸\n\nPara\n');
+    press(view, 'Delete');
+    expect(marked(view)).toBe('- one‸Para\n');
+    // A list with a blank line between its items is left to the usual Delete.
+    expect(after('- one‸\n\n- two\n', 'Delete')).toContain('- two');
+  });
+
+  it('goes on without a marker on Enter after Backspace took the marker off', () => {
+    const view = mount('- one\n  two‸\n- three\n');
+    press(view, 'Enter');
+    type(view, 'x');
+    expect(text(view)).toBe('- one\n  two\n  x\n- three\n');
+  });
+
+  it('redoes on Cmd+Y', () => {
+    const view = mount('- one\n- ‸two\n');
+    press(view, 'Tab');
+    undo(view);
+    expect(text(view)).toBe('- one\n- two\n');
+    press(view, 'y', MOD);
+    expect(text(view)).toBe('- one\n  - two\n');
+  });
+
+  it('makes a heading in a list item normal text without a blank line', () => {
+    const view = mount('- one\n- ## tw‸o\n- three\n');
+    setHeading(0)(view);
+    expect(text(view)).toBe('- one\n- two\n- three\n');
+  });
+
+  it('joins a list pasted inside an item\'s text to that text, each further item its own', () => {
+    const view = mount('- on‸e\n');
+    const spec = pasteSpec(view.state, '- two\n  - three\n', false);
+    expect(spec).not.toBeNull();
+    if (spec) view.dispatch(spec);
+    expect(marked(view)).toBe('- ontwo\n- three‸e\n');
   });
 });

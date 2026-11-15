@@ -113,7 +113,7 @@ const formatAfter = StateEffect.define<readonly { from: number; to: number; inse
  * asks for them to go again as formatting, with the backslashes already
  * written at `written`.
  */
-function autoformatSpec(at: number, length: number, positions: readonly number[], written: readonly number[] = []): TransactionSpec {
+function autoformatSpec(at: number, length: number, positions: readonly number[], written: readonly number[] = [], extra: readonly { from: number; to: number; insert?: string }[] = []): TransactionSpec {
   const sorted = [...new Set(positions)].sort((a, b) => a - b);
   const before = sorted.filter((position) => position <= at).length;
   const removals = [
@@ -123,9 +123,28 @@ function autoformatSpec(at: number, length: number, positions: readonly number[]
   return {
     changes: sorted.map((from) => ({ from, insert: '\\' })),
     selection: { anchor: at + length + before },
-    effects: formatAfter.of(removals.map((from) => ({ from, to: from + 1 }))),
+    effects: formatAfter.of([...removals.map((from) => ({ from, to: from + 1 })), ...extra]),
     sequential: true,
   };
+}
+
+// A line that opens a block of its own: a list item, heading, quote, fence, table row, HTML or a rule.
+const OWN_BLOCK = /^ {0,3}(?:[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|#{1,6}(?:[ \t]|$)|>|```|~~~|\||<|(?:-{3,}|\*{3,}|_{3,}|={3,})[ \t]*$)/;
+
+/**
+ * The blank line to write under a list item typed on `line`, and where, or
+ * null when none is needed. Text on the very next line would read as more of the
+ * item, so a bullet typed over a paragraph's line needs a blank line to
+ * keep that line a paragraph, as the list button writes one.
+ */
+function gapUnder(state: EditorState, line: { number: number; text: string }): { at: number; insert: string } | null {
+  if (line.number >= state.doc.lines) return null;
+  const next = state.doc.line(line.number + 1);
+  const quote = /^(?:[ \t]*>[ \t]?)*/.exec(next.text)?.[0] ?? '';
+  const body = next.text.slice(quote.length);
+  if (!/\S/.test(body) || OWN_BLOCK.test(body)) return null;
+  // Written at the next line's start, away from a caret at the end of the item's line.
+  return { at: next.from, insert: `${(/^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '').replace(/[ \t]+$/, '')}\n` };
 }
 
 /** True right after the formatting went in, until the text or the caret changes. */
@@ -348,7 +367,8 @@ function escapeTyped(tr: Transaction): TransactionSpec | null {
   // "[]" or "[ ]" alone on a line, then a space, starts a task, as in Notion: one autoformat step, like the others.
   if (text === ' ' && /^\[ ?\]$/.test(lead) && !/\S/.test(after.sliceDoc(at + 1, line.to)) && QUOTE_ONLY.test(prefix)) {
     const from = line.from + prefix.length;
-    return { effects: formatAfter.of([{ from, to: at + 1, insert: '- [ ] ' }]), sequential: true };
+    const gap = gapUnder(after, line);
+    return { effects: formatAfter.of([{ from, to: at + 1, insert: '- [ ] ' }, ...(gap ? [{ from: gap.at, to: gap.at, insert: gap.insert }] : [])]), sequential: true };
   }
 
   // A space that turns "#", "-", "1." or "[ ]" at the line's text start into formatting is an autoformat.
@@ -356,7 +376,9 @@ function escapeTyped(tr: Transaction): TransactionSpec | null {
     const mark = latestTree(after).resolveInner(at, -1);
     if (!LINE_FORMATS.has(mark.name) || mark.to !== at || mark.from !== line.from + prefix.length) return null;
     const numbered = mark.name === 'ListMark' && /\d/.test(after.sliceDoc(mark.from, mark.from + 1));
-    return autoformatSpec(at, text.length, [numbered ? mark.to - 1 : mark.from]);
+    // A list item typed right over a line of text: that line stays a paragraph. The backslash moves the line's end by one.
+    const gap = mark.name === 'ListMark' ? gapUnder(after, line) : null;
+    return autoformatSpec(at, text.length, [numbered ? mark.to - 1 : mark.from], [], gap ? [{ from: gap.at + 1, to: gap.at + 1, insert: gap.insert }] : []);
   }
 
   // "<!--" would hide the rest of the page in Obsidian. In a wiki link or a URL the backslash would show, and nothing is hidden there.

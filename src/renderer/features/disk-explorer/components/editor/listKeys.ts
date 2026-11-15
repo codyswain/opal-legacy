@@ -212,6 +212,9 @@ const enterAfterParagraph: StateCommand = ({ state, dispatch }) => {
   if (state.selection.ranges.length > 1 || !main.empty) return false;
   const line = state.doc.lineAt(main.head);
   if (main.head !== line.to || !/[^\s>]/.test(line.text) || itemOn(state, line)) return false;
+  // Only a paragraph of its own, after a blank line. A line right under the item's text, as Backspace leaves one
+  // without its marker, goes on with another such line, as in a word processor.
+  if (line.number > 1 && /[^\s>]/.test(state.doc.line(line.number - 1).text)) return false;
   // Only a paragraph's line: Enter in code, a table or HTML inside an item stays theirs.
   if (blockAt(state, line.to)?.name !== 'Paragraph') return false;
   const node = itemAround(state, line.to);
@@ -327,7 +330,8 @@ const listBackspace = deleteHandlers.of({
     // The second step: a later line of an item, at its text's start or empty, moves out to the margin.
     if (lead.length > quote.length && !/\S/.test(lead.slice(quote.length)) && hasText(above) && itemAround(state, above.to)) {
       const empty = !hasText(line);
-      const inItem = empty ? main.head === line.to : (itemAround(state, line.to) !== null && blockAt(state, line.to)?.name === 'Paragraph');
+      // A task's text is the item's own, with no paragraph node around it.
+      const inItem = empty ? main.head === line.to : (itemAround(state, line.to) !== null && ['Paragraph', 'ListItem'].includes(blockAt(state, line.to)?.name ?? ''));
       if (!inItem) return false;
       const next = line.number < state.doc.lines ? state.doc.line(line.number + 1) : null;
       // A list item below stays a list only after a blank line.
@@ -345,25 +349,47 @@ const listBackspace = deleteHandlers.of({
   },
 });
 
+/** Whether `line` is text another line can join: a paragraph's or an item's own line, not a table, code, formula or HTML block. */
+function joinable(state: EditorState, line: Line): boolean {
+  if (!['Paragraph', 'ListItem'].includes(blockAt(state, line.to)?.name ?? '')) return false;
+  return !protectedIn(state, line.from, line.to).some((range) => !range.inline && range.from <= line.from && range.to >= line.to);
+}
+
 /**
  * The third step: Backspace at the start of a paragraph at the margin, one
- * blank line under a list, joins it to the end of the list's last line. It
- * runs before the rule that only moves the caret over that blank line
- * (blockObjects.ts), which still holds under a quote.
+ * blank line under a list, joins it to the end of the list's last line, and
+ * the blank line that kept it apart from an item below goes with it. Delete
+ * at the end of a list's last line pulls such a paragraph up the same way.
+ * Both run before the rule that only moves the caret over that blank line
+ * (blockObjects.ts), which still holds under a quote, and next to a table,
+ * code, a formula or HTML, which no text joins.
  */
 const listJoin = deleteHandlers.of({
   priority: 21,
   run: (view, dir) => {
     const { state } = view;
     const { main } = state.selection;
-    if (dir > 0 || !state.facet(docMode) || state.readOnly || !main.empty || state.selection.ranges.length > 1) return false;
+    if (!state.facet(docMode) || state.readOnly || !main.empty || state.selection.ranges.length > 1) return false;
     const line = state.doc.lineAt(main.head);
+    if (dir > 0) {
+      if (main.head !== line.to || line.number + 2 > state.doc.lines || !hasText(line) || !itemAround(state, line.to) || !joinable(state, line)) return false;
+      const gap = state.doc.line(line.number + 1);
+      const next = state.doc.line(line.number + 2);
+      if (hasText(gap) || !hasText(next) || itemAround(state, next.to) || blockAt(state, next.to)?.name !== 'Paragraph' || quoteOf(next.text) !== quoteOf(line.text)) return false;
+      view.dispatch({ changes: { from: main.head, to: next.from + quoteOf(next.text).length }, scrollIntoView: true, userEvent: 'delete.forward' });
+      return true;
+    }
     if (line.number < 3 || state.doc.sliceString(line.from, main.head) !== quoteOf(line.text)) return false;
     if (hasText(state.doc.line(line.number - 1))) return false;
     if (hasText(line) && (itemOn(state, line) || blockAt(state, line.to)?.name !== 'Paragraph')) return false;
     const last = state.doc.line(line.number - 2);
-    if (!hasText(last) || !itemAround(state, last.to)) return false;
-    view.dispatch({ changes: { from: last.to, to: main.head }, selection: { anchor: last.to }, scrollIntoView: true, userEvent: 'delete.backward' });
+    if (!hasText(last) || !itemAround(state, last.to) || !joinable(state, last)) return false;
+    const changes: ChangeSpec[] = [{ from: last.to, to: main.head }];
+    if (line.number + 2 <= state.doc.lines) {
+      const gap = state.doc.line(line.number + 1);
+      if (!hasText(gap) && ITEM_LINE.test(state.doc.line(line.number + 2).text)) changes.push({ from: line.to, to: gap.to });
+    }
+    view.dispatch({ changes, selection: { anchor: last.to }, scrollIntoView: true, userEvent: 'delete.backward' });
     return true;
   },
 });

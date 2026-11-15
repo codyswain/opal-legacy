@@ -14,7 +14,7 @@ describe('Markdown from a clipboard\'s HTML', () => {
   });
 
   it('reads a word processor\'s inline styles, and its wrapper is not bold', () => {
-    const html = '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-1"><p dir="ltr"><span style="font-weight:400;">plain </span><span style="font-weight:700;">heavy</span><span style="font-style:italic;"> tilted</span><span style="text-decoration:line-through;"> struck</span></p></b>';
+    const html = '<meta charset="utf-8"><b style="font-weight:normal;" id="internal-guid-1"><p dir="ltr"><span style="font-weight:400;">plain </span><span style="font-weight:700;">heavy</span><span style="font-style:italic;"> tilted</span><span style="text-decoration:line-through;"> struck</span></p></b>';
     expect(markdownFromHtml(html)).toBe('plain **heavy** *tilted* ~~struck~~');
   });
 
@@ -48,6 +48,18 @@ describe('Markdown from a clipboard\'s HTML', () => {
     expect(markdownFromHtml('<p>one</p><p>two</p>')).toBeNull();
     expect(markdownFromHtml('<span style="color: red; font-size: 20px">only colour</span>')).toBeNull();
     expect(markdownFromHtml('<meta charset="utf-8"><div style="color: #ccc; font-family: Menlo, Monaco, monospace; white-space: pre;"><div><span style="font-weight: bold;">const</span> a = 1;</div></div>')).toBeNull();
+  });
+
+  it('reads a line break inside a code block, and leaves a code editor\'s HTML to the plain text', () => {
+    expect(markdownFromHtml('<pre>a = 1<br>b = 2</pre>')).toBe('```\na = 1\nb = 2\n```');
+    expect(markdownFromHtml('<span style="font-family: Menlo, monospace; white-space: pre;">def f():\n    <i># note</i>\n    return 1</span>')).toBeNull();
+    expect(markdownFromHtml('<div style="font-family: \'Courier New\', monospace"><div>let a = <b>1</b>;</div><div>let b = 2;</div></div>')).toBeNull();
+    // A word in a fixed-width font inside ordinary text is not a code editor's copy.
+    expect(markdownFromHtml('<p>Run <span style="font-family: monospace">make</span> and <b>wait</b> for it to finish building.</p>')).toBe('Run make and **wait** for it to finish building.');
+  });
+
+  it('takes only web and mail addresses as links', () => {
+    expect(markdownFromHtml('<p><b>x</b> <a href="opal://open?path=Notes/Plan.md">plan</a> <a href="mailto:alex@example.com">mail</a></p>')).toBe('**x** plan [mail](mailto:alex@example.com)');
   });
 
   it('drops pictures, scripts and styles', () => {

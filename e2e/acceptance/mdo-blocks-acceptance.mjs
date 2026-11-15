@@ -161,13 +161,13 @@ try {
   check('the first key after a cell click lands in the cell', saved.includes('| ZBlocks | PR 1 |'));
   await page.keyboard.press('Escape');
 
-  // Enter at the end of a numbered item adds one line and renumbers nothing.
+  // Enter at the end of a numbered item adds one item, and the items below it count on.
   await page.locator('.cm-line', { hasText: /one$/ }).first().click();
   await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   await page.keyboard.type('new');
   saved = await waitForFile((text) => text.includes('2. new'));
-  check('Enter in a numbered list adds one item and renumbers nothing', saved.includes('1. one\n2. new\n2. two\n3. three\n'), JSON.stringify(saved.slice(saved.indexOf('1. one'), saved.indexOf('1. one') + 40)));
+  check('Enter in a numbered list adds one item and renumbers the items below', saved.includes('1. one\n2. new\n3. two\n4. three\n'), JSON.stringify(saved.slice(saved.indexOf('1. one'), saved.indexOf('1. one') + 40)));
   check('the page shows 1 to 4', (await page.locator('.cm-md-number').allTextContents()).slice(0, 4).join(' ') === '1. 2. 3. 4.');
 
   // A numbered task shows its number, then a full box; a quote nested in a callout draws its rule.

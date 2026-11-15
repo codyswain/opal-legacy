@@ -187,9 +187,13 @@ describe('the blank line under a list or quote', () => {
       expect(text(view)).toBe(doc.replace('‸', ''));
       expect(text(view).slice(caret(view) - 3, caret(view))).toMatch(/two|ody/);
     }
+    // Delete at the end of a list pulls the paragraph under it up, as a word processor does; under a quote the caret still moves.
     const view = mount('- one\n- two‸\n\nAfter\n');
     press(view, 'Delete');
-    expect(marked(view)).toBe('- one\n- two\n\n‸After\n');
+    expect(marked(view)).toBe('- one\n- two‸After\n');
+    const quote = mount('> [!note] Title\n> Body‸\n\nAfter\n');
+    press(quote, 'Delete');
+    expect(marked(quote)).toBe('> [!note] Title\n> Body\n\n‸After\n');
     // Two blank lines: the first Backspace takes one of them, as before.
     const two = mount('- two\n\n\n‸After\n');
     press(two, 'Backspace');

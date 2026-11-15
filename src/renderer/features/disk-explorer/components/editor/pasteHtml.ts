@@ -31,7 +31,8 @@ const BLOCK_TAGS = new Set([
 ]);
 const BLOCK_SELECTOR = [...BLOCK_TAGS].map((tag) => tag.toLowerCase()).join(',');
 const SKIPPED = new Set(['SCRIPT', 'STYLE', 'META', 'LINK', 'TITLE', 'HEAD', 'IMG', 'PICTURE', 'SVG', 'VIDEO', 'AUDIO', 'IFRAME', 'OBJECT', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'NOSCRIPT', 'TEMPLATE']);
-const SAFE_LINK = /^(?:https?:|mailto:|obsidian:|opal:)/i;
+// Only addresses a web page may hold: a link into the app itself is never taken from pasted HTML.
+const SAFE_LINK = /^(?:https?:|mailto:)/i;
 
 /** State for one conversion: whether anything worth keeping was found. */
 interface Found {
@@ -262,7 +263,8 @@ function blocksOf(parent: Node, found: Found, around: Style = PLAIN): string[][]
       const inner = blocksOf(child, found);
       if (inner.length > 0) { found.rich = true; blocks.push(inner.flatMap((block, index) => [...(index > 0 ? ['>'] : []), ...block.map((line) => (line ? `> ${line}` : '>'))])); }
     } else if (tag === 'PRE') {
-      const code = (child.textContent ?? '').replace(/\n$/, '');
+      // Read as runs, so a <br> inside the block is a line break.
+      const code = runsOf(child, PLAIN, true).map((run) => run.text).join('').replace(/\n$/, '');
       if (code.trim()) {
         found.rich = true;
         const fence = '`'.repeat(Math.max(3, ...(code.match(/`{3,}/g) ?? []).map((run) => run.length + 1)));
@@ -283,11 +285,21 @@ function blocksOf(parent: Node, found: Found, around: Style = PLAIN): string[][]
   return blocks;
 }
 
-/** Whether the HTML is a code editor's or a terminal's: text in a fixed-width font with its spaces kept. */
+const FIXED_WIDTH = /mono|menlo|courier|consolas/i;
+
+/**
+ * Whether the HTML is a code editor's or a terminal's: text whose spaces are
+ * kept as written, or nearly all of it in a fixed-width font. Its bold and
+ * italic are syntax colouring, not formatting, and its line breaks are in
+ * the text, so the plain text is the faithful copy.
+ */
 function fromCodeEditor(body: HTMLElement): boolean {
-  const first = [...body.children].find((element): element is HTMLElement => element instanceof HTMLElement && (element.tagName === 'DIV' || element.tagName === 'PRE'));
-  if (!first || body.children.length > 2) return false;
-  return first.style.whiteSpace === 'pre' && /mono|menlo|courier|consolas/i.test(first.style.fontFamily);
+  const all = (body.textContent ?? '').length;
+  for (const element of body.querySelectorAll<HTMLElement>('[style]')) {
+    if (element.style.whiteSpace === 'pre') return true;
+    if (FIXED_WIDTH.test(element.style.fontFamily) && (element.textContent ?? '').length >= all * 0.8) return true;
+  }
+  return false;
 }
 
 /**

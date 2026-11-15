@@ -1,3 +1,4 @@
+import { redo } from '@codemirror/commands';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import {
   ChangeSet,
@@ -495,6 +496,8 @@ const docKeymap = [
   { key: 'Mod-Shift-8', run: toggleList('bullet') },
   { key: 'Mod-Shift-9', run: toggleList('task') },
   { key: 'Mod-k', run: editLink },
+  // Redo on Cmd+Y too, as a word processor has it beside Shift+Cmd+Z.
+  { key: 'Mod-y', run: redo, preventDefault: true },
   // Markdown has no underline, so the key does nothing rather than undo the selection, its meaning in a code editor.
   { key: 'Mod-u', run: () => true },
   { key: 'Alt-F10', run: focusToolbar },
