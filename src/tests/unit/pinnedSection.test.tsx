@@ -169,7 +169,8 @@ describe('PinnedSection', () => {
     setPins({ [ROOT]: [README, NOTES] });
     const user = userEvent.setup();
     renderSidebar();
-    screen.getByRole('button', { name: 'Recent' }).focus();
+    // Auto is the last row of the nav above the pins.
+    screen.getByRole('button', { name: 'Auto' }).focus();
     await user.tab();
     expect(pinned(README)).toHaveFocus();
     await user.tab();

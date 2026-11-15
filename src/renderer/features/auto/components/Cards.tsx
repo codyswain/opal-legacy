@@ -1,0 +1,176 @@
+import * as React from 'react';
+import { Check } from 'lucide-react';
+import type { AutoQuestion, AutoQuestionPart } from '@/types/auto';
+import { Button } from '@/renderer/shared/ui';
+import { cn } from '@/renderer/shared/utils';
+import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
+import {
+  answerAllow,
+  answerDeny,
+  answerOption,
+  answerPicks,
+  answerTyped,
+  isPicked,
+  isSingle,
+  pick,
+  picksReady,
+  splitQuestion,
+} from '../model/questionModel';
+import type { EntryCard } from '../model/threadModel';
+import { useThreadStore } from '../store/threadStore';
+
+const card = 'rounded-card border border-border-strong p-4';
+const field =
+  'h-control min-w-0 flex-1 rounded-control border border-border-strong bg-canvas px-2 text-ui text-foreground outline-none placeholder:text-icon focus-visible:ring-2 focus-visible:ring-focus';
+
+/** What the service said to an answer it did not take, such as a question that has closed. */
+function CardProblem() {
+  const problem = useThreadStore((state) => state.cardProblem);
+  return problem ? <p role="alert" className="mt-3 text-ui font-medium text-foreground">{problem}</p> : null;
+}
+
+type Ask = Extract<AutoQuestion, { kind: 'ask' }>;
+
+function OptionButton({ question, part, label, description, first }: { question: Ask; part: AutoQuestionPart; label: string; description: string; first: boolean }) {
+  const picks = useThreadStore((state) => state.picks);
+  const single = isSingle(question);
+  const picked = !single && isPicked(picks, part, label);
+  const filled = single && first;
+  return (
+    <button
+      type="button"
+      aria-pressed={single ? undefined : picked}
+      onClick={() => {
+        const { answer, setPicks } = useThreadStore.getState();
+        if (single) void answer(answerOption(question, part, label));
+        else setPicks(pick(picks, part, label));
+      }}
+      className={cn(
+        'flex min-h-control items-center gap-2 rounded-control border px-3 py-1.5 text-left text-ui outline-none transition-hover',
+        'focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 focus-visible:ring-offset-canvas',
+        filled
+          ? 'border-transparent bg-primary text-primary-foreground hover:bg-primary/90'
+          : 'border-border-strong text-foreground hover:bg-surface-hover',
+        picked && 'border-foreground bg-surface-selected'
+      )}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="font-medium">{label}</span>
+        {description ? <span className={cn('block', filled ? 'opacity-70' : 'text-foreground-tertiary')}>{description}</span> : null}
+      </span>
+      {picked ? <Check aria-hidden className="h-3.5 w-3.5 shrink-0" /> : null}
+    </button>
+  );
+}
+
+/**
+ * A question: its first sentence in semibold, the rest in regular weight,
+ * the options as buttons, and a field for his own words.
+ */
+export function QuestionCard({ question }: { question: Ask }) {
+  const picks = useThreadStore((state) => state.picks);
+  const [own, setOwn] = React.useState('');
+  const single = isSingle(question);
+  const { answer } = useThreadStore.getState();
+  return (
+    <div data-testid="auto-question" className={card}>
+      <div className="flex flex-col gap-4">
+        {question.questions.map((part) => {
+          const { ask, rest } = splitQuestion(part.question);
+          const stacked = part.options.some((option) => option.description);
+          return (
+            <div key={part.question}>
+              <p className="text-reply font-semibold text-foreground">{ask}</p>
+              {rest ? <Markdown text={rest} className="mt-2 text-foreground-secondary" /> : null}
+              {part.options.length > 0 ? (
+                <div className={cn('mt-3 flex gap-1.5', stacked ? 'flex-col' : 'flex-wrap')}>
+                  {part.options.map((option, at) => (
+                    <OptionButton key={option.label} question={question} part={part} label={option.label} description={option.description} first={at === 0} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <form
+        className="mt-3 flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const words = own.trim();
+          if (words) void answer(answerTyped(question, words, picks)).then((took) => took && setOwn(''));
+          else if (!single && picksReady(question, picks)) void answer(answerPicks(question, picks));
+        }}
+      >
+        <input aria-label="Your own answer" placeholder="Something else" value={own} onChange={(event) => setOwn(event.target.value)} className={field} />
+        <Button type="submit" variant={single ? 'outline' : 'default'} disabled={!own.trim() && (single || !picksReady(question, picks))}>
+          Answer
+        </Button>
+      </form>
+      <CardProblem />
+    </div>
+  );
+}
+
+/** A tool that needs his yes: its title, its detail, Allow, and Deny with an optional message. */
+export function PermissionCard({ question }: { question: Extract<AutoQuestion, { kind: 'permission' }> }) {
+  const [message, setMessage] = React.useState('');
+  const { answer } = useThreadStore.getState();
+  const deny = () => {
+    void answer(answerDeny(question, message));
+  };
+  return (
+    <div data-testid="auto-permission" className={card}>
+      <p className="text-reply font-semibold text-foreground">{question.title || question.tool || 'Allow this?'}</p>
+      {question.detail ? (
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-row bg-surface-sunken px-3 py-2 font-mono text-control text-foreground">{question.detail}</pre>
+      ) : null}
+      {question.reason ? <p className="mt-2 text-ui text-foreground-secondary">{question.reason}</p> : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button onClick={() => void answer(answerAllow(question))}>Allow</Button>
+        <Button variant="outline" onClick={deny}>Deny</Button>
+        <input
+          aria-label="Message with the denial"
+          placeholder="Say why (optional)"
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && message.trim()) deny();
+          }}
+          className={cn(field, 'min-w-40')}
+        />
+      </div>
+      <CardProblem />
+    </div>
+  );
+}
+
+const fileName = (path: string): string => (path.split('/').pop() ?? path).replace(/\.(md|mdo)$/i, '');
+
+/** A digest entry: where it came from, its words, and the file it was taken from. */
+export function EntryCardView({ entry, title }: { entry: EntryCard; title: string | null }) {
+  const { openVault } = React.useContext(MarkdownLinksContext);
+  // The thread is named after its entry, so the title shows only when they differ.
+  const named = title !== null && entry.title.toLowerCase().startsWith(title.trim().toLowerCase().replace(/…$/, ''));
+  const from = entry.from;
+  return (
+    <div data-testid="auto-entry" className="rounded-card border border-border-subtle bg-surface-sunken p-4">
+      <p className="text-metadata text-foreground-tertiary">Digest, {entry.source}</p>
+      {named ? null : <p className="mt-1 text-reply font-semibold text-foreground">{entry.title}</p>}
+      {entry.body ? <Markdown text={entry.body} className="mt-2 text-foreground" /> : null}
+      {from ? (
+        <p className="mt-3 text-control text-foreground-tertiary">
+          From{' '}
+          <button
+            type="button"
+            title={from}
+            onClick={(event) => openVault(from, event.metaKey || event.ctrlKey)}
+            className="rounded-sm underline decoration-foreground-tertiary/50 underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus"
+          >
+            {fileName(from)}
+          </button>
+        </p>
+      ) : null}
+    </div>
+  );
+}

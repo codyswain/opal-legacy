@@ -68,6 +68,15 @@
     --frame-icon-size: 1rem;
     --frame-icon-stroke: 2;
 
+    /*
+     * Auto, the tab for the agent service: the width of its list column, and
+     * the size of a message's text. Replies are read like a page, so their
+     * size is the same in both looks, as the page's body is.
+     */
+    --auto-list-width: 18.75rem;
+    --text-reply-size: 0.9375rem;
+    --text-reply-line: 1.5rem;
+
     /* Page headings, in em of the page's 16px body. */
     --heading-title: 1.8em;
     --heading-1: 1.8em;

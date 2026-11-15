@@ -118,6 +118,11 @@ module.exports = {
           "var(--text-heading-size)",
           { lineHeight: "var(--text-heading-line)" },
         ],
+        // A message in Auto: the interface typeface at reading size.
+        reply: [
+          "var(--text-reply-size)",
+          { lineHeight: "var(--text-reply-line)" },
+        ],
       },
       // Inter's variable axis: 510 and 590 are Linear's medium and semibold.
       fontWeight: {
@@ -151,6 +156,7 @@ module.exports = {
         "control-compact": "var(--control-height-compact)",
         control: "var(--control-height)",
         sidebar: "var(--sidebar-width)",
+        "auto-list": "var(--auto-list-width)",
       },
       spacing: {
         page: "var(--page-inset)",
@@ -166,6 +172,7 @@ module.exports = {
       },
       minHeight: {
         "sidebar-group-label": "var(--sidebar-group-label-height)",
+        control: "var(--control-height)",
       },
       // Tailwind's default ring is blue; ours is the neutral focus token.
       ringColor: {

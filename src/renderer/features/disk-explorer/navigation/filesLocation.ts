@@ -9,12 +9,21 @@ import type { StackKind } from '@/types/stack';
 
 export const FILES_ROUTE_PATH = '/files';
 
-/** Recent is the one list a tab can browse; folders browse in the sidebar tree. */
+/**
+ * What a tab can show that is no file: Recent, and Auto, the screen for the
+ * agent service. Folders browse in the sidebar tree.
+ */
 export interface FilesCollection {
-  kind: 'recent';
+  kind: 'recent' | 'auto';
 }
 
 export const RECENT_COLLECTION: FilesCollection = { kind: 'recent' };
+export const AUTO_COLLECTION: FilesCollection = { kind: 'auto' };
+
+/** The collection of a stored or written kind, or null for one Opal does not know. */
+export function collectionOf(kind: unknown): FilesCollection | null {
+  return kind === 'recent' ? RECENT_COLLECTION : kind === 'auto' ? AUTO_COLLECTION : null;
+}
 
 export interface FilesBrowseLocation {
   mode: 'browse';
@@ -43,7 +52,7 @@ export interface FilesNavigationIntent {
   location: FilesLocation;
 }
 
-/** The file a place shows: a stack's head, or null for Recent. */
+/** The file a place shows: a stack's head, or null for Recent and Auto. */
 export function locationPath(location: FilesLocation): string | null {
   return location.mode === 'browse' ? null : location.file;
 }
@@ -54,9 +63,8 @@ export function normalizeFilesLocation(
 ): FilesLocation | null {
   if (!candidate || roots.length === 0) return null;
   if (candidate.mode === 'browse') {
-    return candidate.collection.kind === 'recent'
-      ? { mode: 'browse', collection: RECENT_COLLECTION }
-      : null;
+    const collection = collectionOf(candidate.collection.kind);
+    return collection ? { mode: 'browse', collection } : null;
   }
   const file = normalizeFsPath(candidate.file);
   if (!isAbsoluteFsPath(file) || !roots.some((root) => isFsPathAtOrBelow(root, file))) {
@@ -77,9 +85,8 @@ export function parseFilesLocation(
   );
   const mode = params.get('mode');
   if (mode === 'browse') {
-    return params.get('collection') === 'recent'
-      ? normalizeFilesLocation({ mode, collection: RECENT_COLLECTION }, roots)
-      : null;
+    const collection = collectionOf(params.get('collection'));
+    return collection ? normalizeFilesLocation({ mode, collection }, roots) : null;
   }
   const file = params.get('file');
   if (!file) return null;
@@ -117,6 +124,14 @@ export function browseRecent(): FilesNavigationIntent {
   return { location: { mode: 'browse', collection: RECENT_COLLECTION } };
 }
 
+export function browseAuto(): FilesNavigationIntent {
+  return { location: { mode: 'browse', collection: AUTO_COLLECTION } };
+}
+
+export function isAutoLocation(location: FilesLocation | null): boolean {
+  return location?.mode === 'browse' && location.collection.kind === 'auto';
+}
+
 /** A file shown in a tab. */
 export function fileLocation(file: string): FilesFocusLocation {
   return { mode: 'focus', file: normalizeFsPath(file) };
@@ -136,7 +151,7 @@ export function aloneLocation(file: string): FilesFocusLocation {
   return { mode: 'focus', file: normalizeFsPath(file), alone: true };
 }
 
-/** The place after a rename or move; Recent and files outside it stay as they are. */
+/** The place after a rename or move; Recent, Auto and files outside it stay as they are. */
 export function remapFilesLocation(
   location: FilesLocation,
   oldPath: string,

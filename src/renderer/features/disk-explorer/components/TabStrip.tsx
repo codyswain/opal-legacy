@@ -19,9 +19,10 @@ export const TAB_DRAG_TYPE = 'application/x-opal-tab';
 /** Past this many tabs the row offers a list of all of them, as browsers do. */
 const OVERFLOW_MENU_AT = 8;
 
-/** The file or folder a tab shows, which names it for tests; Recent is `recent`. */
+/** The file or folder a tab shows, which names it for tests; Recent is `recent` and Auto `auto`. */
 function tabKey(tab: Tab): string {
-  return locationPath(tabLocation(tab)) ?? 'recent';
+  const location = tabLocation(tab);
+  return locationPath(location) ?? (location.mode === 'browse' ? location.collection.kind : 'recent');
 }
 
 const openNewTab = () => usePaletteStore.getState().show('', { newTab: true });
