@@ -247,8 +247,11 @@ not exist.
   calls the service's tick or inbox routes. What is put away sits behind
   three quiet lines at the foot of the list, each opened by a click:
   "Waiting on a reply" (a thread whose `wait` is still open; `toWait` in
-  `autoModel.ts` reads it, and its link opens only when it is a web
-  address), "Snoozed", and "Archived", which carries no count and reads
+  `autoModel.ts` reads it: the place is the service's own word, kept as a
+  short line of plain text and never matched to a list; the link opens
+  only when it is a web address, so a chat's id or a text's number never
+  does; and whether the wait is over is the service's `state` alone, never
+  the clock), "Snoozed", and "Archived", which carries no count and reads
   `GET /api/threads?archived=1` when it opens, the newest ten and then all
   (`archive` in `autoStore.ts`); archived digests are listed first there.
   One verb, "Bring back", returns anything from any of them: on its row,

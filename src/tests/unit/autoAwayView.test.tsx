@@ -388,7 +388,7 @@ describe('a thread waiting on a reply', () => {
   });
 
   it('offers the conversation only for a web address', async () => {
-    for (const link of ['whatsapp:120363', 'file:///etc/hosts', 'javascript:alert(1)', '']) {
+    for (const link of ['whatsapp:120363', 'imessage:+15550100', 'file:///etc/hosts', 'javascript:alert(1)', '']) {
       const view = await open({ threads: [BREAD, { ...GLASS, wait: wait({ link, heard: '' }) }] });
       fireEvent.click(screen.getByTestId('auto-waiting-line'));
       await openThread('glass');
@@ -400,6 +400,20 @@ describe('a thread waiting on a reply', () => {
       useAutoStore.setState(useAutoStore.getInitialState(), true);
       forgetViews();
     }
+  });
+
+  it('names the place in the service’s own word, a text in Messages and a place it has never heard of alike', async () => {
+    const text = { ...GLASS, wait: wait({ where: 'Messages', link: 'imessage:+15550100', heard: '' }) };
+    const pigeon = { ...BREAD, snoozed: at(11, 18, 17), snoozedAt: at(11, 14, 10), wait: wait({ on: 'Robin', what: 'the seed list', where: 'Pigeon post', link: '', heard: '' }) };
+    await open({ threads: [SEEDS, text, pigeon] });
+    fireEvent.click(screen.getByTestId('auto-waiting-line'));
+    expect(within(row('glass')).getByTestId('auto-wait-detail').textContent).toBe('The quote for the glass. In Messages.');
+    expect(within(row('bread')).getByTestId('auto-wait-detail').textContent).toBe('The seed list. In Pigeon post.');
+    // A text's number is not a web address: nothing offers to open it.
+    await openThread('glass');
+    expect(screen.getByTestId('auto-away-detail').textContent).toBe('The quote for the glass. In Messages.');
+    expect(screen.getByTestId('auto-away').querySelector('a')).toBeNull();
+    expect(screen.getByTestId('auto-thread').textContent).not.toContain('+15550100');
   });
 
   it('says Finding the conversation, and when it gives up, while Auto is still naming it', async () => {

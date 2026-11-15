@@ -35,9 +35,9 @@ export interface AutoWait {
   on: string;
   /** For what. */
   what: string;
-  /** `Slack`, `Gmail`, `WhatsApp`, or ''. */
+  /** Where the conversation is, in the service's own word (`Slack`, `Gmail`, `WhatsApp`, `Messages`, or one named later); '' when it names none. */
   where: string;
-  /** The conversation. Opened only when it starts with `http`. */
+  /** The conversation. Opened only when it starts with `http`: a chat's id or a text's number (`whatsapp:…`, `imessage:…`) never is. */
   link: string;
   /** Which reply ends the wait. */
   check: string;

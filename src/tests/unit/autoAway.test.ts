@@ -127,6 +127,9 @@ describe('a thread put away until a reply', () => {
     expect(awayDetail(waiting, NOW)).toBe('A reply about the glass. In Gmail.');
     expect(awayDetail({ ...waiting, wait: wait({ where: '' }) }, NOW)).toBe('A reply about the glass.');
     expect(awayDetail({ ...waiting, wait: wait({ what: 'A reply about the glass.', where: 'Slack' }) }, NOW)).toBe('A reply about the glass. In Slack.');
+    // A text, and a place this app has no name for: the service's own word.
+    expect(awayDetail({ ...waiting, wait: wait({ where: 'Messages', link: 'imessage:+15550100' }) }, NOW)).toBe('A reply about the glass. In Messages.');
+    expect(awayDetail({ ...waiting, wait: wait({ where: 'Pigeon post' }) }, NOW)).toBe('A reply about the glass. In Pigeon post.');
     expect(awayDetail({ ...waiting, wait: wait({ what: '', where: '' }) }, NOW)).toBe('');
     expect(awayDetail(finding, NOW)).toBe('Gives up Tue 5:00 pm.');
     expect(givesUp(waiting, NOW)).toBe('Gives up Tue 5:00 pm');
@@ -150,10 +153,21 @@ describe('a thread put away until a reply', () => {
     expect(waitBack(wait({ state: 'finding' }))).toBeNull();
   });
 
+  it('is not called over from the clock: past its time it still waits until the service says otherwise', () => {
+    // The service can leave a wait `watching` for a few seconds after `expires` has passed.
+    const late = { ...waiting, snoozed: NOW / 1000 - 5, wait: wait({ expires: NOW / 1000 - 5 }) };
+    expect(isWaitingOnReply(late)).toBe(true);
+    expect(waitBack(late.wait as AutoWait)).toBeNull();
+    expect(waitLine(late, NOW)).toBe('Waiting on Sam until 3:09 pm');
+    expect(ids(listView([late]).waiting)).toEqual(['a']);
+    expect(listView([late]).groups).toEqual([]);
+    expect(rowLine(late).kind).toBe('plain');
+  });
+
   it('opens the conversation only for a web address', () => {
     expect(waitUrl(wait())).toBe('https://mail.example/t/1');
     expect(waitUrl(wait({ link: 'http://chat.example/c/1' }))).toBe('http://chat.example/c/1');
-    for (const link of ['', 'whatsapp:1203', 'file:///etc/hosts', 'javascript:alert(1)', 'mailto:sam@example.org', ' https://mail.example', 'https://', 'httpx://mail.example', '//mail.example/t/1']) {
+    for (const link of ['', 'whatsapp:1203', 'imessage:+15550100', 'imessage:sam@example.org', 'file:///etc/hosts', 'javascript:alert(1)', 'mailto:sam@example.org', ' https://mail.example', 'https://', 'httpx://mail.example', '//mail.example/t/1']) {
       expect(waitUrl(wait({ link })), link).toBeNull();
     }
     expect(waitUrl(null)).toBeNull();

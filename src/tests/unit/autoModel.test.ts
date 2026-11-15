@@ -67,8 +67,16 @@ describe("reading the service's answers", () => {
     });
     expect(toThread({ ...ENTRY, snoozed: 1794963600, wait })?.wait?.on).toBe('Sam');
     for (const state of ['finding', 'watching', 'met', 'expired']) expect(toWait({ ...wait, state })?.state).toBe(state);
-    // A state this app does not know is read as still watched; a place it does not know is none.
-    expect(toWait({ ...wait, state: 'paused', where: 'Pigeon post' })).toMatchObject({ state: 'watching', where: '' });
+    // A state this app does not know is read as still watched.
+    expect(toWait({ ...wait, state: 'paused' })).toMatchObject({ state: 'watching' });
+    // The place is the service's own word, whatever it is: a text, and a place this app has never heard of.
+    expect(toWait({ ...wait, where: 'Messages', link: 'imessage:+15550100' })).toMatchObject({ where: 'Messages', link: 'imessage:+15550100' });
+    expect(toWait({ ...wait, where: 'Pigeon post' })?.where).toBe('Pigeon post');
+    // One short line of plain text: trimmed, on one line, cut at 40 characters, and nothing that is not text.
+    expect(toWait({ ...wait, where: '  Pigeon\n post  ' })?.where).toBe('Pigeon post');
+    expect(toWait({ ...wait, where: 'p'.repeat(90) })?.where).toBe('p'.repeat(40));
+    expect(toWait({ ...wait, where: `${'p'.repeat(39)} post` })?.where).toBe('p'.repeat(39));
+    for (const other of [7, null, undefined, ['Slack'], { name: 'Slack' }, '   ']) expect(toWait({ ...wait, where: other })?.where).toBe('');
     // Words from outside are cut to a length, and anything that is not text is left out.
     expect(toWait({ say: 'x'.repeat(5_000), on: 'y'.repeat(500), what: 7, link: ['x'], heard: { text: 'no' }, reply: 'z'.repeat(9_000), since: 'now', expires: -1 })).toEqual({
       say: 'x'.repeat(2_000), state: 'watching', on: 'y'.repeat(80), what: '', where: '', link: '', check: '', since: null, expires: null, heard: '', reply: 'z'.repeat(2_000),

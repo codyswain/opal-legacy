@@ -812,7 +812,8 @@ export async function startStandIn(options = {}) {
    * The turn in which Auto names the conversation a thread waits on. His
    * words show as his message. The thread is snoozed from the start and
    * stays so. Words that name nobody ("someone") make Auto ask, which
-   * brings the thread back with its question until he answers.
+   * brings the thread back with its question until he answers. Words that
+   * speak of a text make it a wait in Messages.
    */
   function find(thread) {
     const began = thread.wait.since;
@@ -832,10 +833,14 @@ export async function startStandIn(options = {}) {
         await ctx.say('You brought this thread back, so there is nothing to wait for now.');
         return [];
       }
-      Object.assign(thread.wait, { state: 'watching', on, what: 'an answer about the seed swap', where: 'Slack', link: 'https://chat.example/archives/C0SEEDS/p1794700000123456', check: `Any reply from ${on}`, checked: now() });
+      // A wait on a text is watched in Messages, and its link is the number, which no client opens.
+      const byText = /\btexts?\b/i.test(thread.wait.say);
+      const where = byText ? 'Messages' : 'Slack';
+      const link = byText ? 'imessage:+15550100' : 'https://chat.example/archives/C0SEEDS/p1794700000123456';
+      Object.assign(thread.wait, { state: 'watching', on, what: 'an answer about the seed swap', where, link, check: `Any reply from ${on}`, checked: now() });
       Object.assign(thread, { snoozed: thread.wait.expires, snoozed_at: thread.snoozed_at ?? now(), woke: null });
       changed(thread);
-      await ctx.say(`Waiting on ${on} in Slack. The wait gives up ${clock(thread.wait.expires)}.`);
+      await ctx.say(`Waiting on ${on} in ${where}. The wait gives up ${clock(thread.wait.expires)}.`);
       return [];
     });
   }
@@ -853,9 +858,11 @@ export async function startStandIn(options = {}) {
     startTurn(thread, { role: 'note', text: note }, async (ctx) => {
       ctx.activity('Reading the conversation');
       await ctx.wait(pace * 2);
+      // The conversation is linked only when it has a web address: a text's number stays out of the thread.
+      const place = /^https?:/.test(wait.link) ? `[the conversation](${wait.link})` : wait.where || 'the conversation';
       await ctx.say(outcome === 'met'
-        ? `${who} replied in [the conversation](${wait.link}): ${line.includes(': ') ? line.split(': ').slice(1).join(': ') : line}`
-        : `Nobody has replied in [the conversation](${wait.link}) yet.`);
+        ? `${who} replied in ${place}: ${line.includes(': ') ? line.split(': ').slice(1).join(': ') : line}`
+        : `Nobody has replied in ${place} yet.`);
       return [];
     }, { own: true });
   }

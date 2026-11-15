@@ -106,7 +106,14 @@ function toAsk(value: unknown): AutoAsk | null {
 }
 
 const WAIT_STATES: readonly AutoWaitState[] = ['finding', 'watching', 'met', 'expired'];
-const WAIT_PLACES = ['Slack', 'Gmail', 'WhatsApp'];
+/**
+ * The longest name of the place a wait watches. The service names it in its
+ * own word ("Slack", "Gmail", "WhatsApp", "Messages") and may name others:
+ * it is read as one short line of plain text, never from a fixed list.
+ */
+const WAIT_PLACE_LIMIT = 40;
+const place = (value: unknown): string =>
+  typeof value === 'string' ? value.split(/\s+/).filter(Boolean).join(' ').slice(0, WAIT_PLACE_LIMIT).trim() : '';
 /** The longest of his own words for a wait the service takes. */
 export const WAIT_SAY_LIMIT = 2_000;
 
@@ -114,7 +121,10 @@ export const WAIT_SAY_LIMIT = 2_000;
  * What a thread waits on, or null. Every line in it comes from the service
  * or, through it, from someone else's message: each is cut to a length and
  * shown as plain text. The link is kept as text; the page opens it only
- * when it starts with `http`.
+ * when it starts with `http`, so a chat's id or a text's number
+ * (`whatsapp:…`, `imessage:…`) is never opened. Whether a wait is over is
+ * the service's word alone (`state`): one can stay `watching` for a few
+ * seconds after `expires` has passed, and nothing here reads the clock.
  */
 export function toWait(value: unknown): AutoWait | null {
   const wait = fields(value);
@@ -125,7 +135,7 @@ export function toWait(value: unknown): AutoWait | null {
     state: WAIT_STATES.find((name) => name === wait.state) ?? 'watching',
     on: text(wait.on, 80),
     what: text(wait.what, 200),
-    where: WAIT_PLACES.find((name) => name === wait.where) ?? '',
+    where: place(wait.where),
     link: text(wait.link, 500),
     check: text(wait.check, 600),
     since: time(wait.since),

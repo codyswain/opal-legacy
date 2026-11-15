@@ -890,14 +890,17 @@ async function tour() {
     await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
 
     // --- A new thread.
+    /** The row of the pane that is open: a thread's id, or the name of New thread or Digest. */
+    const openRow = () => page.evaluate(() => document.querySelector('[data-testid="auto-list"] [aria-current]')?.getAttribute('data-row-id') ?? '');
     await page.getByTestId('auto-new-thread').click();
-    check('New thread opens an empty thread with the box focused', await until(() => page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'auto-box')) && ((await talk.textContent()) ?? '') === '');
+    check('New thread opens an empty thread with the box focused', await until(async () => (await openRow()) === ':new' && (await focused()) === 'auto-box') && ((await talk.textContent()) ?? '') === '', `${await openRow()} ${await focused()}`);
     await shot(11, 'new-thread');
+    check('the empty thread is still the one open when he comes to type', (await openRow()) === ':new', await openRow());
     await say('Plan the herb bed by the back door');
     check('the first message starts a thread, at the top of his order and open', await until(async () => {
       const [top] = service.entries();
       return top.title.startsWith('Plan the herb bed') && (await groupIds('rest'))[0] === top.id && (await row(top.id).locator('[aria-current]').count()) === 1;
-    }));
+    }), `${service.entries()[0]?.title} | open ${await openRow()}`);
     check('its reply streams in', await until(async () => ((await talk.textContent()) ?? '').includes('Beans and peas go in bed 2')));
 
     // --- Done, undone: the entry it resolved is open again.
@@ -1731,7 +1734,10 @@ async function tour() {
       const first = document.querySelector('[data-testid="auto-list-rows"] [data-auto-row]')?.getBoundingClientRect();
       return !!top && !!digest && !!first && [digest, first].every((box) => Math.abs(box.left - top.left) < 1 && Math.abs(box.right - top.right) < 1);
     });
-    check('the list is taller than its pane, with no hairline before it is scrolled', (await listRows.evaluate((element) => element.scrollHeight - element.clientHeight)) > 60 && !(await pinnedLine()));
+    // The keyboard's walk through the list may have scrolled it: it starts from its top.
+    await listRows.evaluate((element) => { element.scrollTop = 0; });
+    await wait(200);
+    check('the list is taller than its pane, with no hairline before it is scrolled', (await listRows.evaluate((element) => element.scrollHeight - element.clientHeight)) > 60 && !(await pinnedLine()), String(await listRows.evaluate((element) => element.scrollTop)));
     await listRows.evaluate((element) => { element.scrollTop = 60; });
     check('scrolled, a hairline parts New thread and Digest from the row that passes under them', await until(pinnedLine, 2_000));
     check('the scrolling rows are as wide as New thread and Digest', await sameWidth());

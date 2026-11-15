@@ -585,6 +585,23 @@ describe('what is put away', () => {
     expect(listed(TRELLIS).at(-1)).toMatchObject({ snoozed: until_, wait: { on: 'Sam', expires: until_ } });
   });
 
+  it('reads a wait on a text: the place is Messages, and its link is a number that is no web address', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    await auto.request({ kind: 'snooze', id: TRELLIS, until: tomorrow(), wait: { say: 'a text from Robin' } });
+    await until(() => listed(TRELLIS).at(-1)?.wait?.state === 'watching', 'the wait to be watched');
+    expect(listed(TRELLIS).at(-1)?.wait).toMatchObject({ on: 'Robin', where: 'Messages', link: 'imessage:+15550100' });
+    await until(() => standIn.thread(TRELLIS)?.status === 'idle' && !standIn.thread(TRELLIS)?.live, 'the turn to end');
+    standIn.reply(TRELLIS, 'Robin: Saturday at ten.');
+    await until(() => listed(TRELLIS).at(-1)?.wait?.state === 'met' && standIn.thread(TRELLIS)?.status === 'idle' && !standIn.thread(TRELLIS)?.live, 'the reply');
+    const snapshot = await auto.request({ kind: 'thread', id: TRELLIS });
+    const items = snapshot.success ? (snapshot.data as AutoSnapshot).items : [];
+    // The number is in the wait's link and in nothing Auto says.
+    expect(JSON.stringify(items)).not.toContain('+15550100');
+    expect(items.at(-1)).toMatchObject({ role: 'assistant', text: 'Robin replied in Messages: Saturday at ten.' });
+  });
+
   it('gives a wait with no time of his own the service’s: two working days on at 5 pm', async () => {
     const auto = await connected();
     const put = await auto.request({ kind: 'snooze', id: TRELLIS, until: null, wait: { say: 'Robin' } });
