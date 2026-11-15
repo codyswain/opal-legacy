@@ -15,6 +15,7 @@ import { guardedLineMoves } from './firstLine';
 import { codeBlocks } from './codeBlocks';
 import { docModeExtensions } from './docMode';
 import { indentInQuote, toggleMarker } from './formatCommands';
+import { keepsRows } from './listEdges';
 import { nestListItems, withTaskBox } from './listKeys';
 import { listNumbers, prefixEnd } from './listNumbers';
 import { fileObjects } from './fileWidgets';
@@ -98,12 +99,15 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
   const changes: ChangeSpec[] = [];
   const carets = new Map<number, { line: number; offset: number }>();
   const moved = new Map<number, number>();
+  // Enter on an empty item ended its list: the item's row becomes an empty line's, and no other row changes (listEdges.ts).
+  let ended = false;
   newSelection.ranges.forEach((_range, index) => {
     const start = startState.doc.lineAt(startState.selection.ranges[index].head);
     if (!ITEM_LINE.test(start.text)) return;
     // The line the item was on, not the caret's: a document may already have moved the caret off a line it gives no room.
     const line = newDoc.lineAt(tr.changes.mapPos(start.from, 1));
     if (hasText(line)) return;
+    ended = true;
     const above = line.number > 1 && hasText(newDoc.line(line.number - 1));
     if (!above) return;
     const next = line.number < newDoc.lines ? newDoc.line(line.number + 1) : null;
@@ -121,7 +125,7 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
     changes.push({ from: line.from, to: line.to, insert: `${blank}\n${line.text}${below ? `\n${blank}` : ''}` });
     carets.set(index, { line: line.from, offset: blank.length + 1 + line.length });
   });
-  if (changes.length === 0 && moved.size === 0) return tr;
+  if (changes.length === 0 && moved.size === 0 && !(ended && startState.facet(docMode))) return tr;
   const extra = ChangeSet.of(changes, newDoc.length);
   const ranges = newSelection.ranges.map((range, index) => {
     const at = moved.get(index);
@@ -132,6 +136,7 @@ function blankLinesAroundEnd(tr: Transaction): Transaction {
   return startState.update({
     changes: tr.changes.compose(extra),
     selection: EditorSelection.create(ranges, newSelection.mainIndex),
+    annotations: ended ? keepsRows.of(true) : undefined,
     scrollIntoView: true,
     userEvent: 'input',
   });

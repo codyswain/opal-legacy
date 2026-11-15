@@ -9,7 +9,7 @@ import { normalizeFsPath, parentFsPath } from '@/common/fsPaths';
 import { toOpalFileUrl } from '@/common/opalFileUrl';
 import { activityLogSection } from './activityLog';
 import { followLink } from './linkSchemes';
-import { listGaps } from './listEdges';
+import { lineKind, listGaps } from './listEdges';
 import { levelNumeral } from './listNumbers';
 import { mathSpan } from './math';
 import { blockRenderers, nodeDecorators, type DecorateContext, type Reveal, type TextRange } from './extensionPoints';
@@ -810,6 +810,9 @@ function lineDecorations(state: EditorState, top: number, bottom: number, units?
   for (const [number, { indent, quoted }] of continued) {
     const line = doc.line(number);
     if (markerLines.has(number) || !line.text.trim() || covered(line.from)) continue;
+    // A marker still being typed at the margin under a list, "1.", "[" or "[x] ", is not yet more of the item above
+    // it: a document draws it where it is typed, as the paragraph or the item it is about to be.
+    if (state.facet(docMode) && !quoted && !/^[ \t]/.test(line.text) && (lineKind(line.text) === 'pending' || /^(?:\d{1,9}[.)]|\[[ xX]?\]) $/.test(line.text))) continue;
     lineClass(line.from, 'cm-md-list-cont', `--list-indent: ${indent}em`);
     const start = line.from + (quoted ? quotePrefix(line.text) : 0);
     const textFrom = skipSpaces(doc, start, line.to);

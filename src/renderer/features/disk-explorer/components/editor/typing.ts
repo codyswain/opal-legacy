@@ -5,7 +5,7 @@ import { EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/vie
 import type { SyntaxNode } from '@lezer/common';
 import { latestTree, nodeDecorators, protectedIn } from './extensionPoints';
 import { inlineSpans, typingStyle } from './formatCommands';
-import { withListEdges } from './listEdges';
+import { itemKind, siblingKind, withListEdges } from './listEdges';
 import { withListNumbers } from './listNumbers';
 import { docMode, hiddenRanges } from './livePreview';
 import { OBJECT as OBJECT_CHARACTER, visibleLine, visibleOffset, visibleSlice } from './visibleText';
@@ -192,20 +192,23 @@ function inTable(node: SyntaxNode): boolean {
 }
 
 /**
- * The blank line over a list item typed on `line`, when the line above that
- * blank line is a list item too: that one blank line is the gap the page
- * gives no room, so an item typed right after a list was ended carries the
- * list on, and the gap goes rather than show as a row between its items.
+ * The blank line over a list item typed on `line`, when a list of the same
+ * kind ends right above that blank line: that one blank line is the gap the
+ * page gives no room, so an item typed right after a list was ended carries
+ * the list on, and the gap goes rather than show as a row between its items.
+ * Under a list of another kind, a number under bullets, the blank line
+ * stays: the two are two lists, an empty item cannot follow another list's
+ * text without it, and the page gives it no room either (listEdges.ts).
  * With two blank lines there, the second is a row the person made, and the
- * item starts under it. Null when there is none.
+ * item starts under it. Null when there is none to take out.
  */
-function gapOver(state: EditorState, line: { number: number; from: number; text: string }): { from: number; to: number } | null {
+function gapOver(state: EditorState, line: { number: number; from: number; text: string }, typed = itemKind(line.text)): { from: number; to: number } | null {
   if (line.number < 3) return null;
   const gap = state.doc.line(line.number - 1);
-  const above = state.doc.line(line.number - 2);
   const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line.text)?.[0] ?? '';
-  if (/[^\s>]/.test(gap.text) || !/^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(above.text.slice(quote.length))) return null;
-  return { from: gap.from, to: line.from };
+  if (/[^\s>]/.test(gap.text) || !typed) return null;
+  const beside = siblingKind(state.doc, line.number - 2, typed.indent, quote.split('>').length - 1);
+  return beside === typed.kind ? { from: gap.from, to: line.from } : null;
 }
 
 /** Typed text that finishes a shortcut is written, then formatted, in two dispatches straight away. */
@@ -313,6 +316,23 @@ const provisional = StateField.define<{ number: number | null; blank: { from: nu
   },
 });
 
+/**
+ * Deleting the last of what was typed under a blank line written for it
+ * takes that blank line too: Backspace over a bullet just typed under a
+ * paragraph leaves the empty line the bullet was typed on, not two.
+ */
+const blankGoesWithItsLine = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !tr.isUserEvent('delete')) return tr;
+  const blank = tr.startState.field(provisional, false)?.blank;
+  if (!blank || !/[^\s>]/.test(tr.startState.doc.lineAt(blank.to).text)) return tr;
+  const from = tr.changes.mapPos(blank.from, 1, MapMode.TrackDel);
+  const to = tr.changes.mapPos(blank.to, -1, MapMode.TrackDel);
+  if (from === null || to === null || to - from !== blank.to - blank.from) return tr;
+  const line = tr.newDoc.lineAt(to);
+  if (line.from !== to || /[^\s>]/.test(line.text)) return tr;
+  return [tr, { changes: { from, to }, sequential: true }];
+});
+
 // A line that is a rule or a heading's underline.
 const RULE_LINE = /^(?:-+|=+)[ \t]*$/;
 // What comes before a line's own text when it carries on a quote or a list item: quote marks and the indent.
@@ -395,7 +415,9 @@ function escapeTyped(tr: Transaction): TransactionSpec | null {
   if (text === ' ' && /^\[ ?\]$/.test(lead) && !/\S/.test(after.sliceDoc(at + 1, line.to)) && QUOTE_ONLY.test(prefix)) {
     const from = line.from + prefix.length;
     const gap = gapUnder(after, line);
-    return { effects: formatAfter.of([{ from, to: at + 1, insert: '- [ ] ' }, ...(gap ? [{ from: gap.at, to: gap.at, insert: gap.insert }] : [])]), sequential: true };
+    // A box typed right after a bulleted list was ended carries that list on, as a typed bullet does.
+    const over = gapOver(after, line, { indent: 0, kind: '-' });
+    return { effects: formatAfter.of([...(over ? [{ from: over.from, to: over.to }] : []), { from, to: at + 1, insert: '- [ ] ' }, ...(gap ? [{ from: gap.at, to: gap.at, insert: gap.insert }] : [])]), sequential: true };
   }
 
   // A space that turns "#", "-", "1." or "[ ]" at the line's text start into formatting is an autoformat.
@@ -888,5 +910,5 @@ function compositionHooks(replace: (state: EditorState, from: number, to: number
 
 /** Doc mode's typing: the session's typed marks, the escapes, Enter in formatting, hidden hard breaks and input methods. */
 export function typingExtension(replace: (state: EditorState, from: number, to: number, insert: string) => { changes: ChangeSpec[] }): Extension {
-  return [typedMarks, provisional, justFormatted, typeThenFormat, applyFormatting, Prec.high(undoFormatting), Prec.high(typingFilter), hardBreaks, compositionHooks(replace)];
+  return [typedMarks, provisional, blankGoesWithItsLine, justFormatted, typeThenFormat, applyFormatting, Prec.high(undoFormatting), Prec.high(typingFilter), hardBreaks, compositionHooks(replace)];
 }

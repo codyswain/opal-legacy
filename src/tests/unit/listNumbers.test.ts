@@ -379,12 +379,13 @@ describe('what the fresh review found', () => {
     view.dispatch({ selection: { anchor: view.state.doc.toString().indexOf('After') }, userEvent: 'select' });
     press(view, 'ArrowLeft');
     expect(marked(view)).toBe('Intro\n\n- one\n- two‸\n\nAfter\n');
-    // A second blank line is a row the person made, and the blank lines between a list's own items show.
+    // A second blank line is a row the person made. The blank line between a list's own items, or over an item's
+    // later paragraph, gets no room either.
     expect(mount('- one\n\n\nAfter‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
-    expect(mount('- one\n\n- two‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
-    // Nor a blank line inside code, or between an item and its own later paragraph.
+    expect(mount('- one\n\n- two‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+    expect(mount('- one\n\n  more‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(1);
+    // A blank line inside code is the code's own.
     expect(mount('```\n- a\n\nb\n```\n‸').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
-    expect(mount('- one\n\n  more‸\n').contentDOM.querySelectorAll('.cm-md-gap-hidden')).toHaveLength(0);
   });
 
   it('writes a blank line where an edit leaves a list touching text, and leaves lines that already touched', () => {
