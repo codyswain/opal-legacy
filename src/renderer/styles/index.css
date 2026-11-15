@@ -69,11 +69,10 @@
     --frame-icon-stroke: 2;
 
     /*
-     * Auto, the tab for the agent service: the width of its list column, and
-     * the size of a message's text. Replies are read like a page, so their
-     * size is the same in both looks, as the page's body is.
+     * Auto, the tab for the agent service: the size of a message's text.
+     * Replies are read like a page, so their size is the same in both
+     * looks, as the page's body is.
      */
-    --auto-list-width: 18.75rem;
     --text-reply-size: 0.9375rem;
     --text-reply-line: 1.5rem;
 
@@ -214,8 +213,6 @@
    * attribute.
    */
   :root[data-roomy] {
-    /* Auto's list, wider with its larger text, so a row that takes one line in today's look still takes one. */
-    --auto-list-width: 20.5rem;
     --text-metadata-size: 0.75rem;
     --text-metadata-line: 1rem;
     --text-control-size: 0.8125rem;

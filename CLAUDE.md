@@ -222,8 +222,18 @@ not exist.
   acceptance runs use `src/tests/fixtures/agent/fake-agent.mjs`; under the
   test profile `OPAL_TEST_AGENT_HOME` and `OPAL_TEST_AGENT_PATH` keep the
   lookup away from a real install
-- **Auto:** a tab (the sidebar's Auto row, under Recent) that is a screen
-  for a service on another machine that runs agent threads. Opal holds no
+- **Auto:** the sidebar's Threads section and one Auto tab, a screen for a
+  service on another machine that runs agent threads. The sidebar is
+  Daily, then two sections that fold (`SidebarFold.tsx`, kept in
+  `shell.layout` as `threadsOpen` and `libraryOpen`): Threads
+  (`ThreadsSection.tsx`: the heading with the count and New thread, the
+  Digest row, the threads, the put-away lines; at most half the sidebar
+  while Library is open) and Library (pinned pages, then the tree); then the
+  Undo line, Update ready and Settings. Recent has no row; the palette's
+  "Go to Recent" opens it. A thread picked in Threads shows in the one Auto
+  tab, or in one opened beside the page (`showInAuto` in
+  `openAutoTab.ts`); the tab has no list of its own and no narrow layout,
+  and is named after what it shows (`useAutoTabName.ts`). Opal holds no
   sign-in and starts no run itself; it reads, answers, starts, stops,
   snoozes (to a time, or until someone replies), reorders, marks, archives
   and brings back threads through the service's HTTP API, and works through
@@ -245,7 +255,8 @@ not exist.
   into a fixed path, with thread ids and cursors checked first; requests
   carry a time limit and a size limit and follow no redirect. Two streams
   (`sseReader.ts`): the list's whenever an address is set, with a tab open
-  or not, so the sidebar counts what needs him (it holds back no ping), and
+  or not, so the sidebar shows the list and counts what needs him (the
+  digest is read and followed the same way) (it holds back no ping), and
   one thread's only while the tab is in view (an open one does), each
   opened again after a wait from its last cursor, and read again from
   scratch on a `reset`. Every answer is read into
@@ -253,10 +264,10 @@ not exist.
   fit. In the renderer, `features/auto`: `listModel.ts` (the list's groups,
   set in one place: "For the Mac" for threads the service says are marked,
   then the ones that wait on him, then the ones new to him (an unread
-  reply, back from snooze), then the rest in his order; the line over the
-  list, "1 needs you, 2 new"; a row's line, with "Your move: …" for a
-  thread the service says is his and "Not started" for one nobody has
-  started; a thread at work says how long it has been working in its time
+  reply, back from snooze), then the rest in his order; a row is one line, with a second
+  (`needsLine`) only when the thread needs him: its question, "Your move: …"
+  for a thread the service says is his, "Not started" for one nobody has
+  started, why it failed, or who replied to a wait; a thread at work says how long it has been working in its time
   slot; and the snooze choices), `awayModel.ts` (the words for what is put
   away, which are the phone's: "Waiting on Sam until Tue 5:00 pm", "Returns
   tomorrow 9:00 am", "Archived Nov 12.", "Sam replied: …", "No reply from
@@ -265,7 +276,7 @@ not exist.
   until the service has it; a failed one returns to the box), `digestModel.ts`
   and `digestStore.ts` (the queue: Left and All, the day shown, and every
   write answered with the day as it is now), `pane.ts` (the one piece of
-  state for what is open beside the list: a thread, a new thread, the queue
+  state for what the Auto tab shows: a thread, a new thread, the queue
   or nothing), and `markdown/` (replies and digest entries parsed with
   `@lezer/markdown` and drawn as elements, never as HTML). The service ends
   the Mac mark and says when a digest changed; Opal only follows. It never
@@ -292,9 +303,9 @@ not exist.
   list."). Undo leaves nothing behind: of a Done it also opens the digest
   entry again, of a snooze it moves the thread back where it sat
   (`heldPlaces` keeps the row there until the move has landed), of an
-  archive it sets the Mac mark again. An option picked on a row is held four
-  seconds before it is posted, so it can be taken back. What an action did
-  is said in one line at the foot of the list (`saidStore.ts`,
+  archive it sets the Mac mark again. A row has no answer buttons: a
+  question is answered in its thread. What an action did
+  is said in one line at the foot of the sidebar, above Update ready (`saidStore.ts`,
   `SaidBar.tsx`), name first, never in the app's corner toast. Undo is on
   offer from the moment the row or entry leaves, for 30 seconds, ten
   actions deep, newest first; a reversal is posted only after the action's
@@ -309,9 +320,11 @@ not exist.
   (`threadStore.ts`, `model/places.ts`) and dropped with the address. The
   list and the queue are each one Tab stop with a roving focus
   (`components/focus.ts`); a row drawn again in another group (a thread
-  that gains a reply, a mark or a question) keeps the keyboard; single keys act only on a focused row or entry,
-  and Cmd+. and Cmd+Z act only while the tab is in front with the keyboard
-  in it. In a field, Cmd+Z is the field's own undo while it holds text and
+  that gains a reply, a mark or a question) keeps the keyboard; single keys act only on a focused row or entry.
+  `useAutoKeys.ts` takes Cmd+Z from a row of Threads, from the Auto tab, or
+  from nowhere with the tab in front, and never from a page's text; Cmd+.
+  stops a turn only with the tab in front. Escape in the box puts the
+  keyboard on the open thread's row. In a field, Cmd+Z is the field's own undo while it holds text and
   takes the last action back when it is empty. While a question waits, the box is its answer field,
   except for words begun before the card arrived (`earlier` in
   `threadStore.ts`): those go as the message they were begun as, and the

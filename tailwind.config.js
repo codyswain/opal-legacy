@@ -156,7 +156,6 @@ module.exports = {
         "control-compact": "var(--control-height-compact)",
         control: "var(--control-height)",
         sidebar: "var(--sidebar-width)",
-        "auto-list": "var(--auto-list-width)",
       },
       spacing: {
         page: "var(--page-inset)",

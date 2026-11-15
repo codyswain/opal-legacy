@@ -229,34 +229,41 @@ invent their own density scale.
 
 ## Auto
 
-The Auto tab sits in the page card as two columns with a hairline between
-them: the list, `w-auto-list`, and the open thread in a `max-w-reading`
-column. Under 720 px of tab width the list hides while a thread is open.
-A pane's header, its scrolling part and what is under it each hold an
+Auto's list is the sidebar's Threads section; the Auto tab shows one
+thing, the open thread, the queue or a new thread, in a `max-w-reading`
+column, with no list of its own and no narrow layout of its own. A
+pane's header, its scrolling part and what is under it each hold an
 `.auto-column` (`auto.css`: `--reading-width` wide, 24 px of padding), so
 the title, the text, the cards and the box share their left and right
 edges at every width.
 
 | CSS token | Tailwind | Value |
 |---|---|---|
-| `--auto-list-width` | `w-auto-list` | 300 px; 328 px in the roomy look, so a row that takes one line still does |
 | `--text-reply-size`, `--text-reply-line` | `text-reply` | 15 / 24 px, in both looks |
 
 A message is in the interface typeface at `text-reply`. Replies draw
 Markdown with the look pages have (`features/auto/auto.css`): the same link
 underline, inline code, quote rule, table and code block, in em of the
 reply's size. His own messages are `bg-surface-active` blocks at the right.
-What Auto did is `text-control` in `text-foreground-tertiary`. List rows are
-`rounded-row` with the neutral hover and selected fills; a row's actions
-take its time's place on hover, and that place is kept as wide as the
-actions, so the title is cut at the same point either way. The line over
-the list ("1 needs you, 2 new") is `text-metadata` in
-`text-foreground-tertiary`. A row's "Your move: …" and "Not started" are in
-`text-foreground`, as words and never as a button. New thread and Digest
-stay above the scrolling rows, which keep the scrollbar's 10 px
-(`.auto-list-rows`, `.auto-beside-list`) so both are one width; a
-`border-border-subtle` hairline shows under the pinned rows once the list
-has scrolled. Cards (a question, a permission request, a send to allow)
+What Auto did is `text-control` in `text-foreground-tertiary`. Thread rows
+are sidebar rows: `h-row-compact` at least, `rounded-sidebar-row`, the
+sidebar's label weights and `bg-sidebar-selected` for the open thread, as a
+page's row has. The first line is an icon-wide slot for the unread dot, the
+title in `text-ui` (`font-semibold` when the thread needs him), and the
+time in `text-metadata` `tabular-nums`; the second line, only when the
+thread needs him, is `text-control` and lines up under the title. A row's
+actions take its time's place on hover and focus, and that place is kept
+as wide as the actions, so the title is cut at the same point either way.
+A row's "Your move: …" and "Not started" are in `text-foreground`, as words
+and never as a button; a row has no answer buttons. There is no line of
+counts: the Threads heading carries one number, `text-metadata` in
+`text-foreground-tertiary`, beside the New thread button. The section
+headings (`SidebarFold.tsx`) are `h-row-compact` buttons in
+`font-sidebar-group-label` `text-foreground-tertiary` with a chevron that
+turns when the section folds. The Digest row is the first row of Threads,
+one line, with its count where a thread's time goes. Threads scrolls in
+`sidebar-tree-scroll`, as the tree does, and is at most half the sidebar
+while Library is open. Cards (a question, a permission request, a send to allow)
 are `rounded-card` with a `border-border-strong` ring and no fill. No
 option of a question is filled: every one is an outline button, with its
 number, 1 to 3, in `text-foreground-tertiary` beside it, shown only while

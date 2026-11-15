@@ -247,7 +247,13 @@ try {
       await wait(800);
     });
     await shot(theme, 8, 'recent', async () => {
-      await page.getByRole('button', { name: 'Recent', exact: true }).click();
+      // Recent left the sidebar; the palette's "Go to Recent" opens it.
+      await menu('palette.open');
+      await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
+      await page.keyboard.type('go to recent', { delay: 20 });
+      await page.getByTestId('palette-command-nav.recent').waitFor({ timeout: 5_000 });
+      await page.keyboard.press('Enter');
+      await page.getByTestId('command-palette').waitFor({ state: 'detached', timeout: 5_000 });
       await wait(600);
     });
     await shot(theme, 9, 'tabs', async () => {

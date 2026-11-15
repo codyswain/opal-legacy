@@ -6,11 +6,11 @@ const word =
   'shrink-0 rounded-sm px-1 font-medium underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-foreground';
 
 /**
- * What the last action did, with the way back: at the foot of the list, or
- * above the box when the list is hidden. A put-away is said in the phone's
+ * What the last action did, with the way back, at the foot of the sidebar,
+ * above Update ready and Settings. A put-away is said in the phone's
  * sentence, whole ("Snoozed until tomorrow 9:00 am.", "Archived: Seed
  * order"). For anything else the thread's or entry's name comes first and
- * what happened stays whole, on a second line when the list is too narrow
+ * what happened stays whole, on a second line when the sidebar is too narrow
  * for both. It says how many more actions Undo can reach. A refusal is the
  * service's own sentence, whole, and then a shortened name, so a long title
  * cannot hide why.
