@@ -77,6 +77,8 @@ export interface FakeAuto {
     failThread: AutoFailure | null;
     /** While set, every write waits for it before it answers: a slow service. */
     gate: Promise<void> | null;
+    /** While set, a read of a thread waits for it before it answers: a snapshot that arrives late. */
+    threadGate: Promise<void> | null;
   };
   /** Every route asked for, in order. */
   routes: () => AutoRoute[];
@@ -108,6 +110,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     failDigest: null,
     failThread: null,
     gate: null,
+    threadGate: null,
     ...options,
   };
   const followed: FakeAuto['followed'] = { list: null, thread: null };
@@ -145,10 +148,14 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         const all = [...state.archived].sort((left, right) => (right.archivedAt ?? 0) - (left.archivedAt ?? 0));
         return ok({ threads: route.limit === null ? all : all.slice(0, route.limit), total: all.length });
       }
-      case 'thread':
-        return state.snapshots[route.id]
-          ? ok(state.snapshots[route.id])
+      case 'thread': {
+        // What the service had when the read reached it; the answer may be held back.
+        const found = state.snapshots[route.id];
+        if (state.threadGate) await state.threadGate;
+        return found
+          ? ok(found)
           : { success: false, error: { kind: 'refused', message: 'No such thread.', code: 'not_found', status: 404 } };
+      }
       case 'create': {
         const thread = autoThread('created1', { title: route.text.slice(0, 40), status: 'working', model: route.model });
         state.threads = [thread, ...state.threads];

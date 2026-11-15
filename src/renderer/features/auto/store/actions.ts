@@ -80,6 +80,34 @@ function comeBack(thread: AutoThread, earlier: readonly AutoThread[], wasOpen: b
   if (from === 'row') useAutoStore.getState().requestFocus(thread.id);
 }
 
+/**
+ * Waits until the pane has finished reading this thread, if it is reading
+ * it. An undo opens the thread again while its own post is on the way, and
+ * the snapshot asked for at that moment can still say what the undo is
+ * taking back (archived, snoozed). What he did stays laid over the thread
+ * until that snapshot has arrived, so it cannot take the row away again or
+ * close the pane.
+ */
+function paneRead(id: string): Promise<void> {
+  const reading = (): boolean => {
+    const pane = useThreadStore.getState();
+    return pane.openId === id && pane.loading;
+  };
+  if (!reading()) return Promise.resolve();
+  return new Promise((resolve) => {
+    let stop = (): void => undefined;
+    const done = (): void => {
+      clearTimeout(timer);
+      stop();
+      resolve();
+    };
+    const timer = setTimeout(done, 5_000);
+    stop = useThreadStore.subscribe(() => {
+      if (!reading()) done();
+    });
+  });
+}
+
 const leave = (id: string) => useAutoStore.setState({ threads: useAutoStore.getState().threads.filter((candidate) => candidate.id !== id) });
 
 /** The thread that sat under this one in his order and is still in the list, or null when it was last. */
@@ -137,6 +165,7 @@ export async function archiveThread(thread: AutoThread, options: { done?: boolea
         }
         // The mark is kept on the row until the service has it again, so the row never leaves its group.
         const marked = thread.desk ? await api.request({ kind: 'desk', id: thread.id, on: true }).catch((): null => null) : null;
+        await paneRead(thread.id);
         unconfirmedThreads.end(thread.id, kept);
         useAutoStore.getState().upsert(marked?.success ? marked.data.thread : back.data.thread);
         // Done ticked its entry: an entry that was open before is open again.
@@ -199,6 +228,7 @@ export async function restoreThread(thread: AutoThread, options: { from?: From }
           return;
         }
         const again = await api.request({ kind: 'archive', id: thread.id, archived: true }).catch((): null => null);
+        await paneRead(thread.id);
         unconfirmedThreads.end(thread.id, kept);
         if (again?.success) useAutoStore.getState().upsert(again.data.thread);
         else {
@@ -276,6 +306,7 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
             return;
           }
           const returned = await api.request({ kind: 'snooze', id: thread.id, until: before }).catch((): null => null);
+          await paneRead(thread.id);
           unconfirmedThreads.end(thread.id, kept);
           if (!returned?.success) {
             heldPlaces.delete(thread.id);

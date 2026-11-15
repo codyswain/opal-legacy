@@ -276,7 +276,10 @@ not exist.
   own post has landed, and the offers go with the address. Until those
   posts have landed, what he did is laid over every copy of the thread or
   the day that arrives (`model/unconfirmed.ts`), so the service's own word
-  of an archive he has taken back does not take the row away again. The last view of each thread and his place in each
+  of an archive he has taken back does not take the row away again. An undo
+  that opens the thread again holds its change until the snapshot it asked
+  for has arrived (`paneRead` in `actions.ts`): that read can reach the
+  service before the undo's post does, and still say archived. The last view of each thread and his place in each
   thread, the list and the queue are kept in memory for the session
   (`threadStore.ts`, `model/places.ts`) and dropped with the address. The
   list and the queue are each one Tab stop with a roving focus

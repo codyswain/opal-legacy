@@ -674,6 +674,32 @@ describe('what Undo leaves behind', () => {
     expect(listed()).toEqual(['beds', 'fresh', 'bread', 'seeds', 'trellis', 'inspect']);
   });
 
+  it('keeps the thread open and in the list when the snapshot an undo asked for still says it is archived', async () => {
+    await open();
+    await openThread('bread');
+    fireEvent.click(screen.getByTestId('auto-archive-open'));
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: true }));
+    await waitFor(() => expect(screen.getByTestId('auto-title').textContent).not.toBe('Sourdough timings'));
+    // The undo opens the thread again and reads it while its own post is on the way. The service still had it
+    // archived when that read reached it, and the answer arrives after the unarchive has landed.
+    let release: () => void = () => undefined;
+    auto.state.threadGate = new Promise<void>((resolve) => { release = resolve; });
+    auto.state.snapshots.bread = autoSnapshot({ ...BREAD, archived: true, archivedAt: NOW / 1000 }, { items: [user('When do I start the bread?'), reply('Start the starter at 8.')] });
+    fireEvent.keyDown(box(), { key: 'z', metaKey: true });
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: false }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(listed()).toContain('bread');
+    release();
+    auto.state.threadGate = null;
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('bread'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The late copy neither takes the row away nor closes the pane.
+    expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
+    expect(screen.getByTestId('auto-title').textContent).toBe('Sourdough timings');
+    expect(row('bread').className).toContain('bg-surface-selected');
+    expect(screen.queryByTestId('auto-away')).toBeNull();
+  });
+
   it('sets the Mac mark again when the archive of a marked thread is undone, with the keyboard on its row', async () => {
     const marked = { ...SEEDS, desk: { at: at(11, 14, 9), by: 'phone' } };
     await open({ threads: [BEDS, BREAD, marked, TRELLIS] });
