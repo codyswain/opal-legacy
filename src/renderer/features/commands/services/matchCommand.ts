@@ -33,8 +33,8 @@ export function rankCommands(commands: readonly Command[], term: string, limit =
     .map(({ command }) => command);
 }
 
-/** The sidebar's names for its two pages stay capitalised where a label ends with one, as in "Go to Daily". */
-const PAGE_NAMES = new Set(['Daily', 'Recent']);
+/** The sidebar's names for its pages stay capitalised where a label ends with one, as in "Go to Daily". */
+const PAGE_NAMES = new Set(['Daily', 'Recent', 'Auto']);
 
 /**
  * Commands are named in title case for the macOS menu; the palette, like the

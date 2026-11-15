@@ -48,6 +48,14 @@ const ContextMenuItem = React.forwardRef<React.ElementRef<typeof ContextMenuPrim
 );
 ContextMenuItem.displayName = 'ContextMenuItem';
 
+const ContextMenuLabel = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Label>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Label ref={ref} className={cn('px-2 py-1 text-label text-foreground-tertiary', className)} {...props} />
+));
+ContextMenuLabel.displayName = 'ContextMenuLabel';
+
 const ContextMenuSeparator = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.Separator>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
@@ -60,4 +68,4 @@ const ContextMenuShortcut: React.FC<React.HTMLAttributes<HTMLSpanElement>> = ({ 
   <span className={cn('ml-auto pl-4 text-metadata text-foreground-tertiary', className)} {...props} />
 );
 
-export { ContextMenu, ContextMenuTrigger, ContextMenuGroup, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut };
+export { ContextMenu, ContextMenuTrigger, ContextMenuGroup, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuShortcut };

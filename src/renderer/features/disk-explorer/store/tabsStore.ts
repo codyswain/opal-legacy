@@ -9,8 +9,8 @@ import { isStackKind, stackKindForPath } from '@/common/stackModel';
 import { localDate } from '@/common/vaultModel';
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import {
-  RECENT_COLLECTION,
   aloneLocation,
+  collectionOf,
   fileLocation,
   filesLocationKey,
   locationPath,
@@ -128,7 +128,7 @@ export function tabLocation(tab: Tab): FilesLocation {
   return tab.history[tab.index].location;
 }
 
-/** The file a tab shows, a stack's head, or null while it shows Recent. */
+/** The file a tab shows, a stack's head, or null while it shows Recent or Auto. */
 export function tabFile(tab: Tab): string | null {
   return locationPath(tabLocation(tab));
 }
@@ -221,9 +221,8 @@ function restoredLocation(value: unknown): FilesLocation | null {
       ? stackLocation(candidate.kind, candidate.file)
       : null;
   }
-  return candidate.mode === 'browse' && candidate.collection?.kind === 'recent'
-    ? { mode: 'browse', collection: RECENT_COLLECTION }
-    : null;
+  const collection = candidate.mode === 'browse' ? collectionOf(candidate.collection?.kind) : null;
+  return collection ? { mode: 'browse', collection } : null;
 }
 
 const inRange = (value: unknown, limit: number): value is number =>

@@ -4,12 +4,13 @@ import { toast } from 'sonner';
 import type { DiskEntry } from '@/types/disk';
 import { useDiskStore } from '../store/diskStore';
 import { HIDDEN_MESSAGE, useHiddenStore } from '../store/hiddenStore';
+import { AutoView } from '@/renderer/features/auto';
 import { RecentView } from './RecentView';
 import { FileViewer } from './FileViewer';
 import { MarkdownEditor } from './editor/MarkdownEditor';
 import { StackView } from './stack/StackView';
 import { useTabScroll } from '../hooks/useTabScroll';
-import { filesLocationKey } from '../navigation/filesLocation';
+import { filesLocationKey, isAutoLocation } from '../navigation/filesLocation';
 import {
   selectActiveTab,
   selectCurrentLocation,
@@ -17,7 +18,7 @@ import {
   useTabsStore,
 } from '../store/tabsStore';
 
-/** The main pane: the active tab's file, stack or Recent. Tabs and the tree live in the shell. */
+/** The main pane: the active tab's file, stack, Recent or Auto. Tabs and the tree live in the shell. */
 export const DiskExplorer: React.FC = () => {
   const listings = useDiskStore((state) => state.listings);
   const error = useDiskStore((state) => state.loading.error);
@@ -133,6 +134,10 @@ export const DiskExplorer: React.FC = () => {
                 : 'File unavailable'}
             </div>
           )}
+        </div>
+      ) : isAutoLocation(location) ? (
+        <div data-testid="files-auto" className="min-h-0 flex-1">
+          <AutoView />
         </div>
       ) : (
         <div data-testid="files-recent" className="min-h-0 flex-1 overflow-auto">

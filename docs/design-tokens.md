@@ -223,6 +223,34 @@ Recent sits in the page card in a `max-w-reading` column. Its day groups are
 Rows and controls may use the compact or default value, but features must not
 invent their own density scale.
 
+## Auto
+
+The Auto tab sits in the page card as two columns with a hairline between
+them: the list, `w-auto-list`, and the open thread in a `max-w-reading`
+column. Under 720 px of tab width the list hides while a thread is open.
+
+| CSS token | Tailwind | Value |
+|---|---|---|
+| `--auto-list-width` | `w-auto-list` | 300 px |
+| `--text-reply-size`, `--text-reply-line` | `text-reply` | 15 / 24 px, in both looks |
+
+A message is in the interface typeface at `text-reply`. Replies draw
+Markdown with the look pages have (`features/auto/auto.css`): the same link
+underline, inline code, quote rule, table and code block, in em of the
+reply's size. His own messages are `bg-surface-active` blocks at the right.
+What Auto did is `text-control` in `text-foreground-tertiary`. List rows are
+`rounded-row` with the neutral hover and selected fills; a row's actions
+take its time's place on hover. Cards (a question, a permission request)
+are `rounded-card` with a `border-border-strong` ring and no fill.
+
+The digest queue takes the thread's place, in the same `max-w-reading`
+column. A section's name is `text-label` in `text-foreground-tertiary`. An
+entry is a `rounded-row` with the neutral hover fill, its words at
+`text-reply` and cut to three lines while closed (`.auto-clip`); opened in
+place it takes `bg-surface-sunken`. Its actions are a small
+`bg-surface-raised` bar at its top right, shown on hover. His note has a
+2 px `border-foreground` rule at its left.
+
 ## Page headings
 
 Page headings are in the page's serif, bold, in em of the 16 px body

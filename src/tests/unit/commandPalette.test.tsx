@@ -8,8 +8,8 @@ import { commandRegistry } from '@/renderer/features/commands/services/commandRe
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
 import { usePagePropertiesStore } from '@/renderer/features/disk-explorer/store/pagePropertiesStore';
 import { useStackStore } from '@/renderer/features/disk-explorer/store/stackStore';
-import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
-import { stackLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
+import { isAutoLocation, stackLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { usePinsStore } from '@/renderer/features/disk-explorer/store/pinsStore';
 import { useHiddenStore } from '@/renderer/features/disk-explorer/store/hiddenStore';
 import { installPinsApi, setPins } from '@/tests/helpers/pinsApi';
@@ -301,6 +301,26 @@ describe('CommandPalette', () => {
     await waitFor(() => expect(tabPaths()).toHaveLength(2));
     expect(tabPaths()[0]).toBe('/Vault/inbox.md');
     expect(openedPath()).toMatch(/^\/Vault\/Library\/daily\/\d{4}-\d{2}-\d{2}\.md$/);
+  });
+
+  it('goes to the one Auto tab from Go to Auto: a new tab beside the page the first time, the same tab after', async () => {
+    const user = userEvent.setup();
+    const autoTabs = () => useTabsStore.getState().tabs.filter((tab) => isAutoLocation(tabLocation(tab)));
+    openTabs(['/Vault/inbox.md']);
+    renderPalette();
+    act(() => usePaletteStore.getState().show('>inbox'));
+    // Found by a keyword as well as by its name.
+    expect(await screen.findByTestId('palette-command-nav.auto')).toHaveTextContent('Go to Auto');
+    await user.click(screen.getByTestId('palette-command-nav.auto'));
+    await waitFor(() => expect(autoTabs()).toHaveLength(1));
+    expect(tabPaths()).toEqual(['/Vault/inbox.md', null]);
+    expect(useTabsStore.getState().activeId).toBe(autoTabs()[0].id);
+
+    act(() => useTabsStore.getState().activateIndex(0));
+    act(() => commandRegistry.executeCommand('nav.auto'));
+    expect(autoTabs()).toHaveLength(1);
+    expect(tabPaths()).toEqual(['/Vault/inbox.md', null]);
+    expect(useTabsStore.getState().activeId).toBe(autoTabs()[0].id);
   });
 
   it('makes tomorrow’s daily page, and opens the stream of daily pages at it', async () => {

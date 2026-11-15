@@ -1,0 +1,310 @@
+/*
+ * Auto: a reply's Markdown, drawn with the look pages have for lists,
+ * tables, code, quotes and links, in the interface typeface. Sizes are in em
+ * of the reply's text (--text-reply-size).
+ */
+.auto-md {
+  font-size: var(--text-reply-size);
+  line-height: var(--text-reply-line);
+  overflow-wrap: anywhere;
+}
+
+.auto-md p,
+.auto-md ul,
+.auto-md ol,
+.auto-md blockquote {
+  margin: 0;
+}
+
+/* Blocks sit apart by one step; a heading takes a little more above it. */
+.auto-md > :not(:first-child) {
+  margin-top: 0.75em;
+}
+
+.auto-md h1,
+.auto-md h2,
+.auto-md h3,
+.auto-md h4,
+.auto-md h5,
+.auto-md h6 {
+  font-weight: 590;
+  line-height: 1.35;
+}
+
+.auto-md > h1:not(:first-child),
+.auto-md > h2:not(:first-child),
+.auto-md > h3:not(:first-child),
+.auto-md > h4:not(:first-child) {
+  margin-top: 1.25em;
+}
+
+.auto-md > h1 + :not(:first-child),
+.auto-md > h2 + :not(:first-child),
+.auto-md > h3 + :not(:first-child),
+.auto-md > h4 + :not(:first-child) {
+  margin-top: 0.5em;
+}
+
+.auto-md h1 { font-size: 1.25em; }
+.auto-md h2 { font-size: 1.125em; }
+.auto-md h3,
+.auto-md h4,
+.auto-md h5 { font-size: 1em; }
+.auto-md h6 { font-size: 1em; color: hsl(var(--text-secondary)); }
+
+/* Links are text-coloured with a quiet underline, as in pages. */
+.auto-md a,
+.auto-md [role='link'] {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--text-tertiary) / 0.55);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+  border-radius: 2px;
+  outline: none;
+}
+
+.auto-md a:hover,
+.auto-md [role='link']:hover {
+  text-decoration-color: hsl(var(--foreground));
+}
+
+.auto-md a:focus-visible,
+.auto-md [role='link']:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--focus));
+}
+
+.auto-md code {
+  padding: 0.1em 0.2em;
+  border-radius: 4px;
+  background-color: hsl(var(--foreground) / 0.045);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.auto-md ul,
+.auto-md ol {
+  padding-left: 1.5em;
+}
+
+.auto-md ul { list-style: disc; }
+.auto-md ol { list-style: decimal; }
+.auto-md ul ul { list-style: circle; }
+
+.auto-md li::marker {
+  color: hsl(var(--text-tertiary));
+  font-variant-numeric: tabular-nums;
+}
+
+.auto-md li:not(:first-child),
+.auto-md li > :not(:first-child) {
+  margin-top: 0.25em;
+}
+
+/* A task: its box in the marker's place. */
+.auto-md li[data-task] {
+  list-style: none;
+  position: relative;
+}
+
+.auto-md-task {
+  position: absolute;
+  left: -1.4em;
+  top: 0.3em;
+  box-sizing: border-box;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid hsl(var(--text-tertiary));
+  border-radius: 4px;
+}
+
+.auto-md-task[data-checked] {
+  border-color: hsl(var(--foreground));
+  background-color: hsl(var(--foreground));
+}
+
+.auto-md-task[data-checked]::after {
+  content: "";
+  position: absolute;
+  left: 0.22em;
+  top: 0.02em;
+  width: 0.22em;
+  height: 0.48em;
+  border: solid hsl(var(--background));
+  border-width: 0 0.12em 0.12em 0;
+  transform: rotate(45deg);
+}
+
+.auto-md blockquote {
+  padding-left: 1em;
+  border-left: 2px solid hsl(var(--border-default));
+  color: hsl(var(--text-secondary));
+}
+
+.auto-md blockquote > :not(:first-child) {
+  margin-top: 0.5em;
+}
+
+.auto-md > hr:not(:first-child),
+.auto-md hr {
+  margin: 1.25em 0;
+  border: 0;
+  border-top: 1px solid hsl(var(--border-default));
+}
+
+.auto-md > hr + :not(:first-child) {
+  margin-top: 0;
+}
+
+/* A fenced block. With a language it is code; with none it holds words to paste, set as text. */
+.auto-md-block {
+  position: relative;
+  border-radius: var(--radius-row);
+  background-color: hsl(var(--foreground) / 0.045);
+}
+
+.auto-md-block pre {
+  margin: 0;
+  padding: 0.7em 1em;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.auto-md-block[data-paste] pre {
+  font-family: inherit;
+  font-size: 1em;
+  line-height: inherit;
+  white-space: pre-wrap;
+}
+
+.auto-md-copy {
+  position: absolute;
+  top: 0.35em;
+  right: 0.35em;
+  opacity: 0;
+}
+
+.auto-md-block:hover .auto-md-copy,
+.auto-md-copy:focus-visible {
+  opacity: 1;
+}
+
+.auto-md-table {
+  overflow-x: auto;
+}
+
+/* Rounded outer corners: the table draws its own edge and each cell only its inner lines. */
+.auto-md table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid hsl(var(--border-subtle));
+  border-radius: var(--radius-row);
+  font-size: 0.9375em;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: normal;
+}
+
+.auto-md th,
+.auto-md td {
+  min-width: 3em;
+  padding: 0.3em 0.75em;
+  border-right: 1px solid hsl(var(--border-subtle));
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  text-align: left;
+  vertical-align: top;
+}
+
+.auto-md tr > :last-child {
+  border-right: 0;
+}
+
+.auto-md tbody tr:last-child > *,
+.auto-md table:not(:has(tbody tr)) thead tr > * {
+  border-bottom: 0;
+}
+
+.auto-md th {
+  font-weight: 590;
+}
+
+/*
+ * The thread keeps its scrollbar's gutter at all times, and the header above
+ * it and the box below it leave the same 10px, so all three line up whether
+ * or not the thread scrolls.
+ */
+.auto-talk {
+  scrollbar-gutter: stable;
+}
+
+.auto-beside-talk {
+  padding-right: calc(1.5rem + 10px);
+}
+
+/*
+ * A closed digest entry shows three lines of its words. Its blocks close up
+ * and its headings take the text's size, so every line sits on one grid and
+ * the cut falls between two lines; the clamp ends running text with an
+ * ellipsis. A table or a code block is held to the same height, and fades
+ * out where it is cut.
+ */
+.auto-clip {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  max-height: calc(var(--text-reply-line) * 3);
+}
+
+.auto-clip .auto-md > :not(:first-child),
+.auto-clip .auto-md li:not(:first-child),
+.auto-clip .auto-md li > :not(:first-child),
+.auto-clip .auto-md blockquote > :not(:first-child) {
+  margin-top: 0;
+}
+
+.auto-clip .auto-md :is(h1, h2, h3, h4, h5, h6) {
+  font-size: 1em;
+  line-height: inherit;
+}
+
+.auto-clip[data-cut]:has(table, pre) {
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--text-reply-line)), transparent);
+}
+
+/* The small turning mark beside a line that is at work. */
+.auto-spin {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  flex-shrink: 0;
+  border: 1.5px solid hsl(var(--text-tertiary) / 0.35);
+  border-top-color: hsl(var(--text-tertiary));
+  border-radius: 50%;
+  animation: auto-spin 0.9s linear infinite;
+}
+
+@keyframes auto-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Where a dragged row would land. */
+.auto-row[data-drop='above']::before,
+.auto-row[data-drop='below']::after {
+  content: "";
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  height: 2px;
+  border-radius: 999px;
+  background: hsl(var(--foreground) / 0.4);
+}
+
+.auto-row[data-drop='above']::before { top: -2px; }
+.auto-row[data-drop='below']::after { bottom: -2px; }

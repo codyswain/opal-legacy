@@ -1,6 +1,7 @@
 import * as React from "react";
-import { ChevronsDownUp, Clock, Settings } from "lucide-react";
-import { browseRecent } from "@/renderer/features/disk-explorer/navigation";
+import { ChevronsDownUp, Clock, Inbox, Settings } from "lucide-react";
+import { needsCount, openAutoTab, useAutoStore } from "@/renderer/features/auto";
+import { browseRecent, isAutoLocation } from "@/renderer/features/disk-explorer/navigation";
 import { useDiskStore } from "@/renderer/features/disk-explorer/store/diskStore";
 import { canCollapseTree } from "@/renderer/features/disk-explorer/store/treeExpansion";
 import {
@@ -59,10 +60,19 @@ export function WorkspaceSidebar({
     const shown = selectCurrentLocation(state);
     return shown?.mode === "browse" && shown.collection.kind === "recent";
   });
+  const isAuto = useTabsStore((state) => isAutoLocation(selectCurrentLocation(state)));
+  // The threads that wait on him.
+  const autoNeeds = useAutoStore((state) => needsCount(state.threads));
   const { navigateFiles } = useShell();
 
   const goToRecent = (newTab: boolean) => {
     navigateFiles(browseRecent(), { newTab });
+    onNavigate?.();
+  };
+
+  // One Auto tab: the row goes to the one already open, or opens one beside the page.
+  const goToAuto = () => {
+    openAutoTab(navigateFiles);
     onNavigate?.();
   };
 
@@ -94,6 +104,13 @@ export function WorkspaceSidebar({
             label="Recent"
             active={isRecent}
             onActivate={(event) => goToRecent(wantsNewTab(event))}
+          />
+          <SidebarItem
+            icon={Inbox}
+            label="Auto"
+            active={isAuto}
+            trailing={autoNeeds > 0 ? autoNeeds : undefined}
+            onActivate={goToAuto}
           />
         </SidebarSection>
       </nav>
