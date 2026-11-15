@@ -37,6 +37,8 @@ export interface StandIn {
   } | null;
   signOut: (out?: boolean) => void;
   failWrites: (how: false | 'refuse' | 'drop') => void;
+  /** Every answer but a stream's waits this many ms; 0 stops it. */
+  slow: (ms: number) => void;
   down: (isDown?: boolean) => void;
   dropStreams: () => void;
   restart: () => void;

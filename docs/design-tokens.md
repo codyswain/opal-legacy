@@ -228,10 +228,14 @@ invent their own density scale.
 The Auto tab sits in the page card as two columns with a hairline between
 them: the list, `w-auto-list`, and the open thread in a `max-w-reading`
 column. Under 720 px of tab width the list hides while a thread is open.
+A pane's header, its scrolling part and what is under it each hold an
+`.auto-column` (`auto.css`: `--reading-width` wide, 24 px of padding), so
+the title, the text, the cards and the box share their left and right
+edges at every width.
 
 | CSS token | Tailwind | Value |
 |---|---|---|
-| `--auto-list-width` | `w-auto-list` | 300 px |
+| `--auto-list-width` | `w-auto-list` | 300 px; 328 px in the roomy look, so a row that takes one line still does |
 | `--text-reply-size`, `--text-reply-line` | `text-reply` | 15 / 24 px, in both looks |
 
 A message is in the interface typeface at `text-reply`. Replies draw
@@ -243,13 +247,20 @@ What Auto did is `text-control` in `text-foreground-tertiary`. List rows are
 take its time's place on hover. Cards (a question, a permission request)
 are `rounded-card` with a `border-border-strong` ring and no fill.
 
-The digest queue takes the thread's place, in the same `max-w-reading`
-column. A section's name is `text-label` in `text-foreground-tertiary`. An
-entry is a `rounded-row` with the neutral hover fill, its words at
-`text-reply` and cut to three lines while closed (`.auto-clip`); opened in
-place it takes `bg-surface-sunken`. Its actions are a small
-`bg-surface-raised` bar at its top right, shown on hover. His note has a
-2 px `border-foreground` rule at its left.
+The digest queue takes the thread's place, in the same column. A section's
+name is `text-label` in `text-foreground-tertiary`. An entry is a
+`rounded-row` with the neutral hover fill. Closed, it is a title line at
+`text-reply` in medium weight and at most two lines of its words at
+`text-ui` in `text-foreground-tertiary`; opened in place it takes
+`bg-surface-sunken` and reads whole. Its actions have a column of their
+own at the row's right (a line under the words in a pane under 520 px),
+shown while the pointer or the keyboard is on the row. His note has a 2 px
+`border-foreground` rule at its left.
+
+What the last action did is one line at the foot of the list, in
+`bg-primary` with `text-primary-foreground` and a `rounded-card` corner,
+with Undo. A table or a code block that scrolls sideways fades at the edge
+it is cut at (`[data-fade]`).
 
 ## Page headings
 

@@ -185,9 +185,11 @@ not exist.
   of a fixed list of routes (`autoRequests.ts`), each rebuilt field by field
   into a fixed path, with thread ids and cursors checked first; requests
   carry a time limit and a size limit and follow no redirect. Two streams
-  (`sseReader.ts`): the list's while an Auto tab is open, one thread's while
-  the tab is in view, each opened again after a wait from its last cursor,
-  and read again from scratch on a `reset`. Every answer is read into
+  (`sseReader.ts`): the list's whenever an address is set, with a tab open
+  or not, so the sidebar counts what needs him (it holds back no ping), and
+  one thread's only while the tab is in view (an open one does), each
+  opened again after a wait from its last cursor, and read again from
+  scratch on a `reset`. Every answer is read into
   Opal's own shapes by `src/common/autoModel.ts`, which drops what does not
   fit. In the renderer, `features/auto`: `listModel.ts` (the list's groups,
   set in one place: "For the Mac" for threads the service says are marked,
@@ -200,9 +202,25 @@ not exist.
   or nothing), and `markdown/` (replies and digest entries parsed with
   `@lezer/markdown` and drawn as elements, never as HTML). The service ends
   the Mac mark and says when a digest changed; Opal only follows. It never
-  calls the service's tick or inbox routes. A vault path in a step, a reply
-  or an entry is looked up by `autoPages.ts` through `RootRegistry` and
-  opens as a page in its own tab. Tests and `auto-acceptance.mjs` talk only
+  calls the service's tick or inbox routes. `store/actions.ts` holds what he
+  does to a thread (archive, done, snooze): the row leaves at once, the
+  next thread takes its place, and the row returns with the service's
+  sentence if the post fails. What an action did is said in one line at the
+  foot of the list (`saidStore.ts`, `SaidBar.tsx`), with Undo, never in the
+  app's corner toast. The last view of each thread and his place in each
+  thread, the list and the queue are kept in memory for the session
+  (`threadStore.ts`, `model/places.ts`) and dropped with the address. The
+  list and the queue are each one Tab stop with a roving focus
+  (`components/focus.ts`); single keys act only on a focused row or entry,
+  and Cmd+. and Cmd+Z act only while the tab is in front with the keyboard
+  in it. While a question waits, the box is its answer field. A page's
+  header, its scrolling part and its foot each hold an `.auto-column`, so
+  they share their edges at every width. `useAutoCommands.ts` puts Auto's
+  commands and every thread's title in the palette. A vault path in a step,
+  a reply or an entry is looked up by `autoPages.ts` through `RootRegistry`
+  and opens as a page in its own tab; a page opened while the Auto tab is
+  in front goes to the tab that shows it or to a new one (`tabsStore.ts`),
+  never into the Auto tab. Tests and `auto-acceptance.mjs` talk only
   to the stand-in service in `src/tests/fixtures/auto`, on 127.0.0.1
 - **Path alias:** `@/*` maps to `src/*`
 
