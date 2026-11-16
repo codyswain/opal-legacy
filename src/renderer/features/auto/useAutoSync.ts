@@ -6,6 +6,7 @@ import { dispatchStream } from './store/streams';
 import { useThreadStore } from './store/threadStore';
 import { useAutoCommands } from './useAutoCommands';
 import { useAutoKeys } from './useAutoKeys';
+import { useAutoReread } from './useAutoReread';
 
 /** While the service is out of reach, the list is asked for again this often with a tab open, and this often without. */
 const RETRY_MS = 5_000;
@@ -18,6 +19,7 @@ const RETRY_AWAY_MS = 30_000;
  * can count what needs him: the list's stream holds back no ping. A
  * thread's stream is the tab's own business (AutoView), followed only
  * while the tab is in view, because an open one does hold them back.
+ * useAutoReread reads the list again when the app may have missed a change.
  */
 export function useAutoSync(): void {
   const hasTab = useTabsStore((state) => allTabs(state).some((tab) => isAutoLocation(tabLocation(tab))));
@@ -25,6 +27,7 @@ export function useAutoSync(): void {
   const reachable = useAutoStore((state) => state.reachable);
   useAutoCommands();
   useAutoKeys();
+  useAutoReread();
 
   useEffect(() => {
     const api = autoApi();
