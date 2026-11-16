@@ -126,6 +126,28 @@ function paneRead(id: string): Promise<void> {
   });
 }
 
+/**
+ * A thread's writes reach the service in the order he made them: each waits
+ * for the one before it on that thread, an undo's own write included. Two
+ * quick rounds on one row (archive, undo, archive, undo) on a slow network
+ * could otherwise land out of order, and the first archive, landing last,
+ * put the row away again after both undos. A turn ends when `run` settles,
+ * or sooner when it calls `release` once its last write has landed.
+ */
+const turns = new Map<string, Promise<void>>();
+function inTurn<T>(id: string, run: (release: () => void) => Promise<T>): Promise<T> {
+  let release = (): void => undefined;
+  const freed = new Promise<void>((resolve) => (release = resolve));
+  const start = (): Promise<T> => run(release);
+  const mine = (turns.get(id) ?? Promise.resolve()).then(start, start);
+  void mine.then(release, release);
+  turns.set(id, freed);
+  void freed.then(() => {
+    if (turns.get(id) === freed) turns.delete(id);
+  });
+  return mine;
+}
+
 const leave = (id: string) => useAutoStore.setState({ threads: useAutoStore.getState().threads.filter((candidate) => candidate.id !== id) });
 
 /** The thread that sat under this one in his order and is still in the list, or null when it was last. */
@@ -151,7 +173,7 @@ export async function archiveThread(thread: AutoThread, options: { done?: boolea
   const said = useSaidStore.getState();
   // Done also resolves the entry. Whether it was open before is read first, so Undo can open it again.
   const before = entry ? useDigestStore.getState().entryState(entry.date, entry.id) : Promise.resolve(null);
-  const post = before.then(() => api.request({ kind: 'archive', id: thread.id, archived: true, ...(entry ? { done: true } : {}) }).catch((): null => null));
+  const post = inTurn(thread.id, () => before.then(() => api.request({ kind: 'archive', id: thread.id, archived: true, ...(entry ? { done: true } : {}) }).catch((): null => null)));
   let undone = false;
   // On offer from the moment the row leaves, while the post is still on its way.
   const offer = said.offer({
@@ -167,7 +189,7 @@ export async function archiveThread(thread: AutoThread, options: { done?: boolea
       useAutoStore.getState().archiveChanged({ ...thread, archived: false, archivedAt: null });
       comeBack(thread, earlier, wasOpen, from);
       // The archive goes first, then its undoing: the service must not see them the other way round.
-      void post.then(async (result) => {
+      void inTurn(thread.id, (release) => post.then(async (result) => {
         if (!result?.success) {
           unconfirmedThreads.end(thread.id, kept);
           return;
@@ -183,6 +205,8 @@ export async function archiveThread(thread: AutoThread, options: { done?: boolea
         }
         // The mark is kept on the row until the service has it again, so the row never leaves its group.
         const marked = thread.desk ? await api.request({ kind: 'desk', id: thread.id, on: true }).catch((): null => null) : null;
+        // Its writes have landed: the thread's next write may go while the pane finishes reading.
+        release();
         await paneRead(thread.id);
         unconfirmedThreads.end(thread.id, kept);
         useAutoStore.getState().upsert(marked?.success ? marked.data.thread : back.data.thread);
@@ -192,7 +216,7 @@ export async function archiveThread(thread: AutoThread, options: { done?: boolea
           if (reopened?.success) useDigestStore.getState().take(reopened.data);
           else useSaidStore.getState().refuse(reopened?.error.message ?? UNREACHABLE, name(thread));
         }
-      });
+      }));
     },
   });
   const result = await post;
@@ -224,7 +248,7 @@ export async function restoreThread(thread: AutoThread, options: { from?: From }
   keyboardTo(from, instead);
   const said = useSaidStore.getState();
   said.dropSubject(thread.id);
-  const post = api.request({ kind: 'archive', id: thread.id, archived: false }).catch((): null => null);
+  const post = inTurn(thread.id, () => api.request({ kind: 'archive', id: thread.id, archived: false }).catch((): null => null));
   /** Back in the archive, and still open in the pane if he was reading it. */
   const putAway = () => {
     const { openId, fromAway } = useThreadStore.getState();
@@ -246,12 +270,13 @@ export async function restoreThread(thread: AutoThread, options: { from?: From }
       putAway();
       // Back in the archive: from the page, the keyboard goes back onto its row.
       if (from === 'page') keyboardTo(from, thread.id);
-      void post.then(async (result) => {
+      void inTurn(thread.id, (release) => post.then(async (result) => {
         if (!result?.success) {
           unconfirmedThreads.end(thread.id, kept);
           return;
         }
         const again = await api.request({ kind: 'archive', id: thread.id, archived: true }).catch((): null => null);
+        release();
         await paneRead(thread.id);
         unconfirmedThreads.end(thread.id, kept);
         if (again?.success) useAutoStore.getState().upsert(again.data.thread);
@@ -259,7 +284,7 @@ export async function restoreThread(thread: AutoThread, options: { from?: From }
           useAutoStore.getState().upsert(back);
           useSaidStore.getState().refuse(again?.error.message ?? UNREACHABLE, name(thread));
         }
-      });
+      }));
     },
   });
   const result = await post;
@@ -303,7 +328,7 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
   useAutoStore.getState().upsert(away);
   // An older line about this thread, such as "until Friday", no longer holds.
   said.dropSubject(thread.id);
-  const post = api.request({ kind: 'snooze', id: thread.id, until, ...(say ? { wait: { say } } : {}) }).catch((): null => null);
+  const post = inTurn(thread.id, () => api.request({ kind: 'snooze', id: thread.id, until, ...(say ? { wait: { say } } : {}) }).catch((): null => null));
   let undone = false;
   let offer = 0;
   if (until !== null) {
@@ -323,13 +348,14 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
         const back = before === null ? { ...thread, snoozed: null, snoozedAt: null } : thread;
         useAutoStore.getState().upsert(back);
         if (hiding) comeBack(back, earlier, wasOpen, from);
-        void post.then(async (result) => {
+        void inTurn(thread.id, (release) => post.then(async (result) => {
           if (!result?.success) {
             unconfirmedThreads.end(thread.id, kept);
             heldPlaces.delete(thread.id);
             return;
           }
           const returned = await api.request({ kind: 'snooze', id: thread.id, until: before }).catch((): null => null);
+          release();
           await paneRead(thread.id);
           unconfirmedThreads.end(thread.id, kept);
           if (!returned?.success) {
@@ -341,7 +367,7 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
           useAutoStore.getState().upsert(returned.data.thread);
           // The move says so to the service; until it has landed the row is held in its place here.
           if (hiding) await useAutoStore.getState().move(thread.id, sat).finally(() => heldPlaces.delete(thread.id));
-        });
+        }));
       },
     });
   } else {
@@ -364,7 +390,7 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
           useAutoStore.getState().upsert(thread);
           // Put away again: from the page the keyboard goes back onto its row.
           if (from === 'page') keyboardTo(from, thread.id);
-          void post.then(async (result) => {
+          void inTurn(thread.id, () => post.then(async (result) => {
             if (!result?.success) {
               unconfirmedThreads.end(thread.id, kept);
               return;
@@ -376,7 +402,7 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
               useAutoStore.getState().upsert(back);
               useSaidStore.getState().refuse(put?.error.message ?? UNREACHABLE, name(thread));
             }
-          });
+          }));
         },
       });
     }

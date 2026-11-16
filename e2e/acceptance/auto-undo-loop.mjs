@@ -122,6 +122,9 @@ for (let run = 1; run <= times; run += 1) {
   console.log(`${ok ? 'PASS' : 'FAIL'} [${side}] run ${run}: ${rounds.join(' / ')}`);
   if (!ok) {
     failures.push(run);
+    console.log(`  rows now: ${(await rowIds()).join(' ')}`);
+    console.log(`  the pane: ${await page.evaluate(() => [...document.querySelectorAll('[data-testid^="auto-"]')].map((element) => element.getAttribute('data-testid')).filter((id) => !id.startsWith('auto-row')).slice(0, 20).join(' '))}`);
+    await page.screenshot({ path: path.join(os.tmpdir(), `opal-undo-loop-${side}-${run}.png`) });
     console.log(`  requests for the first row, in the order handled:\n    ${service.requests.filter((each) => each.path.includes(one)).map((each) => `${each.method} ${each.path.replace(/.*threads\//, '')} ${each.body ? JSON.stringify(each.body) : ''}`).join('\n    ')}`);
     console.log(`  focus log:\n    ${(await page.evaluate(() => window.__focusLog.slice(-25))).join('\n    ')}`);
   }

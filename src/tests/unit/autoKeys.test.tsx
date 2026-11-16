@@ -548,8 +548,10 @@ describe('undo', () => {
     await userEvent.setup().click(screen.getByTestId('auto-snooze-labels'));
     fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: /^Tomorrow/ }));
     expect(said()).toBe('Snoozed until tomorrow 9:00 am.Undo');
-    const until = last('snooze')?.until;
     const before = document.activeElement;
+    // The snooze goes once the undo before it on this thread has landed.
+    await waitFor(() => expect(last('snooze')?.until).not.toBe(4_000_000_000));
+    const until = last('snooze')?.until;
     await userEvent.setup().click(within(row('labels')).getByRole('button', { name: 'Bring back' }));
     // One line about the thread: the snooze's gives way to the bring back's.
     expect(said()).toBe('Back in the list.Undo');

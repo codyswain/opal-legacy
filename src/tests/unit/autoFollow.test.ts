@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutoResult, AutoSnapshot, AutoThread } from '@/types/auto';
 import { useAutoStore } from '@/renderer/features/auto';
+import { archiveThread } from '@/renderer/features/auto/store/actions';
+import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { autoSnapshot, autoThread, installAutoApi, type FakeAuto } from '@/tests/helpers/autoApi';
 
@@ -70,5 +72,37 @@ describe('the pane’s thread stream', () => {
     // A change that keeps it listed still reaches its row.
     heard(token, { ...BREAD, title: 'Sourdough, longer proof' });
     expect(useAutoStore.getState().threads[0].title).toBe('Sourdough, longer proof');
+  });
+});
+
+describe('a thread’s writes', () => {
+  it('reach the service in the order he made them, each undo included, however slow the first', async () => {
+    const request = vi.mocked(auto.api.request);
+    const passOn = request.getMockImplementation();
+    const sent: string[] = [];
+    let slowFirst: (() => void) | null = null;
+    request.mockImplementation(async (route) => {
+      if (route.kind === 'archive') {
+        sent.push(route.archived ? 'archive' : 'undo');
+        // The first archive is slow; everything after it is quick.
+        if (sent.length === 1) await new Promise<void>((resolve) => (slowFirst = resolve));
+        return { success: true, data: { thread: { ...BREAD, archived: route.archived } } } as never;
+      }
+      return passOn ? passOn(route) : (new Promise(() => undefined) as never);
+    });
+
+    useSaidStore.setState(useSaidStore.getInitialState(), true);
+    const first = archiveThread(BREAD);
+    expect(useSaidStore.getState().undo()).toBe(true);
+    const second = archiveThread(BREAD);
+    expect(useSaidStore.getState().undo()).toBe(true);
+    await vi.waitFor(() => expect(sent).toEqual(['archive']));
+    // The second archive waits for the first, and for its undo.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sent).toEqual(['archive']);
+    slowFirst?.();
+    await Promise.all([first, second]);
+    await vi.waitFor(() => expect(sent).toEqual(['archive', 'undo', 'archive', 'undo']));
+    expect(listed()).toEqual(['bread']);
   });
 });
