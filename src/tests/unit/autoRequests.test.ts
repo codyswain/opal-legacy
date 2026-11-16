@@ -105,6 +105,7 @@ const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
   [{ kind: 'digest-note', date: '2026-11-13', id: 'item-1', text: '' }, 'POST', '/api/digest/note', { date: '2026-11-13', id: 'item-1', text: '' }],
   [{ kind: 'digest-thread', date: '2026-11-13', id: 'item-1', words: null, cid: null }, 'POST', '/api/digest/thread', { date: '2026-11-13', id: 'item-1', start: false }],
   [{ kind: 'digest-thread', date: '2026-11-13', id: 'item-1', words: 'send it', cid: 'a1b2c3d4e5' }, 'POST', '/api/digest/thread', { date: '2026-11-13', id: 'item-1', words: 'send it', cid: 'a1b2c3d4e5' }],
+  [{ kind: 'usage' }, 'GET', '/api/usage', undefined],
 ];
 
 describe('the request builder', () => {
@@ -274,6 +275,13 @@ describe('what the page may ask for', () => {
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask', cid: 'not a cid' })).toBeNull();
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask', cid: null })).toBeNull();
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1' })).toBeNull();
+  });
+
+  it('asks for the plan usage with nothing from the page in its path', () => {
+    const sneaky = { kind: 'usage', id: ID, date: '2026-11-13', path: '../threads', limit: 5 } as unknown;
+    const route = validRoute(sneaky);
+    expect(route).toEqual({ kind: 'usage' });
+    expect(buildRequest(BASE, route as AutoRoute)).toEqual({ url: `${BASE}/api/usage`, method: 'GET', headers: { Accept: 'application/json' } });
   });
 
   it('has no way to tick a box by number or to fill the inbox', () => {

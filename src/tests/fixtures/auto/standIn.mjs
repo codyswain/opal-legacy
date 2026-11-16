@@ -247,12 +247,32 @@ function fixtureDigests(kind) {
 }
 
 /**
+ * The plan's usage as the service answers it: made-up numbers for a made-up
+ * plan, and no account but the plan's name. One limit covers every model,
+ * one a model of the model menu.
+ */
+function fixtureUsage(kind) {
+  const t = now();
+  if (kind === 'none') return { account: { plan: 'Pro' }, limits: [], as_of: null };
+  const week = Math.floor(t + 3 * 86400);
+  return {
+    account: { plan: 'Pro' },
+    limits: [
+      { key: 'seven_day', label: 'Weekly, all models', used: 0.45, resets_at: week, status: 'allowed', seen_at: Math.floor(t), model: 'large' },
+      { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73, resets_at: week, status: 'allowed', seen_at: Math.floor(t), model: 'large' },
+    ],
+    as_of: Math.floor(t),
+  };
+}
+
+/**
  * Starts the stand-in.
  *   fixture: 'default' | 'empty' (only snoozed threads) | 'none'
  *   digests: 'default' (three days) | 'done' (one day, all of it resolved) | 'none'
  *   pace: ms between pieces of a streamed reply
  *   heartbeatMs: how often every stream sends `: hb`
  *   retryMs: the wait every stream asks of a client before it opens it again
+ *   usage: 'default' (two limits, 45% and 73%) | 'none' (nothing seen yet) | 'missing' (no route: 404, as an older service)
  */
 export async function startStandIn(options = {}) {
   const mount = options.mount ?? '/agent';
@@ -267,6 +287,8 @@ export async function startStandIn(options = {}) {
     slowMs: 0,
     slow: 0, // ms every answer but a stream's waits
     holds: new Map(),
+    usage: fixtureUsage(options.usage ?? 'default'),
+    usageMissing: options.usage === 'missing',
   };
   const requests = [];
   /** Tries to allow a send with no signature from a phone. */
@@ -943,6 +965,9 @@ export async function startStandIn(options = {}) {
     }
 
     if (path === '/api/status' && !isWrite) return answer(response, 200, status());
+    if (path === '/api/usage' && !isWrite) {
+      return state.usageMissing ? refuse(response, 404, 'not_found', 'Not found.') : answer(response, 200, state.usage);
+    }
     if (path === '/api/status/check' && isWrite) return answer(response, 200, status());
     if (path === '/api/events' && !isWrite) return stream(request, response, list);
     if (path === '/api/threads' && !isWrite) {
@@ -1240,6 +1265,23 @@ export async function startStandIn(options = {}) {
     /** Every answer but a stream's waits this many ms, as on a slow network; 0 stops it. */
     slow(ms) {
       state.slow = ms;
+    },
+    /**
+     * Changes the plan's usage and says so on the list stream. `limits`
+     * replaces the list (each `{ key, label, used, resets_at, status, seen_at }`;
+     * missing times are filled in as now and three days on), `plan` the
+     * plan's name, and `missing: true` makes the route answer 404 as an
+     * older service does.
+     */
+    setUsage({ limits, plan, missing } = {}) {
+      const t = Math.floor(now());
+      if (limits) {
+        state.usage.limits = limits.map((limit) => ({ status: 'allowed', resets_at: t + 3 * 86400, seen_at: t, ...limit }));
+        state.usage.as_of = limits.length > 0 ? t : null;
+      }
+      if (plan !== undefined) state.usage.account = { plan };
+      if (missing !== undefined) state.usageMissing = missing;
+      emitList('usage', {});
     },
     /** Out of reach: every connection is cut, open streams too. */
     down(isDown = true) {

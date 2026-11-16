@@ -990,7 +990,7 @@ describe('what the tab asks the service for', () => {
     await waitFor(() => expect(auto.asked('start')).toHaveLength(1));
     const allowed = [
       'status', 'check-status', 'threads', 'thread', 'create', 'message', 'stop', 'answer', 'model', 'rename', 'archive', 'move', 'snooze', 'start',
-      'desk', 'digest', 'digests', 'digest-resolve', 'digest-note', 'digest-thread',
+      'desk', 'digest', 'digests', 'digest-resolve', 'digest-note', 'digest-thread', 'usage',
     ];
     expect(kinds().filter((kind) => !allowed.includes(kind))).toEqual([]);
     expect(JSON.stringify(auto.routes())).not.toMatch(/tick|inbox|sends|confirm/);
@@ -1021,7 +1021,7 @@ describe('the sidebar row', () => {
     const count = () => screen.queryByTestId('auto-count')?.textContent ?? '';
     // Beds waits, Seeds has an unread reply and Trellis is back from snooze.
     await waitFor(() => expect(count()).toBe('3'));
-    expect(kinds().filter((kind) => !kind.startsWith('digest'))).toEqual(['status', 'threads']);
+    expect(kinds().filter((kind) => !kind.startsWith('digest') && kind !== 'usage')).toEqual(['status', 'threads']);
     // The list's stream is followed with no tab open, so the count stays true. No thread's stream is.
     await waitFor(() => expect(auto.followed.list).not.toBeNull());
     expect(auto.followed.thread).toBeNull();

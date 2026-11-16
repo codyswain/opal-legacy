@@ -1071,7 +1071,7 @@ describe('what the queue asks the service for', () => {
     await userEvent.setup().type(box, '{Enter}');
     await waitFor(() => expect(auto.asked('digest-thread')).toHaveLength(2));
     const kinds = [...new Set(auto.routes().map((route) => route.kind))];
-    expect(kinds.sort()).toEqual(['digest', 'digest-note', 'digest-resolve', 'digest-thread', 'digests', 'status', 'thread', 'threads']);
+    expect(kinds.sort()).toEqual(['digest', 'digest-note', 'digest-resolve', 'digest-thread', 'digests', 'status', 'thread', 'threads', 'usage']);
     expect(JSON.stringify(auto.routes())).not.toMatch(/tick|inbox|sends|confirm/);
   });
 });

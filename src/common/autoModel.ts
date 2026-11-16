@@ -6,6 +6,7 @@ import type {
   AutoDigestKind,
   AutoDigestSection,
   AutoItem,
+  AutoLimit,
   AutoListEvent,
   AutoLive,
   AutoGrant,
@@ -19,6 +20,7 @@ import type {
   AutoThread,
   AutoThreadEvent,
   AutoThreadStatus,
+  AutoUsage,
   AutoWait,
   AutoWaitState,
 } from '@/types/auto';
@@ -449,6 +451,65 @@ export function toDigestDays(value: unknown): AutoDigestDays | null {
   return { days, latest: validDate(body.latest) ? body.latest : days[0] ?? null, archived: [...new Set(archived)].sort().reverse() };
 }
 
+/** The most limits Opal keeps from one answer. */
+export const USAGE_LIMITS = 8;
+/** The longest key or label of a limit. */
+const USAGE_NAME_LIMIT = 60;
+/** How many entries of a limits list are looked at, at most, to find the ones that fit. */
+const USAGE_SCAN = 64;
+
+/** One line of plain text: control characters become spaces, runs of space one, cut to a length. Empty when nothing is left. */
+const plain = (value: unknown, limit: number): string =>
+  typeof value === 'string'
+    ? Array.from(value, (character) => (character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127 ? ' ' : character))
+        .join('')
+        .split(/\s+/)
+        .filter(Boolean)
+        .join(' ')
+        .slice(0, limit)
+        .trim()
+    : '';
+
+function toLimit(value: unknown): AutoLimit | null {
+  const limit = fields(value);
+  if (!limit) return null;
+  const key = plain(limit.key, USAGE_NAME_LIMIT);
+  const label = plain(limit.label, USAGE_NAME_LIMIT);
+  if (!key || !label) return null;
+  if (typeof limit.used !== 'number' || !Number.isFinite(limit.used)) return null;
+  return {
+    key,
+    label,
+    used: Math.min(1, Math.max(0, limit.used)),
+    resetsAt: time(limit.resets_at),
+    status: plain(limit.status, 40),
+    seenAt: time(limit.seen_at),
+  };
+}
+
+/**
+ * How much of the plan is used, or null when the answer does not fit. Only
+ * the plan's name is read from the account: its email never enters Opal.
+ * Limits without a key or a label, with a `used` that is not a number, or
+ * with a key already seen are left out; at most eight are kept, in the
+ * order sent.
+ */
+export function toUsage(value: unknown): AutoUsage | null {
+  const body = fields(value);
+  if (!body || !Array.isArray(body.limits)) return null;
+  const account = fields(body.account);
+  const seen = new Set<string>();
+  const limits: AutoLimit[] = [];
+  for (const entry of body.limits.slice(0, USAGE_SCAN)) {
+    if (limits.length >= USAGE_LIMITS) break;
+    const limit = toLimit(entry);
+    if (!limit || seen.has(limit.key)) continue;
+    seen.add(limit.key);
+    limits.push(limit);
+  }
+  return { plan: account ? plain(account.plan, USAGE_NAME_LIMIT) : '', limits, asOf: time(body.as_of) };
+}
+
 /** A list stream event, or null for a kind Opal does not know or a body that does not fit it. */
 export function toListEvent(kind: string, data: unknown): AutoListEvent | null {
   switch (kind) {
@@ -468,6 +529,7 @@ export function toListEvent(kind: string, data: unknown): AutoListEvent | null {
       const body = fields(data);
       return body && validDate(body.date) ? { kind, date: body.date } : null;
     }
+    case 'usage':
     case 'reset':
       return { kind };
     default:

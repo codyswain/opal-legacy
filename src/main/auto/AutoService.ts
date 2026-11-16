@@ -11,6 +11,7 @@ import {
   toThread,
   toThreadEvent,
   toThreads,
+  toUsage,
   validCursor,
   validThreadId,
 } from '@/common/autoModel';
@@ -158,6 +159,8 @@ function shape(kind: AutoRoute['kind'], data: unknown): unknown {
       return toDigest(body);
     case 'digests':
       return toDigestDays(body);
+    case 'usage':
+      return toUsage(body);
     default: {
       const thread = toThread(body.thread);
       return thread ? { thread } : null;

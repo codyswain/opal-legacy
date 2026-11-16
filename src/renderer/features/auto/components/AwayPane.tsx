@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { AutoThread } from '@/types/auto';
 import { Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuShortcut, ContextMenuTrigger } from '@/renderer/shared/ui';
+import { useNow } from '@/renderer/shared/hooks/useNow';
 import { cn } from '@/renderer/shared/utils';
 import { awayDetail, returnsLine } from '../model/awayModel';
 import { dayTitle } from '../model/digestModel';
@@ -15,7 +16,7 @@ import { PAGE_FIRST, PAGE_TOP, byKey, focusPageAfterClose, focusRowNow, keepFocu
 import { paneHeader } from './Box';
 import { SnoozeButton } from './SnoozeMenu';
 import { ThreadLine } from './ThreadLine';
-import { RowMenuItems, useNow } from './ThreadList';
+import { RowMenuItems } from './ThreadList';
 
 /** Where the page was scrolled to, and the row that was its Tab stop: coming back to it finds both. */
 const AWAY_PLACE = 'away';

@@ -145,6 +145,9 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return get(base, route.date ? `/api/digest?date=${route.date}` : '/api/digest');
     case 'digests':
       return get(base, '/api/digests');
+    case 'usage':
+      // Read only, and nothing from the page goes into the path.
+      return get(base, '/api/usage');
     case 'digest-archive':
       return post(base, '/api/digest/archive', { date: route.date, archived: route.archived });
     case 'digest-resolve':
@@ -229,6 +232,8 @@ export function validRoute(value: unknown): AutoRoute | null {
         : null;
     case 'digests':
       return { kind: 'digests' };
+    case 'usage':
+      return { kind: 'usage' };
     case 'digest':
       return route.date === null || validDate(route.date) ? { kind: 'digest', date: route.date as string | null } : null;
     case 'digest-archive':

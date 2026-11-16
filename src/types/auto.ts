@@ -242,6 +242,30 @@ export interface AutoStatus {
   models: Record<string, string>;
 }
 
+/** One of the plan's limits, as the service last saw it. */
+export interface AutoLimit {
+  key: string;
+  /** The service's own name for it: "Weekly, all models". */
+  label: string;
+  /** How much of it is used, 0 to 1. */
+  used: number;
+  /** When its window starts again, in Unix seconds. */
+  resetsAt: number | null;
+  /** The service's word for it: `allowed`, `rejected`, or another. */
+  status: string;
+  /** When the service last saw this number, in Unix seconds. The numbers move only when a thread runs. */
+  seenAt: number | null;
+}
+
+/** How much of the plan the service's agent has used. Opal never reads the account's email. */
+export interface AutoUsage {
+  /** The plan's name, or '' when the service names none. */
+  plan: string;
+  /** In the order the service sends them. */
+  limits: AutoLimit[];
+  asOf: number | null;
+}
+
 /** An answer to an open question, as the service takes it. */
 export type AutoAnswer =
   | { id: string; answers: Record<string, string | string[]>; allow?: undefined; message?: undefined }
@@ -285,7 +309,9 @@ export type AutoRoute =
    * Makes an entry a thread. With `words` it starts with the entry and his
    * words; without, it waits on top of the list until he says something.
    */
-  | { kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null };
+  | { kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null }
+  /** How much of the plan the service's agent has used. Read only. */
+  | { kind: 'usage' };
 
 /** What each request answers with. */
 export interface AutoRouteData {
@@ -312,6 +338,7 @@ export interface AutoRouteData {
   'digest-resolve': AutoDigest;
   'digest-note': AutoDigest;
   'digest-thread': { thread: AutoThread };
+  usage: AutoUsage;
 }
 
 /**
@@ -349,6 +376,8 @@ export type AutoListEvent =
   | { kind: 'status'; status: AutoStatus }
   /** That day's digest changed. */
   | { kind: 'digest'; date: string }
+  /** The plan's usage numbers changed. */
+  | { kind: 'usage' }
   | { kind: 'reset' };
 
 /** One event of a thread's stream. */
