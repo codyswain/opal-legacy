@@ -5,6 +5,7 @@ import {
   DOT,
   fullest,
   isReset,
+  resetWords,
   shownLimits,
   ringFill,
   ringLabel,
@@ -164,9 +165,23 @@ describe('the words for the plan usage', () => {
     ]), NOW);
     expect(rows.map(({ label, when, percent, fill }) => ({ label, when, percent, fill }))).toEqual([
       { label: 'Weekly · all models', when: 'Resets Fri 10:00 pm', percent: '45%', fill: 0.45 },
-      { label: 'Weekly · Large', when: 'Resets tomorrow 9:00 am', percent: '73%', fill: 0.73 },
+      { label: 'Weekly · Large', when: 'Resets Thu 9:00 am', percent: '73%', fill: 0.73 },
       { label: 'Weekly · none', when: '', percent: '20%', fill: 0.2 },
     ]);
+  });
+
+  it('says a reset today by its time, one to seven days out by weekday and time, and further by date alone', () => {
+    const on = (day: number, hour: number, minute = 0, year = 2026, month = 10) => Math.floor(new Date(year, month, day, hour, minute).getTime() / 1000);
+    expect(resetWords(on(18, 17, 40), NOW)).toBe('Resets 5:40 pm');
+    expect(resetWords(on(18, 23, 59), NOW)).toBe('Resets 11:59 pm');
+    expect(resetWords(on(19, 0, 5), NOW)).toBe('Resets Thu 12:05 am');
+    expect(resetWords(on(24, 11), NOW)).toBe('Resets Tue 11:00 am');
+    // A week to the minute: the weekday and time, not the date.
+    expect(resetWords(Math.floor(NOW / 1000) + 7 * 86_400, NOW)).toBe('Resets Wed 12:00 pm');
+    expect(resetWords(on(25, 23, 59), NOW)).toBe('Resets Wed 11:59 pm');
+    expect(resetWords(on(26, 0, 30), NOW)).toBe('Resets Nov 26');
+    expect(resetWords(on(30, 11), NOW)).toBe('Resets Nov 30');
+    expect(resetWords(on(4, 11, 0, 2027, 0), NOW)).toBe('Resets Jan 4, 2027');
   });
 
   it('leaves a limit past its reset time out of the rows and the ring', () => {

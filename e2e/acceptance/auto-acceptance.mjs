@@ -2137,6 +2137,27 @@ async function tour() {
     await page.mouse.click(WIDTH / 2, 120);
     check('a click outside closes it', await until(async () => (await ringPopover.count()) === 0, 3_000));
 
+    // A weekly limit that resets a week from now, to the second: at 360 wide its label, its reset words and its percent all show whole.
+    service.setUsage({ limits: [
+      { key: 'seven_day', label: 'Weekly, all models', used: 0.45, resets_at: Math.floor(Date.now() / 1000) + 7 * 86400 },
+      { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 },
+    ] });
+    await until(async () => (await fillOf(threadRing)) === '0.73');
+    await threadRing.click();
+    await ringPopover.waitFor({ timeout: 5_000 });
+    const weekOut = await until(async () => /^Weekly · all models\s?Resets [A-Za-z]{3} \d{1,2}:\d{2} [ap]m\s?45%$/.test((await rowsText())[0] ?? ''), 3_000);
+    const whole = await ringPopover.getByTestId('auto-usage-row').first().evaluate((row) => {
+      const part = (id) => {
+        const element = row.querySelector(`[data-testid="${id}"]`);
+        return element ? { text: element.textContent, scroll: element.scrollWidth, client: element.clientWidth } : null;
+      };
+      return { width: Math.round(row.closest('[data-testid="auto-usage-popover"]').getBoundingClientRect().width), label: part('auto-usage-label'), when: part('auto-usage-when'), percent: part('auto-usage-percent') };
+    });
+    const shown = (part) => part && part.scroll <= part.client;
+    check('at 360 wide a weekly limit a week out shows its whole label, its whole reset words and its percent', weekOut && whole.width === 360 && shown(whole.label) && shown(whole.when) && shown(whole.percent) && whole.label.text === 'Weekly · all models', JSON.stringify(whole));
+    await key('Escape');
+    await until(async () => (await ringPopover.count()) === 0);
+
     // A limit past its reset time is left out until the service drops it; alone, it leaves no ring.
     const nowSeconds = Math.floor(Date.now() / 1000);
     service.setUsage({ limits: [

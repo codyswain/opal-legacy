@@ -101,11 +101,20 @@ export function UsageRing({ field }: { field: React.RefObject<HTMLTextAreaElemen
         <ul className="flex flex-col gap-2">
           {rows.map((row) => (
             <li key={row.key} data-testid="auto-usage-row" className="flex flex-col">
+              {/* The label and the percent never give way; the reset words are cut first if a row is ever too tight. */}
               <div className="flex min-w-0 items-baseline gap-3 text-ui">
-                <span className="min-w-0 flex-1 truncate text-foreground">{row.label}</span>
-                <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums text-foreground-secondary">
-                  {row.when ? <span data-testid="auto-usage-when">{row.when}</span> : null}
-                  <span data-testid="auto-usage-percent">{row.percent}</span>
+                <span data-testid="auto-usage-label" className="shrink-0 whitespace-nowrap text-foreground">
+                  {row.label}
+                </span>
+                <span className="flex min-w-0 flex-1 items-baseline justify-end gap-1.5 tabular-nums text-foreground-secondary">
+                  {row.when ? (
+                    <span data-testid="auto-usage-when" className="min-w-0 truncate">
+                      {row.when}
+                    </span>
+                  ) : null}
+                  <span data-testid="auto-usage-percent" className="shrink-0 whitespace-nowrap">
+                    {row.percent}
+                  </span>
                 </span>
               </div>
               <div className="mt-2 h-1 w-full overflow-hidden rounded-full" style={{ background: 'hsl(var(--usage-bar-track))' }}>

@@ -1,5 +1,5 @@
 import type { AutoLimit, AutoUsage } from '@/types/auto';
-import { lower, returns } from './awayModel';
+import { clockTime, dayGap, shortDate, shortWeekday } from './clock';
 
 /*
  * The words for how much of the plan is used: the ring by the message box
@@ -41,6 +41,18 @@ export function ringLabel(usage: AutoUsage, now: number): string {
 /** The popover's header: "Plan usage limits · Pro". */
 export const usageHeader = (usage: AutoUsage): string => (usage.plan ? `Plan usage limits${DOT}${usage.plan}` : 'Plan usage limits');
 
+/**
+ * When a limit's window starts again, short enough to leave its label whole:
+ * "Resets 5:40 pm" today, "Resets Mon 11:00 am" one to seven days out
+ * (tomorrow and a week to the minute included), and "Resets Nov 30" further.
+ */
+export function resetWords(seconds: number, now: number): string {
+  const days = dayGap(seconds, now);
+  if (days <= 0) return `Resets ${clockTime(seconds)}`;
+  if (days <= 7) return `Resets ${shortWeekday(seconds)} ${clockTime(seconds)}`;
+  return `Resets ${shortDate(seconds, now)}`;
+}
+
 export interface UsageRow {
   key: string;
   /** "Weekly · all models". */
@@ -58,7 +70,7 @@ export function usageRows(usage: AutoUsage, now: number): UsageRow[] {
   return shownLimits(usage, now).map((limit) => ({
     key: limit.key,
     label: usageLabel(limit.label),
-    when: limit.resetsAt === null ? '' : `Resets ${lower(returns(limit.resetsAt, now))}`,
+    when: limit.resetsAt === null ? '' : resetWords(limit.resetsAt, now),
     percent: `${usagePercent(limit.used)}%`,
     fill: limit.used,
   }));
