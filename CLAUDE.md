@@ -260,7 +260,11 @@ not exist.
   digest is read and followed the same way) (it holds back no ping), and
   one thread's only while the tab is in view (an open one does), each
   opened again after a wait from its last cursor, and read again from
-  scratch on a `reset`. Every answer is read into
+  scratch on a `reset`. The list, and the digest with it, is also read
+  again when the window comes back to the front five minutes or more after
+  the last read, when the day turns, and when the clock jumps as after
+  sleep (`useAutoReread.ts`, at most once a minute, never while out of
+  reach), keeping the open thread, the day shown and the entry open. Every answer is read into
   Opal's own shapes by `src/common/autoModel.ts`, which drops what does not
   fit. In the renderer, `features/auto`: `listModel.ts` (the list's groups,
   set in one place: "For the Mac" for threads the service says are marked,

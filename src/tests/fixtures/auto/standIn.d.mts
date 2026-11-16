@@ -37,6 +37,8 @@ export interface StandIn {
     left: number;
     sections: Array<{ title: string; entries: Array<{ id: string; state: string; thread: string | null; note: string }> }>;
   } | null;
+  /** A new day's digest is written; the list stream says nothing of it. Entries are `{ id, kind, title, md, note, resolved }`. */
+  addDigest: (date: string, sections: Array<{ title: string; entries: Array<Record<string, unknown> & { id: string }> }>) => void;
   signOut: (out?: boolean) => void;
   failWrites: (how: false | 'refuse' | 'drop') => void;
   /** Every answer but a stream's waits this many ms; 0 stops it. */

@@ -34,7 +34,8 @@
 // heard, the reply, "Until a reply" from the snooze menu, nobody replying),
 // the digest archived from its queue and its own row and brought back, a click on a row's icon that leaves the caret in a page, pinned pages shown in full, how long a thread has been
 // working, words before a digest thread, what Undo leaves behind, words
-// begun before a card arrived, and the queue's own keys. Saves light and
+// begun before a card arrived, the queue's own keys, and a new day's digest
+// that no event announced, read when the window comes back to the front. Saves light and
 // dark screenshots of each at 1500 x 933 for people to look at; nothing
 // compares them. Run from the repository root after the Vite bundles are built (see
 // README.md here):
@@ -2042,6 +2043,36 @@ async function tour() {
       return !!view && !!row && view.height >= row.height * 2 - 1;
     }));
     await shot(83, 'pinned-long-tree');
+
+    // --- A new day's digest that no event announced: read again when the window comes back to the front.
+    const NEW_DAY = '2026-11-14';
+    await digestRow.click();
+    await until(async () => (await textOf('auto-queue-day')) === 'Friday, November 13');
+    const rowBefore = await digestSays();
+    service.addDigest(NEW_DAY, [
+      { title: 'Top 3', entries: [
+        { id: 'item-1', kind: 'item', title: 'Stake the beans', n: 1, checked: false, priority: '', note: '', draft: null, md: 'Before the wind on Sunday.' },
+        { id: 'item-2', kind: 'item', title: 'Net the peas', n: 2, checked: false, priority: '', note: '', draft: null, md: 'The pigeons found them.' },
+      ] },
+    ]);
+    await wait(1_500);
+    check('a digest written with no event leaves the row and the queue as they were', (await digestSays()) === rowBefore && (await textOf('auto-queue-day')) === 'Friday, November 13', await digestSays());
+    const digestReads = () => service.requests.filter((request) => request.method === 'GET' && request.path === '/api/digest').length;
+    const latestReadsBefore = digestReads();
+    // The last read made six minutes old by moving the page's clock on, then the window's return to the front.
+    await page.evaluate(() => {
+      const real = Date.now.bind(Date);
+      window.__realNow = real;
+      Date.now = () => real() + 6 * 60_000;
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    check('back in front with the last read old, the Digest row counts the new day without a relaunch', await until(async () => (await digestSays()) === 'Digest2 left'), await digestSays());
+    check('and the queue shows the new day', await until(async () => (await textOf('auto-queue-day')) === 'Saturday, November 14' && (await entryIds()).join() === 'item-1,item-2'), `${await textOf('auto-queue-day')} ${(await entryIds()).join()}`);
+    check('the latest digest was read once more', digestReads() === latestReadsBefore + 1, `${digestReads() - latestReadsBefore}`);
+    await page.evaluate(() => {
+      Date.now = window.__realNow;
+    });
 
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);
