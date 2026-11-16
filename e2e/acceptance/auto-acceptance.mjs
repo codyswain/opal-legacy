@@ -2297,12 +2297,14 @@ async function tour() {
     const PLAIN_MATCH = '5a0000000009';
     const continuesLines = () => queue.locator('[data-testid="auto-entry-continues"]').evaluateAll((lines) => lines.map((line) => line.closest('li')?.getAttribute('data-testid')?.replace('auto-entry-', '')));
     /** An entry's box, and where its title line and words sit inside it. */
+    /** `height` is the entry's own words; the row around it keeps a least height for its actions, which `outer` measures. */
     const entryGeometry = (id) => entry(id).evaluate((item) => {
       const box = item.getBoundingClientRect();
+      const own = item.querySelector('[data-auto-entry]')?.getBoundingClientRect();
       const title = item.querySelector('[data-auto-entry] p')?.getBoundingClientRect();
       const words = item.querySelector('[data-testid="auto-entry-words"]')?.getBoundingClientRect();
       const line = item.querySelector('[data-testid="auto-entry-continues"]')?.getBoundingClientRect();
-      return { height: box.height, width: box.width, title: title ? [title.top - box.top, title.left - box.left, title.height] : null, words: words ? [words.top - box.top, words.left - box.left, words.height] : null, line: line ? line.height + parseFloat(getComputedStyle(item.querySelector('[data-testid="auto-entry-continues"]')).marginTop) : 0 };
+      return { height: own?.height ?? 0, outer: box.height, width: box.width, title: title ? [title.top - box.top, title.left - box.left, title.height] : null, words: words ? [words.top - box.top, words.left - box.left, words.height] : null, line: line ? line.height + parseFloat(getComputedStyle(item.querySelector('[data-testid="auto-entry-continues"]')).marginTop) : 0 };
     });
     const leftCount = async () => Number(((await textOf('auto-queue-left')) ?? '').replace(/\D+/g, ''));
     /** The last message he sent a thread, from what the stand-in holds. */
