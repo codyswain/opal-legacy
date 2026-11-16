@@ -97,10 +97,12 @@ export function UsageRing({ field }: { field: React.RefObject<HTMLTextAreaElemen
             <li key={row.key} data-testid="auto-usage-row" className="flex flex-col">
               <div className="flex min-w-0 items-baseline gap-3 text-ui">
                 <span className="min-w-0 flex-1 truncate text-foreground">{row.label}</span>
-                <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums text-foreground-secondary">
-                  {row.when ? <span data-testid="auto-usage-when">{row.when}</span> : null}
-                  {row.percent ? <span data-testid="auto-usage-percent">{row.percent}</span> : null}
-                </span>
+                {row.percent ? (
+                  <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums text-foreground-secondary">
+                    {row.when ? <span data-testid="auto-usage-when">{row.when}</span> : null}
+                    <span data-testid="auto-usage-percent">{row.percent}</span>
+                  </span>
+                ) : null}
               </div>
               <div className="mt-2 h-1 w-full overflow-hidden rounded-full" style={{ background: 'hsl(var(--usage-bar-track))' }}>
                 <div
@@ -110,6 +112,12 @@ export function UsageRing({ field }: { field: React.RefObject<HTMLTextAreaElemen
                   style={{ width: `${Math.min(1, Math.max(0, row.fill)) * 100}%`, background: 'var(--usage)' }}
                 />
               </div>
+              {/* A window that is over says so under its empty bar, where a stale row says when it was seen: the label keeps its room. */}
+              {row.percent === null && row.when ? (
+                <span data-testid="auto-usage-when" className="mt-1 self-end text-metadata tabular-nums text-foreground-tertiary">
+                  {row.when}
+                </span>
+              ) : null}
               {row.asOf ? (
                 <span data-testid="auto-usage-as-of" className="mt-1 self-end text-metadata tabular-nums text-foreground-tertiary">
                   {row.asOf}
