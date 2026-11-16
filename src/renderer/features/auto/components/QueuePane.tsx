@@ -22,7 +22,7 @@ import { keepPlace, placeIn, placeOf, queuePlace } from '../model/places';
 import { useAutoStore } from '../store/autoStore';
 import { QUEUE_FIRST, QUEUE_TOP, selectDay, useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
-import { focusRowNow, rovingTarget } from './focus';
+import { focusRowNow, keepFocus, rovingTarget } from './focus';
 import { ThreadLine } from './ThreadLine';
 import { useGrow } from './ThreadPane';
 
@@ -233,7 +233,7 @@ function Act({ label, hint, onClick }: { label: string; hint: string; onClick: (
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button size="compact" variant="ghost" tabIndex={-1} onClick={onClick}>
+        <Button size="compact" variant="ghost" tabIndex={-1} onMouseDown={keepFocus} onClick={onClick}>
           {label}
         </Button>
       </TooltipTrigger>

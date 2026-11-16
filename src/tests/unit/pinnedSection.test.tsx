@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -126,8 +126,32 @@ describe('PinnedSection', () => {
     renderSidebar();
     expect(shown()).toEqual(['10-30 Fri', 'investors', 'photo.png', 'plan']);
     expect(pinned(INVESTORS)).toHaveAttribute('title', 'Vault/Library/parametric/investors.md');
-    // The list scrolls past 40% of the sidebar; rows must not shrink below the tree's row height first.
+    // Past eight the list scrolls; rows must not shrink below the tree's row height first.
     expect(pinned(INVESTORS)).toHaveClass('h-row-compact', 'shrink-0');
+  });
+
+  it('shows every pin under Library with no label of its own, and scrolls only from the ninth, with the fade', () => {
+    const three = [DAY, INVESTORS, NOTES];
+    setPins({ [ROOT]: three });
+    renderSidebar();
+    const section = screen.getByTestId('pinned-section');
+    // No cap on the section and no scroller inside it: the pins take their rows' height.
+    expect(section.className).not.toMatch(/max-h-/);
+    const list = section.querySelector('[data-pin-path]')?.parentElement as HTMLElement;
+    expect(list.className).not.toContain('overflow-y-auto');
+    expect(list.style.maxHeight).toBe('');
+    // "Pinned" is said to a screen reader only.
+    expect(screen.getByText('Pinned')).toHaveClass('sr-only');
+    // Library keeps room for its heading, the three pins and two rows of the tree.
+    expect(screen.getByTestId('sidebar-library').style.minHeight).toContain('6 * var(--row-height-compact)');
+
+    const many = Array.from({ length: 10 }, (_each, n) => `/Vault/page-${n + 1}.md`);
+    act(() => setPins({ [ROOT]: many }));
+    const tall = screen.getByTestId('pinned-section').querySelector('[data-pin-path]')?.parentElement as HTMLElement;
+    expect(tall.className).toContain('overflow-y-auto');
+    expect(tall.className).toContain('sidebar-fade');
+    expect(tall.style.maxHeight).toBe('calc(8 * var(--row-height-compact) + 7 * 0.125rem)');
+    expect(screen.getByTestId('sidebar-library').style.minHeight).toContain('11 * var(--row-height-compact)');
   });
 
   it('names a pinned day made as a document as the tree does', () => {

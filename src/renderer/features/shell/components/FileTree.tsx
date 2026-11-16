@@ -39,7 +39,7 @@ import {
   ContextMenuTrigger,
 } from '@/renderer/shared/ui';
 import { useRootLength } from '@/renderer/shared/hooks/useRootLength';
-import { cn } from '@/renderer/shared/utils';
+import { cn, fadeOf, markFade } from '@/renderer/shared/utils';
 import {
   flattenFileTree,
   type FileTreeNode,
@@ -61,7 +61,7 @@ const rowIndent = (depth: number) => `${depth * TREE_INDENT + 8}px`;
 const MAX_STICKY_LEVELS = 4;
 /** The look a tree row and its stuck copy share. */
 const ROW_CLASS = cn(
-  'ml-sidebar-inset mr-tree-row-end flex h-row-compact cursor-default select-none items-center gap-sidebar-icon-gap rounded-sidebar-row pr-2 text-ui text-sidebar-label outline-none',
+  'ml-sidebar-inset flex h-row-compact cursor-default select-none items-center gap-sidebar-icon-gap rounded-sidebar-row pr-2 text-ui text-sidebar-label outline-none',
   'transition-hover hover:bg-surface-hover hover:text-foreground'
 );
 /** Keys typed within this window extend the type-ahead prefix. */
@@ -684,6 +684,15 @@ export function FileTree({ onNavigate }: FileTreeProps) {
     return () => outer.removeEventListener('scroll', follow);
   }, [hasRows]);
 
+  // A cut edge of the tree fades, as Threads' does. The top fades only while no folder row is stuck there:
+  // the stuck rows already say what is above, and stay readable.
+  React.useLayoutEffect(() => {
+    const outer = listOuterRef.current;
+    if (!outer) return;
+    const fade = fadeOf(outer);
+    markFade(outer, stuck.length > 0 ? (fade === 'both' ? 'bottom' : fade === 'top' ? null : fade) : fade);
+  });
+
   // A stuck row scrolls the tree to the folder's own row, just below its
   // parents' stuck rows, and focuses it there, as VS Code does.
   const showStuckFolder = React.useCallback(
@@ -812,8 +821,8 @@ export function FileTree({ onNavigate }: FileTreeProps) {
                   outerRef={listOuterRef}
                   height={listHeight}
                   width="100%"
-                  // The scroll area's gutter (--tree-scrollbar-gutter in index.css).
-                  className="sidebar-tree-scroll"
+                  // The scroll area keeps a gutter as wide as the inset (.sidebar-tree-scroll in index.css).
+                  className="sidebar-tree-scroll sidebar-fade"
                   itemCount={nodes.length}
                   itemData={itemData}
                   itemKey={itemKey}

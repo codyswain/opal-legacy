@@ -11,6 +11,8 @@ interface SidebarFoldProps {
   /** Wraps the heading, as a context menu does. */
   wrapHeading?: (heading: React.ReactElement) => React.ReactElement;
   className?: string;
+  /** Inline style for the section, as a height kept while its rows are read. */
+  style?: React.CSSProperties;
   /** The section's own element when it is open. */
   bodyClassName?: string;
   /** Data attributes for the section's element. */
@@ -23,7 +25,7 @@ interface SidebarFoldProps {
  * and kept open or folded across launches. Enter, Space and a click fold
  * and open it, Left folds it and Right opens it.
  */
-export function SidebarFold({ fold, label, trailing, wrapHeading, className, bodyClassName, marks, children }: SidebarFoldProps) {
+export function SidebarFold({ fold, label, trailing, wrapHeading, className, style, bodyClassName, marks, children }: SidebarFoldProps) {
   const open = useShellStore((state) => (fold === 'threads' ? state.threadsOpen : state.libraryOpen));
   const setOpen = (next: boolean) => useShellStore.getState().setFoldOpen(fold, next);
   const bodyId = React.useId();
@@ -44,7 +46,8 @@ export function SidebarFold({ fold, label, trailing, wrapHeading, className, bod
           event.preventDefault();
         }}
         className={cn(
-          'flex h-full min-w-0 flex-1 items-center gap-1 rounded-sidebar-row px-2 text-left text-label font-sidebar-group-label text-foreground-tertiary outline-none',
+          // One step stronger than the labels inside the section ("For the Mac"), so the column reads as two sections.
+          'flex h-full min-w-0 flex-1 items-center gap-1 rounded-sidebar-row px-2 text-left text-label font-medium text-foreground-secondary outline-none',
           'transition-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus'
         )}
       >
@@ -56,7 +59,7 @@ export function SidebarFold({ fold, label, trailing, wrapHeading, className, bod
   );
 
   return (
-    <section {...marks} aria-label={label} data-testid={`sidebar-${fold}`} data-open={open || undefined} className={cn('flex min-h-0 flex-col', className)}>
+    <section {...marks} aria-label={label} data-testid={`sidebar-${fold}`} data-open={open || undefined} className={cn('flex min-h-0 flex-col', className)} style={style}>
       {wrapHeading ? wrapHeading(heading) : heading}
       {open ? (
         <div id={bodyId} className={cn('flex min-h-0 flex-col', bodyClassName)}>

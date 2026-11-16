@@ -1,7 +1,8 @@
 import type { AutoThread } from '@/types/auto';
 import { isWaitingOnReply, lower, returns, waitLine } from '../model/awayModel';
 import { nextAfter, putBack, shownOrder, upsertThread } from '../model/listModel';
-import { NEW_THREAD } from '../model/pane';
+import { AWAY, NEW_THREAD } from '../model/pane';
+import { PAGE_TOP, byKey, giveBack, pageNext } from '../components/focus';
 import { autoApi, heldPlaces, unconfirmedThreads, useAutoStore } from './autoStore';
 import { useDigestStore } from './digestStore';
 import { UNDO_MS, useSaidStore } from './saidStore';
@@ -22,8 +23,24 @@ import { useThreadStore } from './threadStore';
  * "Back in the list." for what is brought back.
  */
 
-/** Where the action came from: a row keeps the keyboard in the list, the open thread's header keeps it in the box. */
-export type From = 'row' | 'pane';
+/**
+ * Where the action came from: a row of the sidebar keeps the keyboard in the
+ * list, the open thread's header keeps it in the box, and a row of the Put
+ * away page keeps it on the page. Only an action taken with a key moves the
+ * keyboard on to the next row; after the pointer it goes back to where it was.
+ */
+export type From = 'row' | 'pane' | 'page';
+
+/** The keyboard after an action on a row: onto `row` when a key did it, else back to where it was before the click. */
+function keyboardTo(from: From, row: string | null): void {
+  if (from === 'pane') return;
+  if (!byKey()) {
+    giveBack();
+    return;
+  }
+  if (from === 'row') useAutoStore.getState().requestFocus(row ?? NEW_THREAD);
+  else useAutoStore.getState().requestPageFocus(row ?? PAGE_TOP);
+}
 
 const UNREACHABLE = "Can't reach Auto.";
 /** What the line says of anything brought back: a snoozed thread, a waiting one, an archived one. */
@@ -63,11 +80,12 @@ function sayWhoOnceFound(id: string, offer: number): void {
  */
 function moveOn(thread: AutoThread, from: From): boolean {
   const auto = useAutoStore.getState();
-  const next = nextAfter(shownOrder(auto.threads, { waiting: auto.waitingOpen, snoozed: auto.snoozedOpen }), thread.id);
   const pane = useThreadStore.getState();
+  const next = nextAfter(shownOrder(auto.threads, pane.hold), thread.id);
   const wasOpen = pane.openId === thread.id;
-  if (wasOpen) pane.open(next, { focus: from === 'pane' });
-  if (from === 'row') auto.requestFocus(next ?? NEW_THREAD);
+  // Opened from the Put away page, a thread that leaves gives the pane back to that page.
+  if (wasOpen) pane.open(pane.fromAway ? AWAY : next, { focus: from === 'pane', fromAway: pane.fromAway });
+  keyboardTo(from, from === 'page' ? pageNext(thread.id) : next);
   return wasOpen;
 }
 
@@ -76,8 +94,8 @@ function comeBack(thread: AutoThread, earlier: readonly AutoThread[], wasOpen: b
   const now = useAutoStore.getState().threads;
   const there = now.some((candidate) => candidate.id === thread.id);
   useAutoStore.setState({ threads: there ? upsertThread(now, thread) : putBack(now, earlier, thread) });
-  if (wasOpen) useThreadStore.getState().open(thread.id, { focus: from === 'pane' });
-  if (from === 'row') useAutoStore.getState().requestFocus(thread.id);
+  if (wasOpen) useThreadStore.getState().open(thread.id, { focus: from === 'pane', fromAway: useThreadStore.getState().fromAway });
+  keyboardTo(from, thread.id);
 }
 
 /**
@@ -200,17 +218,21 @@ export async function restoreThread(thread: AutoThread, options: { from?: From }
   const back: AutoThread = { ...thread, archived: false, archivedAt: null };
   const gone: AutoThread = { ...thread, archived: true, archivedAt: thread.archivedAt ?? Date.now() / 1000 };
   let kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, archived: false, archivedAt: null }));
+  // From the page the row leaves it, and the keyboard takes the row in its place there; in the list it goes with the row.
+  const instead = from === 'page' ? pageNext(thread.id) : thread.id;
   useAutoStore.getState().upsert(back);
-  if (from === 'row') useAutoStore.getState().requestFocus(thread.id);
+  keyboardTo(from, instead);
   const said = useSaidStore.getState();
   said.dropSubject(thread.id);
   const post = api.request({ kind: 'archive', id: thread.id, archived: false }).catch((): null => null);
   /** Back in the archive, and still open in the pane if he was reading it. */
   const putAway = () => {
-    const wasOpen = useThreadStore.getState().openId === thread.id;
+    const { openId, fromAway } = useThreadStore.getState();
+    const wasOpen = openId === thread.id;
     leave(thread.id);
     useAutoStore.getState().archiveChanged(gone);
-    if (wasOpen) useThreadStore.getState().open(thread.id, { focus: false });
+    // Leaving the list closed it for a moment; it opens again as it was, from the Put away page if it came from there.
+    if (wasOpen) useThreadStore.getState().open(thread.id, { focus: false, fromAway });
   };
   let undone = false;
   const offer = said.offer({
@@ -222,6 +244,8 @@ export async function restoreThread(thread: AutoThread, options: { from?: From }
       undone = true;
       kept = unconfirmedThreads.keep(thread.id, (now) => ({ ...now, archived: true, archivedAt: gone.archivedAt }));
       putAway();
+      // Back in the archive: from the page, the keyboard goes back onto its row.
+      if (from === 'page') keyboardTo(from, thread.id);
       void post.then(async (result) => {
         if (!result?.success) {
           unconfirmedThreads.end(thread.id, kept);
@@ -321,8 +345,8 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
       },
     });
   } else {
-    // Brought back, it is a row of the list again: the keyboard goes with it.
-    if (from === 'row') useAutoStore.getState().requestFocus(thread.id);
+    // Brought back, it is a row of the list again: the keyboard goes with it. From the page, it takes the row in its place there.
+    keyboardTo(from, from === 'page' ? pageNext(thread.id) : thread.id);
     // It can be put away again as it was: to its time, or on its wait in the words he gave for it.
     const again = thread.snoozed !== null && thread.snoozed * 1000 > now ? thread.snoozed : null;
     const waited = isWaitingOnReply(thread);
@@ -338,6 +362,8 @@ export async function snoozeThread(thread: AutoThread, until: number | null, opt
           undone = true;
           kept = unconfirmedThreads.keep(thread.id, (held) => ({ ...held, snoozed: again, snoozedAt: held.snoozedAt ?? thread.snoozedAt, wait: held.wait ?? thread.wait }));
           useAutoStore.getState().upsert(thread);
+          // Put away again: from the page the keyboard goes back onto its row.
+          if (from === 'page') keyboardTo(from, thread.id);
           void post.then(async (result) => {
             if (!result?.success) {
               unconfirmedThreads.end(thread.id, kept);
@@ -396,8 +422,8 @@ export function answerFromRow(thread: AutoThread, label: string): void {
     useAutoStore.setState({ held });
   };
   useAutoStore.setState({ held: { ...auto.held, [thread.id]: label } });
-  // The button that was clicked has gone with the pick: the keyboard stays on the row.
-  auto.requestFocus(thread.id);
+  // The button that was clicked has gone with the pick: by a key, the keyboard stays on the row.
+  keyboardTo('row', thread.id);
   let offer = 0;
   const timer = setTimeout(() => {
     useSaidStore.getState().drop(offer);
@@ -419,7 +445,7 @@ export function answerFromRow(thread: AutoThread, label: string): void {
     undo: () => {
       clearTimeout(timer);
       release();
-      useAutoStore.getState().requestFocus(thread.id);
+      keyboardTo('row', thread.id);
     },
   });
 }

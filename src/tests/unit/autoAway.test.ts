@@ -239,11 +239,8 @@ describe('what is put away, in the list', () => {
     expect(view.groups.flatMap((group) => ids(group.threads))).toEqual(['a']);
   });
 
-  it('walks only the lines that are open', () => {
-    expect(shownOrder(threads, { waiting: false, snoozed: false })).toEqual(['a']);
-    expect(shownOrder(threads, { waiting: true, snoozed: false })).toEqual(['a', 'soon', 'late']);
-    expect(shownOrder(threads, { waiting: false, snoozed: true })).toEqual(['a', 'nap']);
-    expect(shownOrder(threads, { waiting: true, snoozed: true })).toEqual(['a', 'soon', 'late', 'nap']);
+  it('walks only the list proper: what is put away is on its own page', () => {
+    expect(shownOrder(threads)).toEqual(['a']);
   });
 
   it('says on the row who replied, or that nobody did, once the thread is back and until he opens it', () => {

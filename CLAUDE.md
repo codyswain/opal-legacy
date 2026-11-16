@@ -281,19 +281,26 @@ not exist.
   or nothing), and `markdown/` (replies and digest entries parsed with
   `@lezer/markdown` and drawn as elements, never as HTML). The service ends
   the Mac mark and says when a digest changed; Opal only follows. It never
-  calls the service's tick or inbox routes. What is put away sits behind
-  three quiet lines at the foot of the list, each opened by a click:
-  "Waiting on a reply" (a thread whose `wait` is still open; `toWait` in
+  calls the service's tick or inbox routes. What is put away is one quiet
+  row, "Put away", pinned at the foot of Threads outside its scrolling part
+  and counting what is snoozed or waiting (never the archive); it is the
+  list's last arrow stop and opens the Put away page in the Auto tab
+  (`AwayPane.tsx`, pane `:away`), as the phone's Put away screen: "Waiting
+  on a reply" (a thread whose `wait` is still open; `toWait` in
   `autoModel.ts` reads it: the place is the service's own word, kept as a
   short line of plain text and never matched to a list; the link opens
   only when it is a web address, so a chat's id or a text's number never
   does; and whether the wait is over is the service's `state` alone, never
-  the clock), "Snoozed", and "Archived", which carries no count and reads
-  `GET /api/threads?archived=1` when it opens, the newest ten and then all
+  the clock), "Snoozed", and "Archived", which reads
+  `GET /api/threads?archived=1` each time the page opens, the newest ten and then all
   (`archive` in `autoStore.ts`); archived digests are listed first there.
-  One verb, "Bring back", returns anything from any of them: on its row,
-  above the box of the open thread, on E for an archived row, and in the
-  palette. A thread from a digest entry starts with his words: "Thread" and
+  A thread opened from the page keeps the Put away row marked. One verb,
+  "Bring back", returns anything: the words on a page row, E there, above
+  the box of the open thread, and in the palette, which also has "Go to
+  Put away". Focus moves to the next row only after a key; after a pointer
+  action it goes back where it was (`byKey`, `giveBack` in `focus.ts`), so
+  a page keeps its caret. The open thread keeps its place in the list
+  until another opens (`hold` in `threadStore.ts`). A thread from a digest entry starts with his words: "Thread" and
   T open the entry with the caret in its box, and nothing is made until he
   sends them or picks "Make it without words". `store/actions.ts` holds what he
   does to a thread (archive, done, snooze, bring back): the row leaves at once, the

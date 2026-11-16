@@ -121,7 +121,17 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
 }
 
 const row = (id: string) => screen.getByTestId(`auto-row-${id}`);
-const rowButton = (id: string) => document.querySelector(`[data-auto-list] [data-row-id="${id}"]`) as HTMLElement;
+/** A row's own button, in the sidebar or on the Put away page. */
+const rowButton = (id: string) =>
+  (document.querySelector(`[data-auto-list] [data-row-id="${id}"]`) ?? document.querySelector(`[data-testid="auto-away-page"] [data-row-id="${id}"]`)) as HTMLElement;
+/** What a row of the Put away page offers beside its words: the clock's label, then the words on its button. */
+const actionsOf = (id: string) => [...row(id).querySelectorAll('button:not([data-away-row])')].map((button) => button.getAttribute('aria-label') ?? button.textContent);
+/** Opens the Put away page from its row at the foot of Threads. */
+async function openAway() {
+  fireEvent.click(screen.getByTestId('auto-away-row'));
+  await screen.findByTestId('auto-away-page');
+}
+const headings = () => [...screen.getByTestId('auto-away-page').querySelectorAll('h2')].map((heading) => heading.textContent);
 const rowIds = (within_ = 'auto-list') => [...screen.getByTestId(within_).querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
 /** The threads in the list proper, without what is put away. */
 const listed = () => [...screen.getByTestId('auto-list').querySelectorAll('[data-testid^="auto-group-"] [data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
@@ -170,35 +180,71 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('what is put away, at the foot of the list', () => {
-  it('keeps three quiet lines, and counts what is waiting and what is snoozed but not the archive', async () => {
+describe('what is put away, one row and a page', () => {
+  it('keeps one row at the foot of Threads that counts what is waiting and snoozed, never the archive, and opens the three groups', async () => {
     await open();
     expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
-    expect(screen.getByTestId('auto-waiting-line').textContent).toBe('Waiting on a reply1');
-    expect(screen.getByTestId('auto-snoozed-line').textContent).toBe('Snoozed1');
-    // The archive only grows: its line says its name and nothing else, read or not.
-    expect(screen.getByTestId('auto-archived-line').textContent).toBe('Archived');
-    for (const line of ['auto-waiting-line', 'auto-snoozed-line', 'auto-archived-line']) expect(screen.getByTestId(line).getAttribute('aria-expanded')).toBe('false');
-    // Nothing of the archive is asked for until its line is opened.
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away2');
+    // Outside the part that scrolls, so it is in view however long the list is; no rows behind it in the sidebar.
+    expect(screen.getByTestId('auto-list-rows').contains(screen.getByTestId('auto-away-row'))).toBe(false);
+    expect(screen.queryByTestId('auto-row-glass')).toBeNull();
+    // Nothing of the archive is asked for until the page opens.
     expect(auto.asked('archived')).toEqual([]);
-    fireEvent.click(screen.getByTestId('auto-archived-line'));
+    await openAway();
     await screen.findByTestId('auto-row-gone1');
-    expect(screen.getByTestId('auto-archived-line').textContent).toBe('Archived');
+    expect(headings()).toEqual(['Waiting on a reply', 'Snoozed', 'Archived']);
+    expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away2');
   });
 
-  it('leaves out the lines that hold nothing, and always offers the archive', async () => {
+  it('leaves out the groups that hold nothing, and says so when nothing is archived', async () => {
     await open({ threads: [BEDS, BREAD], archived: [] });
-    expect(screen.queryByTestId('auto-waiting-line')).toBeNull();
-    expect(screen.queryByTestId('auto-snoozed-line')).toBeNull();
-    fireEvent.click(screen.getByTestId('auto-archived-line'));
-    expect(screen.getByTestId('auto-archived-empty').textContent).toBe('Loading the archive.');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away');
+    await openAway();
+    expect(headings()).toEqual(['Archived']);
     await waitFor(() => expect(screen.getByTestId('auto-archived-empty').textContent).toBe('Nothing is archived.'));
+  });
+
+  it('is the last stop of the list’s arrows, and Escape on the page puts the keyboard back on it', async () => {
+    await open();
+    rowButton('inspect').focus();
+    key('ArrowDown');
+    expect(focusedRow()).toBe(':away');
+    key('ArrowDown');
+    expect(focusedRow()).toBe(':away');
+    // By a key, the page opens with the keyboard on its first row.
+    key('Enter');
+    fireEvent.click(document.activeElement as HTMLElement);
+    await screen.findByTestId('auto-away-page');
+    await waitFor(() => expect(focusedRow()).toBe('glass'));
+    await screen.findByTestId('auto-row-gone1');
+    key('j');
+    expect(focusedRow()).toBe('labels');
+    key('ArrowDown');
+    expect(focusedRow()).toBe('gone1');
+    key('k');
+    expect(focusedRow()).toBe('labels');
+    key('Escape');
+    expect(focusedRow()).toBe(':away');
+  });
+
+  it('opens a row to read with the Put away row still marked, and goes back to the page where he left it', async () => {
+    await open();
+    await openAway();
+    await screen.findByTestId('auto-row-gone1');
+    await openThread('glass');
+    expect(screen.getByTestId('auto-away')).toBeInTheDocument();
+    expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
+    // The caret is in the box, as for any thread opened by a click.
+    expect(document.activeElement).toBe(box());
+    await openAway();
+    expect(screen.getByTestId('auto-row-glass')).toBeInTheDocument();
   });
 });
 
 describe('archived threads', () => {
   const openArchive = async () => {
-    fireEvent.click(screen.getByTestId('auto-archived-line'));
+    await openAway();
     await screen.findByTestId('auto-row-gone1');
   };
 
@@ -213,8 +259,8 @@ describe('archived threads', () => {
     expect(within(row('gone1')).getByTestId('auto-archived-when').textContent).toBe('Archived yesterday.');
     expect(within(row('gone2')).getByTestId('auto-archived-when').textContent).toBe('Archived Thu.');
     expect(within(row('gone9')).getByTestId('auto-archived-when').textContent).toBe('Archived Nov 5.');
-    // Only the way back on an archived row.
-    expect(within(row('gone1')).getAllByRole('button').map((button) => button.getAttribute('aria-label')).filter(Boolean)).toEqual(['Bring back']);
+    // Only the way back on an archived row, in words.
+    expect(actionsOf('gone1')).toEqual(['Bring back']);
     expect(screen.getByTestId('auto-archived-all').textContent).toBe('Show all 12');
     fireEvent.click(screen.getByTestId('auto-archived-all'));
     await waitFor(() => expect(rowIds('auto-archived')).toHaveLength(12));
@@ -224,13 +270,13 @@ describe('archived threads', () => {
     expect(auto.asked('thread')).toEqual([]);
   });
 
-  it('reads the archive again each time its line opens, since another device may have archived something', async () => {
+  it('reads the archive again each time the page opens, since another device may have archived something', async () => {
     await open();
     await openArchive();
-    fireEvent.click(screen.getByTestId('auto-archived-line'));
-    expect(screen.queryByTestId('auto-archived')).toBeNull();
+    fireEvent.click(rowButton('bread'));
+    expect(screen.queryByTestId('auto-away-page')).toBeNull();
     auto.state.archived = [autoThread('fresh', { title: 'Fresh one', archived: true, archivedAt: NOW / 1000 - 30 }), ...GONE];
-    fireEvent.click(screen.getByTestId('auto-archived-line'));
+    fireEvent.click(screen.getByTestId('auto-away-row'));
     await screen.findByTestId('auto-row-fresh');
     expect(within(row('fresh')).getByTestId('auto-archived-when').textContent).toBe('Archived just now.');
     expect(auto.asked('archived')).toHaveLength(2);
@@ -239,7 +285,7 @@ describe('archived threads', () => {
   it('says so in the service’s own sentence when the archive cannot be read', async () => {
     await open();
     auto.state.fail = { kind: 'refused', message: 'The service failed.', code: 'server_error', status: 500 };
-    fireEvent.click(screen.getByTestId('auto-archived-line'));
+    await openAway();
     await waitFor(() => expect(screen.getByTestId('auto-archived-empty').textContent).toBe('The service failed.'));
     expect(screen.getByTestId('auto-archived-empty').getAttribute('role')).toBe('alert');
   });
@@ -256,19 +302,21 @@ describe('archived threads', () => {
     expect(screen.getByTestId('auto-away-lead').textContent).toBe('Archived');
     expect(screen.getByTestId('auto-away-detail').textContent).toBe('Yesterday');
     expect(screen.getByTestId('auto-bring-back').textContent).toBe('Bring back');
-    expect(row('gone1').className).toContain('bg-sidebar-selected');
+    expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
   });
 
   it('brings a thread back from its row: it joins the list, the line says so, and Undo archives it again', async () => {
     await open();
     await openArchive();
-    fireEvent.click(screen.getByTestId('auto-restore-gone1'));
+    const before = document.activeElement;
+    await userEvent.setup().click(screen.getByTestId('auto-restore-gone1'));
     // At once, before the service has answered.
     expect(listed()).toContain('gone1');
     expect(rowIds('auto-archived')).not.toContain('gone1');
     expect(said()).toBe('Back in the list.Undo');
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'gone1', archived: false }));
-    await waitFor(() => expect(focusedRow()).toBe('gone1'));
+    // A click leaves the keyboard where it was.
+    expect(document.activeElement).toBe(before);
     // The service's order then says where it sits.
     act(() => auto.list({ kind: 'order', ids: ['beds', 'bread', 'gone1', 'seeds', 'trellis', 'inspect'] }));
     expect(listed()).toEqual(['beds', 'bread', 'gone1', 'seeds', 'trellis', 'inspect']);
@@ -286,10 +334,15 @@ describe('archived threads', () => {
     expect(rowButton('gone2').getAttribute('aria-keyshortcuts')).toBe('E');
     key('e');
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'gone2', archived: false }));
+    // The keyboard takes the row in its place on the page; Cmd+Z puts it back on its own row, not in a box.
+    await waitFor(() => expect(focusedRow()).toBe('gone3'));
+    key('z', { metaKey: true });
+    await waitFor(() => expect(focusedRow()).toBe('gone2'));
+    await waitFor(() => expect(auto.asked('archive')).toHaveLength(2));
     // No other key of a row does anything to an archived one.
     rowButton('gone3').focus();
     for (const name of ['s', 'd', 'm', '1']) key(name);
-    expect(auto.asked('archive')).toHaveLength(1);
+    expect(auto.asked('archive')).toHaveLength(2);
     expect(auto.asked('snooze')).toEqual([]);
     expect(screen.queryByTestId('auto-snooze-menu')).toBeNull();
 
@@ -302,9 +355,23 @@ describe('archived threads', () => {
     expect(screen.getByTestId('auto-title').textContent).toBe('Old thread 1');
 
     auto.state.snapshots.gone4 = autoSnapshot(GONE[3]);
+    await openAway();
+    await screen.findByTestId('auto-row-gone4');
     await openThread('gone4');
     fireEvent.click(screen.getByTestId('auto-bring-back'));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'gone4', archived: false }));
+  });
+
+  it('keeps a thread opened from the page under the marked Put away row when its bringing back is undone', async () => {
+    await open();
+    await openArchive();
+    await openThread('gone1');
+    fireEvent.click(screen.getByTestId('auto-restore-open'));
+    await waitFor(() => expect(screen.getByTestId('auto-archive-open')).toBeInTheDocument());
+    fireEvent.click(within(screen.getByTestId('auto-said')).getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(screen.getByTestId('auto-away')).toBeInTheDocument());
+    expect(screen.getByTestId('auto-title').textContent).toBe('Old thread 1');
+    expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
   });
 
   it('puts it back in the archive with the service’s sentence when the service refuses', async () => {
@@ -322,6 +389,7 @@ describe('archived threads', () => {
     await openArchive();
     rowButton('bread').focus();
     key('e');
+    // On the page, which shows beside the list.
     expect(rowIds('auto-archived')[0]).toBe('bread');
     expect(within(row('bread')).getByTestId('auto-archived-when').textContent).toBe('Archived just now.');
     expect(said()).toBe('Archived: Sourdough timingsUndo');
@@ -352,22 +420,21 @@ describe('archived threads', () => {
 describe('a thread waiting on a reply', () => {
   it('says on its row who it waits on and until when, then what for, where, and what was last heard', async () => {
     await open();
-    fireEvent.click(screen.getByTestId('auto-waiting-line'));
+    await openAway();
     expect(rowIds('auto-waiting')).toEqual(['glass']);
     expect(within(row('glass')).getByTestId('auto-wait-line').textContent).toBe('Waiting on Sam until Tue 5:00 pm');
     expect(within(row('glass')).getByTestId('auto-wait-detail').textContent).toBe('The quote for the glass. In Gmail. Last heard: I will measure the frames on Monday.');
-    // Bring back, then the clock for another time, then Archive.
-    expect(within(row('glass')).getAllByRole('button').map((button) => button.getAttribute('aria-label')).filter(Boolean)).toEqual(['Bring back', 'Snooze', 'Archive']);
+    // The clock for another time, then Bring back in words. Archive is in its right-click menu.
+    expect(actionsOf('glass')).toEqual(['Snooze', 'Bring back']);
     // A thread snoozed to a time says when it returns, and is not among them.
-    fireEvent.click(screen.getByTestId('auto-snoozed-line'));
     expect(rowIds('auto-snoozed')).toEqual(['labels']);
-    expect(within(row('labels')).getByText('Tomorrow 9:00 am')).toBeInTheDocument();
+    expect(within(row('labels')).getByTestId('auto-returns').textContent).toBe('Returns tomorrow 9:00 am');
   });
 
   it('says so in the open thread, above the box, with the conversation one click away', async () => {
     const opened = vi.spyOn(window, 'open').mockReturnValue(null);
     await open();
-    fireEvent.click(screen.getByTestId('auto-waiting-line'));
+    await openAway();
     await openThread('glass');
     expect(screen.getByTestId('auto-away-lead').textContent).toBe('Waiting on Sam until Tue 5:00 pm');
     expect(screen.getByTestId('auto-away-detail').textContent).toBe('The quote for the glass. In Gmail. Last heard: I will measure the frames on Monday. Open the conversation');
@@ -380,7 +447,7 @@ describe('a thread waiting on a reply', () => {
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'glass', until: null }));
     expect(listed()).toContain('glass');
     expect(screen.queryByTestId('auto-away')).toBeNull();
-    expect(screen.queryByTestId('auto-waiting-line')).toBeNull();
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
     // It can be put on the same wait again, in the words he gave for it.
     expect(said()).toBe('Back in the list.Undo');
     fireEvent.click(within(screen.getByTestId('auto-said')).getByRole('button', { name: 'Undo' }));
@@ -391,7 +458,7 @@ describe('a thread waiting on a reply', () => {
   it('offers the conversation only for a web address', async () => {
     for (const link of ['whatsapp:120363', 'imessage:+15550100', 'file:///etc/hosts', 'javascript:alert(1)', '']) {
       const view = await open({ threads: [BREAD, { ...GLASS, wait: wait({ link, heard: '' }) }] });
-      fireEvent.click(screen.getByTestId('auto-waiting-line'));
+      await openAway();
       await openThread('glass');
       expect(screen.getByTestId('auto-away-detail').textContent).toBe('The quote for the glass. In Gmail.');
       expect(screen.queryByTestId('auto-away-link')).toBeNull();
@@ -407,7 +474,7 @@ describe('a thread waiting on a reply', () => {
     const text = { ...GLASS, wait: wait({ where: 'Messages', link: 'imessage:+15550100', heard: '' }) };
     const pigeon = { ...BREAD, snoozed: at(11, 18, 17), snoozedAt: at(11, 14, 10), wait: wait({ on: 'Robin', what: 'the seed list', where: 'Pigeon post', link: '', heard: '' }) };
     await open({ threads: [SEEDS, text, pigeon] });
-    fireEvent.click(screen.getByTestId('auto-waiting-line'));
+    await openAway();
     expect(within(row('glass')).getByTestId('auto-wait-detail').textContent).toBe('The quote for the glass. In Messages.');
     expect(within(row('bread')).getByTestId('auto-wait-detail').textContent).toBe('The seed list. In Pigeon post.');
     // A text's number is not a web address: nothing offers to open it.
@@ -420,7 +487,7 @@ describe('a thread waiting on a reply', () => {
   it('says Finding the conversation, and when it gives up, while Auto is still naming it', async () => {
     // Auto's own line about the wait is a reply nobody has read: a row that is put away still carries no dot.
     await open({ threads: [{ ...BREAD, unread: true }, { ...GLASS, unread: true, wait: wait({ state: 'finding', on: '', what: '', where: '', link: '', check: '', heard: '' }) }] });
-    fireEvent.click(screen.getByTestId('auto-waiting-line'));
+    await openAway();
     expect(within(row('glass')).getByTestId('auto-wait-line').textContent).toBe('Finding the conversation');
     expect(within(row('glass')).getByTestId('auto-wait-detail').textContent).toBe('Gives up Tue 5:00 pm.');
     expect(within(row('bread')).getByRole('img', { name: 'Unread' })).toBeInTheDocument();
@@ -455,9 +522,9 @@ describe('a thread waiting on a reply', () => {
     expect(screen.queryByTestId('auto-snooze-reply')).toBeNull();
     // It leaves the list for the Waiting line, and the line at the foot says so in the phone's words.
     expect(listed()).not.toContain('bread');
-    expect(screen.getByTestId('auto-waiting-line').textContent).toBe('Waiting on a reply2');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away3');
     expect(said()).toBe('Waiting on a reply until Tue 5:00 pm.Undo');
-    fireEvent.click(screen.getByTestId('auto-waiting-line'));
+    await openAway();
     expect(rowIds('auto-waiting')).toEqual(['bread', 'glass']);
     expect(within(row('bread')).getByTestId('auto-wait-line').textContent).toBe('Finding the conversation');
 
@@ -514,7 +581,7 @@ describe('a thread waiting on a reply', () => {
     act(() => auto.list({ kind: 'thread', thread: met }));
     // With what is new, under the question, and no longer behind its line.
     expect(listed()).toEqual(['beds', 'glass', 'bread', 'seeds', 'trellis', 'inspect']);
-    expect(screen.queryByTestId('auto-waiting-line')).toBeNull();
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
     expect(within(row('glass')).getByTestId('auto-wait-back').textContent).toBe('Sam replied: 4 mm toughened, 86 for the lot.');
     act(() => auto.list({ kind: 'thread', thread: { ...met, last: 'No reply from Sam.', wait: wait({ state: 'expired' }) } }));
     expect(within(row('glass')).getByTestId('auto-wait-back').textContent).toBe('No reply from Sam.');
@@ -955,7 +1022,8 @@ describe('where the keyboard goes', () => {
 
   it('brings a snoozed thread back from the palette by the same verb', async () => {
     await open();
-    fireEvent.click(screen.getByTestId('auto-snoozed-line'));
+    await openAway();
+    expect(command('auto.goToAway')).toMatchObject({ name: 'Go to Put away' });
     auto.state.snapshots.labels = autoSnapshot(LABELS);
     await openThread('labels');
     await waitFor(() => expect(command('auto.bringBackThread')).toMatchObject({ name: 'Bring back thread' }));

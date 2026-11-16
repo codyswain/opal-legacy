@@ -1,13 +1,6 @@
 /* Where Threads' rows are cut, and bringing an opened part of them into view. */
 
-export type Fade = 'top' | 'bottom' | 'both' | null;
-
-/** The edges of a scroll area that cut its content: the top once scrolled, the bottom while more is below. */
-export function fadeOf(element: HTMLElement): Fade {
-  const above = element.scrollTop > 1;
-  const below = element.scrollHeight - element.clientHeight - element.scrollTop > 1;
-  return above && below ? 'both' : above ? 'top' : below ? 'bottom' : null;
-}
+export { fadeOf, type Fade } from '@/renderer/shared/utils/scrollFade';
 
 /**
  * Scrolls the least that shows a section just opened: as much of it as

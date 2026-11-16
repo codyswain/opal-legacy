@@ -182,10 +182,10 @@ describe('the mark for the Mac', () => {
     await waitFor(() => expect(screen.queryByTestId('auto-group-desk')).toBeNull());
   });
 
-  it('hides a marked thread that is snoozed behind the Snoozed line', async () => {
+  it('puts a marked thread that is snoozed on the Put away page', async () => {
     await open({ threads: [BREAD, { ...SEEDS, desk: { at: 1_794_000_100, by: 'phone' }, snoozed: 4_000_000_000 }] });
     expect(screen.queryByTestId('auto-group-desk')).toBeNull();
-    expect(screen.getByTestId('auto-snoozed-line').textContent).toBe('Snoozed1');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
   });
 });
 
@@ -738,9 +738,30 @@ describe('archiving the digest', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Archive the digest' }));
   };
   const openArchive = async () => {
-    fireEvent.click(screen.getByTestId('auto-archived-line'));
+    fireEvent.click(screen.getByTestId('auto-away-row'));
     await screen.findByTestId('auto-archived');
   };
+
+  it('archives the digest from its own row, by E or its right-click menu, with Undo', async () => {
+    await open();
+    await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
+    const next = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')][1].getAttribute('data-row-id');
+    digestRow().focus();
+    expect(digestRow().getAttribute('aria-keyshortcuts')).toBe('E');
+    fireEvent.keyDown(digestRow(), { key: 'e' });
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    expect(saidText()).toBe('Digest archived. It is off the list.Undo');
+    // By a key, the keyboard takes the row below.
+    expect(document.activeElement?.getAttribute('data-row-id')).toBe(next);
+    pressSaid('Undo');
+    await waitFor(() => expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument());
+    await userEvent.setup().pointer({ keys: '[MouseRight]', target: digestRow() });
+    const menu = await screen.findByTestId('auto-digest-menu-row');
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Archive the digestE', 'Open the digest']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Archive the digest/ }));
+    await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
+    await waitFor(() => expect(auto.asked('digest-archive').map((route) => route.archived)).toEqual([true, false, true]));
+  });
 
   it('takes the Digest row off the list from the queue’s menu, says so, and Undo puts it back', async () => {
     await openQueue();
@@ -793,15 +814,19 @@ describe('archiving the digest', () => {
     fireEvent.click(row('bread').querySelector('[data-auto-row]') as HTMLElement);
     await screen.findByTestId('auto-thread');
     await openArchive();
-    const rows = [...screen.getByTestId('auto-archived').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'));
+    const rows = [...screen.getByTestId('auto-archived').querySelectorAll('[data-away-row]')].map((element) => element.getAttribute('data-row-id'));
     expect(rows[0]).toBe(`:digest:${DAY}`);
     await waitFor(() => expect(screen.getByTestId('auto-archived').querySelector('[data-thread-id="old"]')).not.toBeNull());
     const digest = screen.getByTestId(`auto-archived-digest-${DAY}`);
-    expect(digest.textContent).toBe('DigestFri Nov 13');
-    fireEvent.click(digest.querySelector('[data-auto-row]') as HTMLElement);
+    expect(within(digest).getByText('Digest')).toBeInTheDocument();
+    expect(within(digest).getByText('Friday, November 13')).toBeInTheDocument();
+    fireEvent.click(digest.querySelector('[data-away-row]') as HTMLElement);
     await screen.findByTestId('auto-queue-pane');
     expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13');
     expect(screen.getByTestId('auto-queue-archived')).toBeInTheDocument();
+    // Opened from the page, the Put away row is the one marked, and it leads back there.
+    expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
+    await openArchive();
     fireEvent.click(screen.getByTestId(`auto-restore-digest-${DAY}`));
     expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument();
     expect(screen.queryByTestId(`auto-archived-digest-${DAY}`)).toBeNull();
@@ -812,7 +837,7 @@ describe('archiving the digest', () => {
     await openQueue();
     await archiveFromMenu();
     await openArchive();
-    const digest = screen.getByTestId(`auto-archived-digest-${DAY}`).querySelector('[data-auto-row]') as HTMLElement;
+    const digest = screen.getByTestId(`auto-archived-digest-${DAY}`).querySelector('[data-away-row]') as HTMLElement;
     expect(digest.getAttribute('aria-keyshortcuts')).toBe('E');
     fireEvent.keyDown(digest, { key: 'e' });
     await waitFor(() => expect(last('digest-archive')).toEqual({ kind: 'digest-archive', date: DAY, archived: false }));
@@ -842,7 +867,7 @@ describe('archiving the digest', () => {
     auto.state.digests[EARLIER] = { ...earlier(), archived: true };
     act(() => auto.list({ kind: 'digest', date: EARLIER }));
     await screen.findByTestId(`auto-archived-digest-${EARLIER}`);
-    fireEvent.click(screen.getByTestId(`auto-archived-digest-${EARLIER}`).querySelector('[data-auto-row]') as HTMLElement);
+    fireEvent.click(screen.getByTestId(`auto-archived-digest-${EARLIER}`).querySelector('[data-away-row]') as HTMLElement);
     await waitFor(() => expect(screen.getByTestId('auto-queue-day').textContent).toBe('Thursday, November 12'));
     expect(screen.getByTestId('auto-queue-all').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('auto-queue-archived')).toBeInTheDocument();

@@ -3,7 +3,7 @@ import { commandRegistry, type Command } from '@/renderer/features/commands/serv
 import { isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { selectCurrentLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { useShell } from '@/renderer/features/shell/context/ShellContext';
-import { DIGEST_QUEUE, NEW_THREAD, paneThread } from './model/pane';
+import { AWAY, DIGEST_QUEUE, NEW_THREAD, paneThread } from './model/pane';
 import { showInAuto } from './openAutoTab';
 import { turnRuns } from './model/threadModel';
 import { archiveThread, restoreThread, snoozeThread } from './store/actions';
@@ -20,7 +20,7 @@ function register(commands: Command[]): () => void {
 
 /**
  * Auto in the palette, once an address is set: a new thread, the digest,
- * and every thread by its title, the archived ones too once the archive
+ * the Put away page, and every thread by its title, the archived ones too once the archive
  * has been read. While the Auto tab is in front with a thread open, that
  * thread can be archived, snoozed, marked and renamed from there, a running
  * turn stopped, and a thread that is put away (archived, snoozed or waiting
@@ -55,6 +55,7 @@ export function useAutoCommands(): void {
     return register([
       { id: 'auto.newThread', name: 'New Auto thread', label: 'New Auto thread', type: 'action', keywords: ['message', 'ask', 'agent', 'start'], perform: () => show(NEW_THREAD) },
       { id: 'auto.openDigest', name: 'Open Auto digest', label: 'Open Auto digest', type: 'navigation', keywords: ['queue', 'today', 'entries'], perform: () => show(DIGEST_QUEUE) },
+      { id: 'auto.goToAway', name: 'Go to Put away', label: 'Go to Put away', type: 'navigation', keywords: ['auto', 'snoozed', 'waiting', 'archived', 'archive', 'reply'], perform: () => show(AWAY) },
       ...named(titles, 'Auto thread'),
       // Findable once the archive has been read: he opens it to read it, and brings it back from there.
       ...named(archived, 'Archived Auto thread'),

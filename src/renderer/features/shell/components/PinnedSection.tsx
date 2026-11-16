@@ -24,8 +24,18 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/renderer/shared/ui';
-import { cn } from '@/renderer/shared/utils';
+import { cn, fadeOf, type Fade } from '@/renderer/shared/utils';
 import { useShell } from '../context/ShellContext';
+
+/** How many pins show before the rest scroll. */
+const MAX_SHOWN = 8;
+
+/** How many pinned rows show without scrolling: each pin once, up to eight. */
+export function usePinnedShown(): number {
+  const roots = useDiskStore((state) => state.roots);
+  const byRoot = usePinsStore((state) => state.byRoot);
+  return React.useMemo(() => Math.min(MAX_SHOWN, new Set(roots.flatMap((root) => byRoot[root] ?? [])).size), [roots, byRoot]);
+}
 
 /** Carries a pinned row while it is dragged to a new place in the list. */
 export const PIN_DRAG_TYPE = 'application/x-opal-pin';
@@ -58,6 +68,12 @@ export function PinnedSection({ onNavigate }: PinnedSectionProps) {
   const [dragging, setDragging] = React.useState<string | null>(null);
   const [dropIndex, setDropIndex] = React.useState<number | null>(null);
   const labelId = React.useId();
+  const [fade, setFade] = React.useState<Fade>(null);
+  const many = (byRoot ? Object.values(byRoot).reduce((sum, list) => sum + (list?.length ?? 0), 0) : 0) > MAX_SHOWN;
+  React.useLayoutEffect(() => {
+    const element = listRef.current;
+    setFade(element && many ? fadeOf(element) : null);
+  }, [many, byRoot]);
 
   // Each pin once, under the first folder whose list holds it. With one
   // opened folder inside another, both lists can name the same file.
@@ -136,17 +152,25 @@ export function PinnedSection({ onNavigate }: PinnedSectionProps) {
     <section
       aria-labelledby={labelId}
       data-testid="pinned-section"
-      className="flex max-h-[40%] min-h-0 shrink-0 flex-col pb-2"
+      className="flex shrink-0 flex-col pb-2"
       onDragOver={onDragOver}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropIndex(null);
       }}
       onDrop={onDrop}
     >
-      <div id={labelId} className="flex min-h-sidebar-group-label shrink-0 items-center pb-0.5 pl-sidebar-label pr-4 text-label font-sidebar-group-label text-foreground-tertiary">
+      {/* Said to a screen reader only: the pins sit right under Library's heading. */}
+      <div id={labelId} className="sr-only">
         Pinned
       </div>
-      <div ref={listRef} className="flex min-h-0 flex-col gap-0.5 overflow-y-auto px-sidebar-inset">
+      {/* The pins take their rows' height; past eight, the rest scroll, with the fade at a cut edge. */}
+      <div
+        ref={listRef}
+        data-fade-y={fade ?? undefined}
+        onScroll={(event) => setFade(fadeOf(event.currentTarget))}
+        style={rows.length > MAX_SHOWN ? { maxHeight: `calc(${MAX_SHOWN} * var(--row-height-compact) + ${MAX_SHOWN - 1} * 0.125rem)` } : undefined}
+        className={cn('sidebar-fade flex min-h-0 flex-col gap-0.5 px-sidebar-inset', rows.length > MAX_SHOWN && 'overflow-y-auto')}
+      >
         {rows.map(({ path }, index) => {
           const gone = missing.includes(path);
           return (
