@@ -440,7 +440,7 @@ function Title({ id, title, menu, editing }: { id: string | null; title: string;
             aria-label="Thread menu"
             title="Thread menu"
             data-testid="auto-thread-menu"
-            className="ml-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded-control text-foreground-tertiary outline-none transition-hover hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus data-[state=open]:bg-surface-active"
+            className="ml-1 flex h-6 w-5 shrink-0 items-center justify-center rounded-control text-foreground-tertiary outline-none transition-hover hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus data-[state=open]:bg-surface-active"
           >
             <ChevronDown aria-hidden data-testid="auto-title-chevron" className="h-3.5 w-3.5 shrink-0" />
           </button>
