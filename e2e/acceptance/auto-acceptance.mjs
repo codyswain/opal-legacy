@@ -1602,7 +1602,7 @@ async function tour() {
     // From the Digest row itself: a right-click menu, and E with the keyboard on it.
     await digestRow.click({ button: 'right' });
     const digestMenu = await until(async () => (await page.getByTestId('auto-digest-menu-row').count()) === 1) ? await page.getByTestId('auto-digest-menu-row').getByRole('menuitem').allTextContents() : [];
-    check('the Digest row has a right-click menu with Archive the digest, and Open the digest when it has a page', digestMenu[0]?.startsWith('Archive the digest') && digestMenu.slice(1).every((item) => item.startsWith('Open the digest')), digestMenu.join(' | '));
+    check('the Digest row has a right-click menu with Archive the digest, Open the digest when it has a page, and Open to the side last', digestMenu[0]?.startsWith('Archive the digest') && digestMenu.at(-1) === 'Open to the side' && digestMenu.slice(1, -1).every((item) => item.startsWith('Open the digest')), digestMenu.join(' | '));
     await page.getByTestId('auto-digest-menu-row').getByRole('menuitem', { name: /^Archive the digest/ }).click();
     check('which archives it, with Undo', await until(async () => (await digestRow.count()) === 0 && service.digest()?.archived === true && (await saidText()).startsWith('Digest archived. It is off the list.Undo')), await saidText());
     await said.getByRole('button', { name: 'Undo' }).click();
