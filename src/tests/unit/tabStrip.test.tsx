@@ -186,7 +186,8 @@ describe('TabStrip', () => {
     await user.pointer({ keys: '[MouseRight]', target: screen.getByTestId(`tab-${B}`) });
     const menu = await screen.findByRole('menu');
     expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      'Close tab⌘W', 'Close other tabs', 'Close tabs to the right', 'Close all tabs', 'Pin', 'Reveal in Finder', 'Copy path',
+      'Close tab⌘W', 'Close other tabs', 'Close tabs to the right', 'Close all tabs',
+      'Move to the other pane⌃⇧⌘→', 'Split right⌃⌘\\', 'Pin', 'Reveal in Finder', 'Copy path',
     ]);
     await user.click(within(menu).getByRole('menuitem', { name: 'Close tabs to the right' }));
     expect(tabPaths()).toEqual([A, B]);

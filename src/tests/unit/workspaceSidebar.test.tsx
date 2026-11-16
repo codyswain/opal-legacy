@@ -290,13 +290,13 @@ describe("a new daily page", () => {
     expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "New daily page" }));
   });
 
-  it("offers the same on a right-click, and scrolls a stream already shown to the new page", async () => {
+  it("offers the same and Open to the side on a right-click, and scrolls a stream already shown to the new page", async () => {
     openTabs([stackLocation("daily", TODAY)]);
     const user = userEvent.setup();
     renderSidebar();
     await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: "Daily" }) });
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["TomorrowSat, Oct 31", "Pick a date…"]);
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["TomorrowSat, Oct 31", "Pick a date…", "Open to the side"]);
     await user.click(within(menu).getByRole("menuitem", { name: /^Tomorrow/ }));
     await waitFor(() => expect(useStackStore.getState().reveal).toMatchObject({ head: TODAY, path: TOMORROW }));
     // No second visit to the same stream.

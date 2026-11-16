@@ -20,12 +20,13 @@ interface ShellContextValue {
   location: ReturnType<typeof useLocation>;
   navigateTo: (to: To, options?: NavigateOptions) => void;
   /**
-   * Shows a place in the active tab, or in a new one with `newTab`. The files
+   * Shows a place in the active tab, or in a new one with `newTab`, or in
+   * the other pane with `side`. The files
    * route mirrors the tab into the URL; from anywhere else this goes there.
    */
   navigateFiles: (
     intent: FilesNavigationIntent,
-    options?: Pick<OpenOptions, 'newTab'>
+    options?: Pick<OpenOptions, 'newTab' | 'side'>
   ) => void;
 }
 
@@ -46,8 +47,8 @@ export function ShellProvider({ children }: ShellProviderProps) {
     [navigate]
   );
   const navigateFiles = React.useCallback(
-    (intent: FilesNavigationIntent, options: Pick<OpenOptions, 'newTab'> = {}) => {
-      useTabsStore.getState().open(intent.location, { newTab: options.newTab });
+    (intent: FilesNavigationIntent, options: Pick<OpenOptions, 'newTab' | 'side'> = {}) => {
+      useTabsStore.getState().open(intent.location, { newTab: options.newTab, side: options.side });
       if (pathname.current !== FILES_ROUTE_PATH)
         navigate(
           { pathname: FILES_ROUTE_PATH, search: serializeFilesLocation(intent.location) },

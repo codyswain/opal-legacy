@@ -10,12 +10,13 @@ import {
 import { useStackStore } from "@/renderer/features/disk-explorer/store/stackStore";
 import {
   selectActiveTab,
-  selectCurrentLocation,
+  selectOtherPane,
+  tabLocation,
   useTabsStore,
   type OpenOptions,
 } from "@/renderer/features/disk-explorer/store/tabsStore";
 
-type NavigateFiles = (intent: FilesNavigationIntent, options?: Pick<OpenOptions, "newTab">) => void;
+type NavigateFiles = (intent: FilesNavigationIntent, options?: Pick<OpenOptions, "newTab" | "side">) => void;
 
 /** The first opened folder that is a vault, or null. */
 async function vaultRoot(): Promise<string | null> {
@@ -40,11 +41,19 @@ function showInStream(
   navigateFiles: NavigateFiles,
   head: string,
   page: string,
-  options: Pick<OpenOptions, "newTab">,
+  options: Pick<OpenOptions, "newTab" | "side">,
 ): void {
   const location = stackLocation("daily", head);
-  const current = selectCurrentLocation(useTabsStore.getState());
-  const shown = !options.newTab && current !== null && filesLocationKey(current) === filesLocationKey(location);
+  // A tab that shows the stream already scrolls there: the active tab, or
+  // the other pane's, where an open of a page it shows goes.
+  const before = useTabsStore.getState();
+  const key = filesLocationKey(location);
+  const active = selectActiveTab(before);
+  const candidates = [
+    ...(options.side ? before.tabs : !options.newTab && active ? [active] : []),
+    ...(selectOtherPane(before)?.tabs ?? []),
+  ];
+  const shown = candidates.some((tab) => filesLocationKey(tabLocation(tab)) === key);
   navigateFiles({ location }, options);
   if (shown) {
     useStackStore.getState().scrollToSection(head, page);
@@ -65,7 +74,7 @@ function showInStream(
  */
 export async function openDaily(
   navigateFiles: NavigateFiles,
-  options: Pick<OpenOptions, "newTab"> = {},
+  options: Pick<OpenOptions, "newTab" | "side"> = {},
 ): Promise<boolean> {
   const root = await vaultRoot();
   if (!root) return false;
@@ -85,7 +94,7 @@ export async function openDaily(
 export async function openDailyPage(
   navigateFiles: NavigateFiles,
   date: string,
-  options: Pick<OpenOptions, "newTab"> = {},
+  options: Pick<OpenOptions, "newTab" | "side"> = {},
 ): Promise<boolean> {
   const today = localDate();
   if (date === today) return openDaily(navigateFiles, options);

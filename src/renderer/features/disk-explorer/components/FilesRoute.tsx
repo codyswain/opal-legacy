@@ -7,6 +7,7 @@ import {
 } from '../navigation/filesLocation';
 import { useDiskStore } from '../store/diskStore';
 import { selectCurrentLocation, useTabsStore } from '../store/tabsStore';
+import { useAddressMemory, useKeepsAddress, usePaneId, usePaneTab } from '../panes/PaneContext';
 import { DiskExplorer } from './DiskExplorer';
 import { NoFolderOpen } from './NoFolderOpen';
 import { NoPageOpen } from './NoPageOpen';
@@ -14,45 +15,51 @@ import { NoPageOpen } from './NoPageOpen';
 /**
  * The active tab is the navigation model. This route mirrors it into the URL
  * (always replacing, so tabs own Back and Forward) and opens a URL it did not
- * write in the active tab.
+ * write in the active tab. Each pane draws the route with its own tab; only
+ * the active pane's keeps the URL.
  */
 export function FilesRoute() {
   const roots = useDiskStore((state) => state.roots);
   const rootsLoaded = useDiskStore((state) => state.rootsLoaded);
   const current = useTabsStore(selectCurrentLocation);
+  const shown = usePaneTab();
+  const paneId = usePaneId();
+  const split = useTabsStore((state) => state.panes.length > 1);
+  const keeps = useKeepsAddress();
   const location = useLocation();
   const navigate = useNavigate();
   const search = React.useRef(location.search);
   search.current = location.search;
-  /** The last search this route wrote; any other one came from outside. */
-  const written = React.useRef<string | null>(null);
-  /** A search from outside that waits for the roots before it can be checked. */
-  const pending = React.useRef(false);
+  /** The last search written, and a search from outside that waits for the roots before it can be checked. */
+  const memory = useAddressMemory();
   const currentKey = current ? serializeFilesLocation(current) : null;
 
   const syncUrl = React.useCallback(() => {
-    if (pending.current) return;
-    const shown = selectCurrentLocation(useTabsStore.getState());
-    const next = shown ? serializeFilesLocation(shown) : '';
-    written.current = next;
+    if (memory.pending) return;
+    const active = selectCurrentLocation(useTabsStore.getState());
+    const next = active ? serializeFilesLocation(active) : '';
+    memory.written = next;
     if (search.current !== next)
       navigate({ pathname: FILES_ROUTE_PATH, search: next }, { replace: true });
-  }, [navigate]);
+  }, [memory, navigate]);
 
   // A link, a reload or a test can set the URL; it shows in the active tab.
   React.useEffect(() => {
-    if (location.search === written.current) return;
-    pending.current = location.search !== '' && roots.length === 0;
-    if (pending.current) return;
+    if (!keeps || location.search === memory.written) return;
+    memory.pending = location.search !== '' && roots.length === 0;
+    if (memory.pending) return;
     const target = parseFilesLocation(location.search, roots);
     if (target) useTabsStore.getState().open(target);
     syncUrl();
-  }, [location.search, roots, syncUrl]);
+  }, [keeps, location.search, memory, roots, syncUrl]);
 
-  React.useEffect(() => syncUrl(), [currentKey, syncUrl]);
+  React.useEffect(() => {
+    if (keeps) syncUrl();
+  }, [keeps, currentKey, syncUrl]);
 
   if (rootsLoaded && roots.length === 0) return <NoFolderOpen />;
-  if (current) return <DiskExplorer />;
+  if (shown) return <DiskExplorer />;
   // Until the opened folders are known, show nothing rather than claim there are none.
-  return roots.length > 0 ? <NoPageOpen /> : null;
+  if (roots.length === 0) return null;
+  return <NoPageOpen onClosePane={split ? () => useTabsStore.getState().closePane(paneId) : undefined} />;
 }

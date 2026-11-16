@@ -30,6 +30,7 @@ import {
   selectOpenedPath,
   useTabsStore,
 } from '@/renderer/features/disk-explorer/store/tabsStore';
+import { openHowFor, type OpenHow } from '@/renderer/features/disk-explorer/navigation/openHow';
 import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import {
   ContextMenu,
@@ -450,10 +451,10 @@ export function FileTree({ onNavigate }: FileTreeProps) {
   }, [nodes, revealTarget, scrollToRow]);
 
   const openFile = React.useCallback(
-    (path: string, inNewTab: boolean) => {
+    (path: string, how: OpenHow) => {
       openedFromTree.current = path;
       recordOpened(path);
-      navigateFiles(focusFile(path), { newTab: inNewTab });
+      navigateFiles(focusFile(path), how);
       onNavigate?.();
     },
     [navigateFiles, onNavigate]
@@ -465,8 +466,7 @@ export function FileTree({ onNavigate }: FileTreeProps) {
         void toggleExpanded(node.path);
         return;
       }
-      const middleClick = 'button' in event && event.button === 1;
-      openFile(node.path, event.metaKey || event.ctrlKey || middleClick);
+      openFile(node.path, openHowFor({ altKey: event.altKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey, button: 'button' in event ? event.button : undefined }));
     },
     [openFile, toggleExpanded]
   );
@@ -764,7 +764,7 @@ export function FileTree({ onNavigate }: FileTreeProps) {
     await useDiskStore.getState().loadDirectory(folder, { force: true });
     setRevealTarget(result.data.path);
     void revealPath(result.data.path);
-    openFile(result.data.path, false);
+    openFile(result.data.path, {});
   };
 
   const createFolder = (folder: string) => {
@@ -846,8 +846,11 @@ export function FileTree({ onNavigate }: FileTreeProps) {
           >
             {menuNode && !menuNode.isDirectory ? (
               <>
-                <ContextMenuItem onSelect={() => openFile(menuNode.path, true)}>
+                <ContextMenuItem onSelect={() => openFile(menuNode.path, { newTab: true })}>
                   Open in new tab
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => openFile(menuNode.path, { side: true })}>
+                  Open to the side
                 </ContextMenuItem>
                 <ContextMenuItem onSelect={() => usePinsStore.getState().toggle(menuNode.path)}>
                   {menuPinned ? 'Unpin' : 'Pin'}

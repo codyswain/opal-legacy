@@ -28,6 +28,7 @@ import {
   selectLaunchLocation,
   useTabsStore,
 } from "@/renderer/features/disk-explorer/store/tabsStore";
+import { useKeepsAddress } from "@/renderer/features/disk-explorer/panes/PaneContext";
 import { openDaily } from "@/renderer/features/shell/utils/openDaily";
 import {
   AppShell,
@@ -43,7 +44,10 @@ import {
  */
 const StartPage: React.FC = () => {
   const { navigateFiles, navigateTo } = useShell();
+  // Each pane draws the route; the active pane's starts the app.
+  const keeps = useKeepsAddress();
   useEffect(() => {
+    if (!keeps) return;
     const files = () => {
       const shown = selectCurrentLocation(useTabsStore.getState());
       navigateTo(

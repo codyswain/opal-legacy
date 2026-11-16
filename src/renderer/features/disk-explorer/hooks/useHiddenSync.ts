@@ -2,10 +2,10 @@ import { useEffect } from 'react';
 import { useDiskStore } from '../store/diskStore';
 import { useHiddenStore } from '../store/hiddenStore';
 import { usePinsStore } from '../store/pinsStore';
-import { tabFile, useTabsStore } from '../store/tabsStore';
+import { allTabs, tabFile, useTabsStore } from '../store/tabsStore';
 
 const tabFiles = () =>
-  useTabsStore.getState().tabs.map(tabFile).filter((path): path is string => path !== null);
+  allTabs(useTabsStore.getState()).map(tabFile).filter((path): path is string => path !== null);
 
 /**
  * Keeps the renderer in step with hidden files. When what is hidden or
@@ -20,7 +20,7 @@ export function useHiddenSync(): void {
     if (!window.hiddenAPI) return;
     void useHiddenStore.getState().refresh(tabFiles());
     const stopTabs = useTabsStore.subscribe((state, previous) => {
-      if (state.tabs !== previous.tabs) void useHiddenStore.getState().check(tabFiles());
+      if (state.panes !== previous.panes) void useHiddenStore.getState().check(tabFiles());
     });
     const stopHidden = window.hiddenAPI.onChanged(() => {
       void useHiddenStore.getState().refresh(tabFiles());

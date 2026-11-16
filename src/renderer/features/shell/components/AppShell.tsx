@@ -9,7 +9,16 @@ import { locationPath } from '@/renderer/features/disk-explorer/navigation/files
 import {
   selectCurrentLocation,
   useTabsStore,
+  type Pane,
 } from '@/renderer/features/disk-explorer/store/tabsStore';
+import { AddressProvider, PaneProvider } from '@/renderer/features/disk-explorer/panes/PaneContext';
+import {
+  MIN_PANE_COLUMN,
+  fitsTwoPanes,
+  leftPaneWidth,
+  splitFor,
+} from '@/renderer/features/disk-explorer/panes/paneLayout';
+import { TAB_DRAG_TYPE } from '@/renderer/features/disk-explorer/components/TabStrip';
 import { useShell } from '../context/ShellContext';
 import {
   DEFAULT_SHELL_PREFERENCES,
@@ -25,6 +34,7 @@ import {
   useDaySidebarStore,
 } from '@/renderer/features/day-sidebar';
 import { cn } from '@/renderer/shared/utils';
+import { PaneDivider } from './PaneDivider';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import { Titlebar } from './Titlebar';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
@@ -96,6 +106,21 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
+const EMPTY_PANES: Pane[] = [];
+
+/**
+ * The panes the page area draws: both when they fit side by side, else only
+ * the active one, full width. The other keeps its tabs for when the window
+ * widens.
+ */
+export function shownPanes(panes: readonly Pane[], activePaneId: string, room: number): Pane[] {
+  if (panes.length < 2 || fitsTwoPanes(room)) return [...panes];
+  return panes.filter((pane) => pane.id === activePaneId);
+}
+
+/** Whether a drag carries a tab from a row of tabs. */
+const carriesTab = (event: React.DragEvent) => event.dataTransfer.types.includes(TAB_DRAG_TYPE);
+
 export function AppShell({ children }: AppShellProps) {
   const persistedSidebarOpen = useShellStore((state) => state.sidebarOpen);
   const sidebarWidth = useShellStore((state) => state.sidebarWidth);
@@ -147,6 +172,23 @@ export function AppShell({ children }: AppShellProps) {
     ? Math.min(daySidebarWidth(daySidebarPreferredWidth, viewport), Math.max(0, viewport - 48))
     : daySidebarWidth(daySidebarPreferredWidth, viewport);
   const rightToggleRef = React.useRef<HTMLButtonElement>(null);
+  const panes = useTabsStore((state) => state.panes) ?? EMPTY_PANES;
+  const activePaneId = useTabsStore((state) => state.activePaneId);
+  const split = useTabsStore((state) => state.split);
+  // The page area's width: the window less the sidebars beside it. In the
+  // narrow layout both sidebars lie over the page.
+  const room = Math.max(
+    0,
+    viewport -
+      (sidebarOpen && !isNarrow ? effectiveSidebarWidth : 0) -
+      (rightOpen && !isNarrow ? rightWidth : 0)
+  );
+  const shown = shownPanes(panes, activePaneId, room);
+  const twoShown = shown.length === 2;
+  const leftWidth = twoShown ? leftPaneWidth(split, room) : room;
+  // With one tab-filled pane, a tab dragged over the card's right half splits there.
+  const [dropZone, setDropZone] = React.useState(false);
+  const canDropToSplit = panes.length === 1 && fitsTwoPanes(room);
 
   useDiskSync();
   usePinsSync();
@@ -302,29 +344,94 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       ) : null}
 
-      {/* The top row is chrome, as both sidebars are. Below it the page is a
+      {/* The top row is chrome, as both sidebars are. Below it each page is a
           card with a hairline ring, in a band of the lighter ground on its
-          left, right and bottom. */}
+          left, right and bottom. Two panes are two columns, each its own row
+          of tabs over its own card, with the band between the cards. */}
       <section
         ref={workspaceRef}
-        className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground"
+        className="relative flex min-w-0 flex-1 overflow-hidden bg-ground"
       >
-        <Titlebar
-          sidebarOpen={sidebarOpen}
-          rightSidebarOpen={rightOpen}
-          sidebarToggleRef={sidebarToggleRef}
-          rightSidebarToggleRef={rightToggleRef}
-          onToggleSidebar={handleToggleSidebar}
-        />
-        <main
-          ref={workspaceMainRef}
-          tabIndex={-1}
-          data-testid="workspace-surface"
-          aria-label="Page"
-          className="mx-page mb-page min-h-0 min-w-0 flex-1 overflow-hidden rounded-card border border-page-ring bg-canvas outline-none"
-        >
-          {children}
-        </main>
+        <AddressProvider>
+          {shown.map((pane, index) => {
+            const active = pane.id === activePaneId;
+            return (
+              <div
+                key={pane.id}
+                data-pane-column={pane.id}
+                data-pane-active={twoShown ? active : undefined}
+                className="flex min-w-0 flex-col"
+                style={twoShown && index === 0 ? { width: leftWidth, flex: 'none' } : { flex: '1 1 0%' }}
+                // The pane last clicked or typed in is the active one.
+                onPointerDownCapture={() => useTabsStore.getState().focusPane(pane.id)}
+                onFocusCapture={() => useTabsStore.getState().focusPane(pane.id)}
+              >
+                <Titlebar
+                  paneId={pane.id}
+                  first={index === 0}
+                  last={index === shown.length - 1}
+                  sidebarOpen={sidebarOpen}
+                  rightSidebarOpen={rightOpen}
+                  sidebarToggleRef={index === 0 ? sidebarToggleRef : undefined}
+                  rightSidebarToggleRef={index === shown.length - 1 ? rightToggleRef : undefined}
+                  onToggleSidebar={handleToggleSidebar}
+                />
+                <main
+                  ref={active ? workspaceMainRef : undefined}
+                  tabIndex={-1}
+                  data-testid="workspace-surface"
+                  data-pane-id={pane.id}
+                  aria-label="Page"
+                  className={cn(
+                    'relative mb-page min-h-0 min-w-0 flex-1 overflow-hidden rounded-card border border-page-ring bg-canvas outline-none',
+                    !twoShown ? 'mx-page' : index === 0 ? 'ml-page mr-[calc(var(--page-inset)/2)]' : 'ml-[calc(var(--page-inset)/2)] mr-page'
+                  )}
+                  // Capture, so a page's editor never takes a tab dragged over it.
+                  onDragOverCapture={canDropToSplit ? (event) => {
+                    if (!carriesTab(event)) return;
+                    const box = event.currentTarget.getBoundingClientRect();
+                    const over = event.clientX >= box.left + box.width / 2 && panes[0].tabs.length > 1;
+                    event.stopPropagation();
+                    if (over) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                    }
+                    setDropZone(over);
+                  } : undefined}
+                  onDragLeave={canDropToSplit ? (event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropZone(false);
+                  } : undefined}
+                  onDropCapture={canDropToSplit ? (event) => {
+                    if (!carriesTab(event)) return;
+                    event.stopPropagation();
+                    event.preventDefault();
+                    const id = event.dataTransfer.getData(TAB_DRAG_TYPE);
+                    if (dropZone && id) useTabsStore.getState().moveToPane(id);
+                    setDropZone(false);
+                  } : undefined}
+                >
+                  <PaneProvider paneId={pane.id}>{children}</PaneProvider>
+                  {dropZone && canDropToSplit ? (
+                    <div
+                      aria-hidden
+                      data-testid="pane-drop-zone"
+                      className="pointer-events-none absolute inset-y-0 right-0 z-20 w-1/2 rounded-r-card border-l-2 border-focus/40 bg-surface-hover"
+                    />
+                  ) : null}
+                </main>
+              </div>
+            );
+          })}
+        </AddressProvider>
+        {twoShown ? (
+          <PaneDivider
+            value={leftWidth}
+            min={MIN_PANE_COLUMN}
+            max={room - MIN_PANE_COLUMN}
+            onChange={(width) => useTabsStore.getState().setSplit(splitFor(width, room))}
+            onReset={() => useTabsStore.getState().setSplit(0.5)}
+          />
+        ) : null}
       </section>
 
       {rightOpen ? (

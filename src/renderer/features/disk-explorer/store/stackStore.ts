@@ -15,6 +15,8 @@ interface StackRuntimeState {
    * The right sidebar's day follows it while the stream scrolls.
    */
   viewed: { tabId: string; path: string } | null;
+  /** The same for every mounted stack, by tab id: with two panes, each can show one. */
+  views: Record<string, string>;
   /** Asks a stack opened by `head` to scroll `path`, one of its sections, to the top of the view; `seq` makes each ask new. */
   reveal: { head: string; path: string; seq: number } | null;
   /** A section that takes the caret once its editor is up, if it is empty: a daily page just made from Daily's "+". */
@@ -37,6 +39,7 @@ const same = (left: readonly string[] | undefined, right: readonly string[]) =>
 export const useStackStore = create<StackRuntimeState>((set) => ({
   live: {},
   viewed: null,
+  views: {},
   reveal: null,
   caret: null,
   move: null,
@@ -52,8 +55,13 @@ export const useStackStore = create<StackRuntimeState>((set) => ({
     }),
   setViewed: (tabId, path) =>
     set((state) => {
-      if (path === null) return state.viewed?.tabId === tabId ? { viewed: null } : {};
-      return state.viewed?.tabId === tabId && state.viewed.path === path ? {} : { viewed: { tabId, path } };
+      const views = { ...state.views };
+      if (path === null) {
+        delete views[tabId];
+        return state.viewed?.tabId === tabId ? { viewed: null, views } : tabId in state.views ? { views } : {};
+      }
+      if (state.viewed?.tabId === tabId && state.viewed.path === path && state.views[tabId] === path) return {};
+      return { viewed: { tabId, path }, views: { ...views, [tabId]: path } };
     }),
   scrollToSection: (head, path = head) =>
     set((state) => ({ reveal: { head: normalizeFsPath(head), path: normalizeFsPath(path), seq: (state.reveal?.seq ?? 0) + 1 } })),
@@ -62,8 +70,12 @@ export const useStackStore = create<StackRuntimeState>((set) => ({
 }));
 
 /** The section the active tab's stack shows, or null when the active tab is not a stack. */
-export function selectViewedPath(stack: Pick<StackRuntimeState, 'viewed'>, tabs: Pick<TabsState, 'activeId'>): string | null {
-  return stack.viewed && stack.viewed.tabId === tabs.activeId ? stack.viewed.path : null;
+export function selectViewedPath(
+  stack: Pick<StackRuntimeState, 'viewed'> & Partial<Pick<StackRuntimeState, 'views'>>,
+  tabs: Pick<TabsState, 'activeId'>
+): string | null {
+  if (stack.viewed && stack.viewed.tabId === tabs.activeId) return stack.viewed.path;
+  return tabs.activeId !== null ? (stack.views?.[tabs.activeId] ?? null) : null;
 }
 
 const FOLDS_KEY = 'stack.folds';

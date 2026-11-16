@@ -238,6 +238,7 @@ describe('PinnedSection', () => {
     let menu = await menuFor(README);
     expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
       'Open in new tab',
+      'Open to the side',
       'Unpin',
       'Reveal in Finder',
     ]);
