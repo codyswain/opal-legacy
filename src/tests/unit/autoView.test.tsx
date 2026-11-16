@@ -10,6 +10,7 @@ import { LIST_PLACE, forgetPlaces, keepPlace, placeOf } from '@/renderer/feature
 import { useDigestStore } from '@/renderer/features/auto/store/digestStore';
 import { HOLD_MS, hold } from '@/renderer/features/auto/store/actions';
 import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
+import { useShellStore } from '@/renderer/features/shell/store/shellStore';
 import { forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { browseAuto, focusFile, isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
@@ -1079,5 +1080,68 @@ describe('the sidebar row', () => {
     // From any other tab a page still opens in that tab.
     act(() => open(focusFile('/Vault/Notes/Other.md').location));
     expect(tabPaths()).toEqual(['/Vault/Recipes/Bread.md', null, '/Vault/Notes/Other.md']);
+  });
+});
+
+describe('the sidebar review, smaller items', () => {
+  const listed = () => [...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
+  beforeEach(() => useShellStore.setState({ threadsOpen: true, sidebarOpen: true, narrowLayout: false }));
+
+  it('keeps the open thread in its place when it is read, and moves it when another opens', async () => {
+    await open();
+    expect(listed()).toEqual(['beds', 'seeds', 'trellis', 'bread', 'inspect']);
+    fireEvent.click(within(row('seeds')).getAllByRole('button')[0]);
+    await waitFor(() => expect(useThreadStore.getState().openId).toBe('seeds'));
+    act(() => auto.list({ kind: 'thread', thread: { ...SEEDS, unread: false } }));
+    await waitFor(() => expect(within(row('seeds')).queryByRole('img', { name: 'Unread' })).toBeNull());
+    expect(listed()).toEqual(['beds', 'seeds', 'trellis', 'bread', 'inspect']);
+    await openThread('bread');
+    expect(listed().indexOf('seeds')).toBeGreaterThan(listed().indexOf('trellis'));
+  });
+
+  it('shows the Undo line at the foot of the Auto page while the sidebar is not shown', async () => {
+    useShellStore.setState({ sidebarOpen: false, narrowLayout: false });
+    await open();
+    expect(within(screen.getByTestId('auto')).queryByTestId('auto-said')).toBeNull();
+    fireEvent.click(screen.getByTestId('auto-archive-bread'));
+    await waitFor(() => expect(within(screen.getByTestId('auto')).getByTestId('auto-said')).toBeInTheDocument());
+    act(() => useShellStore.setState({ sidebarOpen: true }));
+    expect(within(screen.getByTestId('auto')).queryByTestId('auto-said')).toBeNull();
+  });
+
+  it('goes from the New thread button to the first row with Down', async () => {
+    await open();
+    const button = screen.getByTestId('auto-new-thread');
+    button.focus();
+    fireEvent.keyDown(button, { key: 'ArrowDown' });
+    expect(document.activeElement?.getAttribute('data-row-id')).toBe(':digest');
+  });
+
+  it('draws the folded count in the text colour and the headings a step above the labels', async () => {
+    await open();
+    expect(screen.getByTestId('auto-count').className).toContain('text-foreground-tertiary');
+    fireEvent.click(screen.getByRole('button', { name: /^Threads/ }));
+    await waitFor(() => expect(screen.getByTestId('auto-count').className).toMatch(/(^| )text-foreground( |$)/));
+    expect(screen.getByRole('button', { name: /^Threads/ }).className).toContain('font-medium');
+  });
+
+  it('says out of reach once: in the page while the Auto tab is in front', async () => {
+    await open();
+    act(() => auto.stream('list', 'down'));
+    expect(screen.getByTestId('auto-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('auto-out-of-reach')).toBeNull();
+  });
+
+  it('keeps the height Threads had at the last close while the list is being read', async () => {
+    window.localStorage.setItem('opal.auto.threadsHeight', JSON.stringify({ version: 1, value: 412 }));
+    await open();
+    const fold = screen.getByTestId('sidebar-threads');
+    // Read: the rows decide the height.
+    expect(fold.style.height).toBe('');
+    // Being read (as at launch, between the address and the list): the kept number holds the place.
+    act(() => useAutoStore.setState({ loaded: false }));
+    expect(fold.style.height).toBe('412px');
+    act(() => useAutoStore.setState({ loaded: true }));
+    expect(fold.style.height).toBe('');
   });
 });
