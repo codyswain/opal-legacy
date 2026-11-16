@@ -214,10 +214,13 @@ export const AppCommands: React.FC = () => {
         shortcut: ["CmdOrCtrl+W"],
         keywords: ["tab", "close"],
         perform: () => {
-          // With no tab left, Cmd+W closes the window, as in Safari.
-          const { activeId } = tabs();
+          // With no tab left, Cmd+W closes an empty pane beside another, else the window, as in Safari.
+          const { activeId, activePaneId, panes } = tabs();
           if (activeId) tabs().close(activeId);
-          else window.systemAPI.closeWindow();
+          else if (panes.length > 1) {
+            tabs().closePane(activePaneId);
+            focusActivePane();
+          } else window.systemAPI.closeWindow();
         },
       },
       {
