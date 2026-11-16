@@ -294,6 +294,19 @@ describe('renaming in the header', () => {
     await waitFor(() => expect(document.activeElement).toBe(box()));
   });
 
+  it('opens holding the title as renamed in the row a moment ago, all of it selected', async () => {
+    await open();
+    const field = await doubleClickRow('bread');
+    fireEvent.change(field, { target: { value: 'see' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await waitFor(() => expect(within(header()).getByTestId('auto-title').textContent).toBe('see'));
+    await userEvent.setup().dblClick(within(header()).getByTestId('auto-title'));
+    const title = (await within(header()).findByRole('textbox', { name: 'Thread title' })) as HTMLInputElement;
+    await waitFor(() => expect(document.activeElement).toBe(title));
+    expect(title.value).toBe('see');
+    expect([title.selectionStart, title.selectionEnd]).toEqual([0, 3]);
+  });
+
   it('opens the menu from the chevron with one click, Rename first', async () => {
     await open();
     fireEvent.click(rowButton('bread'));

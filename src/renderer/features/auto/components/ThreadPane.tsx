@@ -386,13 +386,17 @@ function Talk({ scroller }: { scroller: React.RefObject<HTMLDivElement> }) {
  */
 function Title({ id, title, menu, editing }: { id: string | null; title: string; menu: React.ReactNode; editing: boolean }) {
   const [typed, setTyped] = React.useState(title);
+  const [wasEditing, setWasEditing] = React.useState(editing);
   const cancelled = React.useRef(false);
+  // The field opens holding the title as it is now, in its first render, so the whole of it is selected when the field
+  // takes the caret; set later, the new value would drop the selection and his typing would land after the old title.
+  // Only when the field opens: the title may change under it.
+  if (editing !== wasEditing) {
+    setWasEditing(editing);
+    if (editing) setTyped(title);
+  }
   React.useEffect(() => {
-    if (editing) {
-      cancelled.current = false;
-      setTyped(title);
-    }
-    // Only when the field opens: the title may change under it.
+    if (editing) cancelled.current = false;
   }, [editing]);
   if (!menu || !id) return <h1 data-testid="auto-title" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{title}</h1>;
   if (editing) {
