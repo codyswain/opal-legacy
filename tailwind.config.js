@@ -38,6 +38,7 @@ module.exports = {
       sidebar: {
         label: "hsl(var(--sidebar-label))",
         icon: "hsl(var(--sidebar-icon))",
+        time: "hsl(var(--sidebar-time))",
         selected: "hsl(var(--sidebar-selected))",
       },
       "tab-active": "hsl(var(--tab-active))",
@@ -123,6 +124,11 @@ module.exports = {
           "var(--text-reply-size)",
           { lineHeight: "var(--text-reply-line)" },
         ],
+        // Quiet words under a title in Auto, one step under a message.
+        aside: [
+          "var(--text-aside-size)",
+          { lineHeight: "var(--text-aside-line)" },
+        ],
       },
       // Inter's variable axis: 510 and 590 are Linear's medium and semibold.
       fontWeight: {
@@ -142,6 +148,7 @@ module.exports = {
         card: "var(--radius-card)",
         overlay: "var(--radius-overlay)",
         dialog: "var(--radius-dialog)",
+        composer: "var(--radius-composer)",
       },
       height: {
         "control-compact": "var(--control-height-compact)",
@@ -150,6 +157,7 @@ module.exports = {
         row: "var(--row-height)",
         header: "var(--header-height)",
         "sidebar-icon": "var(--sidebar-icon-size)",
+        "thread-row": "var(--thread-row-height)",
       },
       width: {
         "sidebar-icon": "var(--sidebar-icon-size)",
@@ -169,6 +177,7 @@ module.exports = {
         reading: "var(--reading-width)",
       },
       minHeight: {
+        "thread-row": "var(--thread-row-height)",
         "sidebar-group-label": "var(--sidebar-group-label-height)",
         control: "var(--control-height)",
       },
@@ -180,6 +189,7 @@ module.exports = {
         control: "var(--shadow-control)",
         overlay: "var(--shadow-overlay)",
         dialog: "var(--shadow-dialog)",
+        composer: "var(--shadow-composer)",
         "tab-active": "var(--tab-active-shadow)",
       },
       transitionDuration: {

@@ -30,15 +30,15 @@ stray strip.
 
 | CSS token | Tailwind | Light | Dark |
 |---|---|---|---|
-| `--chrome` | `bg-chrome` | #ececec; **B** #fafafa | #0b0b0b |
-| `--ground` | `bg-ground` | #f5f5f5; **B** #fafafa | #0b0b0b |
+| `--chrome` | `bg-chrome` | #ececec; **B** #fdfdfd | #0b0b0b |
+| `--ground` | `bg-ground` | #f5f5f5; **B** #fdfdfd | #0b0b0b |
 | `--canvas` | `bg-canvas` | #ffffff | #1a1a1a |
 | `--page-ring` | `border-page-ring` | #e2e2e2 | #282828 |
 | `--radius-card` | `rounded-card` | 8 px | 8 px |
 | `--page-inset` | `m*-page` | 8 px | 8 px |
 
 The Electron window background (`WINDOW_BACKGROUND` in `src/main.ts`) is the
-chrome colour, so the first frame matches; with `roomy` on B it is #fafafa in
+chrome colour, so the first frame matches; with `roomy` on B it is #fdfdfd in
 light mode.
 
 ## Color
@@ -238,18 +238,48 @@ edges at every width.
 
 | CSS token | Tailwind | Value |
 |---|---|---|
-| `--text-reply-size`, `--text-reply-line` | `text-reply` | 15 / 24 px, in both looks |
+| `--text-reply-size`, `--text-reply-line` | `text-reply` | 14 / 21 px, in both looks |
+| `--text-thread` | `.auto-ink` | #171717; dark keeps `--text-primary` |
+| `--radius-composer` | `rounded-composer` | 16 px |
+| `--shadow-composer` | `shadow-composer` | a soft shadow; dark adds a faint light edge |
+| `--thread-row-height` | `h-thread-row`, `min-h-thread-row` | `--row-height-compact`; **B** 30 px (32 px apart with the gap) |
+| `--text-aside-size`, `--text-aside-line` | `text-aside` | 13 / 18 px in both looks: a digest entry's words under its title |
+| `--sidebar-time` | `text-sidebar-time` | `--text-tertiary`; **B** light `--text-secondary` |
 
-A message is in the interface typeface at `text-reply`. Replies draw
-Markdown with the look pages have (`features/auto/auto.css`): the same link
-underline, inline code, quote rule, table and code block, in em of the
-reply's size. His own messages are `bg-surface-active` blocks at the right.
-What Auto did is `text-control` in `text-foreground-tertiary`. Thread rows
-are sidebar rows: `h-row-compact` at least, `rounded-sidebar-row`, the
+A thread reads like a conversation in the Claude app (2026-11-15). A
+message is in the interface typeface at `text-reply`. The thread, the
+digest queue and the Put away page carry `.auto-ink`, which sets
+`--foreground` to `--text-thread`: darker than pages in light mode, the
+same in dark. Replies draw Markdown with the look pages have
+(`features/auto/auto.css`), in em of the reply's size: a paragraph follows
+the last by 11 px and a list item by 4 px; list text starts 34 px in, a
+bullet is a dot of the text's colour 13 px in, and numbers are the text's
+colour; inline code is a light grey chip with 4 px corners. His own
+messages are `bg-surface-active` bubbles at the right with 16 px corners.
+A turn starts 32 px below the last; within it his message, the folded line
+and the reply sit 16 px apart. What Auto did is one folded line in
+`text-reply` `text-foreground-tertiary`, always ending in a chevron.
+Follow-ups are pills at the right: `text-reply`, a `border-border-default`
+ring, full corners.
+
+The box (`components/Box.tsx`) is one `rounded-composer` box as wide as the
+column, with a `border-border-default` ring and `shadow-composer`
+(`bg-surface-raised` in dark). Its words sit on top and grow with what he
+types; a row at its foot holds the model at the left, and Stop and Send at
+the right. Send is a 28 px circle: `bg-primary` with an arrow once there
+are words, `bg-surface-active` with a grey arrow while there are none. The
+digest entry's box is the same box, with Send alone in its row. A pane's
+header (`paneHeader`) is `h-header` with a `border-border-subtle` hairline
+under it the width of the pane, always drawn. A thread's title is a button
+ending in a chevron that opens its menu (Bring back, Mark for the Mac,
+Rename); Snooze, Done and Archive sit at the right.
+
+Thread rows
+are sidebar rows: `h-thread-row` at least, `rounded-sidebar-row`, the
 sidebar's label weights and `bg-sidebar-selected` for the open thread, as a
 page's row has. The first line is an icon-wide slot for the unread dot, the
 title in `text-ui` (`font-semibold` when the thread needs him), and the
-time in `text-metadata` `tabular-nums`; the second line, only when the
+time in `text-metadata` `tabular-nums` `text-sidebar-time`; the second line, only when the
 thread needs him, is `text-control` and lines up under the title. A row's
 time slot is only as wide as its time. On hover and focus the actions sit
 at the row's end, over the time or the end of the title, and the first
@@ -274,12 +304,12 @@ scrolls inside that (`.auto-threads-scroll`): the scrollbar's gutter is
 always kept and is `--sidebar-inset` wide, so no row moves when the rows
 start to scroll, and a cut edge fades over 1.5rem, the bottom while more
 is below and the top once scrolled. Cards (a question, a permission request, a send to allow)
-are `rounded-card` with a `border-border-strong` ring and no fill. No
+are `rounded-xl` with a `border-border-default` ring and no fill. No
 option of a question is filled: every one is an outline button, with its
 number, 1 to 3, in `text-foreground-tertiary` beside it, shown only while
 the card or the row has the keyboard, which is when the number picks.
 
-What is put away is one `h-row-compact` row pinned at the foot of Threads,
+What is put away is one `h-thread-row` row pinned at the foot of Threads,
 "Put away" in `text-foreground-tertiary` with an archive icon and the count
 of what is snoozed or waiting in `text-metadata`, marked like a page row
 while its page or a thread opened from it shows. The Put away page is in

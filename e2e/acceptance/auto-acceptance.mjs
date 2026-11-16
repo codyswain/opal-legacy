@@ -401,6 +401,55 @@ async function tour() {
     check('the header, the thread and the box are one column', (await oneColumn('auto-thread')) && new Set(await threadEdges()).size === 1, (await threadEdges()).join());
     check('the open thread has its own actions in the header', (await page.getByTestId('auto-snooze-open').count()) === 1 && (await page.getByTestId('auto-archive-open').count()) === 1 && (await page.getByTestId('auto-thread-menu').count()) === 1);
     check('the follow-ups show under the last reply', (await page.getByTestId('auto-next').getByRole('button').allTextContents()).join('|') === 'Scale it to two loaves|Put the times in today’s page');
+    // The Claude app's proportions (spec 2026-11-15): measured from the page, not by eye.
+    const look = await page.evaluate(() => {
+      const thread = document.querySelector('[data-testid="auto-thread"]');
+      const md = thread.querySelector('.auto-md');
+      const css = getComputedStyle(md);
+      const column = md.getBoundingClientRect().left;
+      const ol = thread.querySelector('.auto-md > ol');
+      const item = ol.querySelector(':scope > li');
+      const nested = ol.querySelector('ul');
+      const dot = getComputedStyle(nested.querySelector(':scope > li'), '::before');
+      const ps = [...md.querySelectorAll(':scope > p')];
+      const gap = (a, b) => Math.round(b.getBoundingClientRect().top - a.getBoundingClientRect().bottom);
+      const items = [...ol.querySelectorAll(':scope > li')];
+      const form = thread.querySelector('form');
+      const foot = form.querySelector('[data-testid="auto-box-row"]');
+      const field = form.querySelector('[data-testid="auto-box"]');
+      const header = thread.querySelector('header');
+      const hs = getComputedStyle(header);
+      return {
+        size: css.fontSize, line: css.lineHeight, ink: css.color,
+        textIndent: Math.round(item.getBoundingClientRect().left - column),
+        bulletIndent: Math.round(nested.getBoundingClientRect().left + parseFloat(dot.left) + parseFloat(getComputedStyle(nested).paddingLeft) - nested.getBoundingClientRect().left),
+        nestedText: Math.round(nested.querySelector(':scope > li').getBoundingClientRect().left - nested.getBoundingClientRect().left),
+        paragraphGap: ps.length > 1 ? parseFloat(getComputedStyle(ps[1]).marginTop) : null, itemGap: gap(items[0], items[1]),
+        radius: getComputedStyle(form).borderTopLeftRadius, shadow: getComputedStyle(form).boxShadow !== 'none',
+        footAfterField: !!(field.compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING) && foot.getBoundingClientRect().top >= field.getBoundingClientRect().bottom,
+        footHolds: [...foot.querySelectorAll('button')].map((button) => button.getAttribute('data-testid')).join(','),
+        modelLeft: foot.querySelector('[data-testid="auto-model"]').getBoundingClientRect().left - form.getBoundingClientRect().left < 20,
+        sendRight: form.getBoundingClientRect().right - foot.querySelector('[data-testid="auto-send"]').getBoundingClientRect().right < 20,
+        boxWidth: Math.round(form.getBoundingClientRect().width), columnWidth: Math.round(md.getBoundingClientRect().width),
+        hairline: hs.borderBottomWidth === '1px' && hs.borderBottomColor !== 'rgba(0, 0, 0, 0)' && Math.round(header.getBoundingClientRect().width) === Math.round(thread.getBoundingClientRect().width),
+        modelInHeader: header.querySelector('[data-testid="auto-model"]') !== null,
+        // One-line thread rows, top to top.
+        rowPitch: (() => {
+          const tops = [...document.querySelectorAll('[data-thread-id] [data-auto-row]')].filter((button) => button.children.length === 1 || !button.children[1]?.textContent).map((button) => button.getBoundingClientRect());
+          for (let at = 1; at < tops.length; at += 1) if (Math.abs(tops[at].top - tops[at - 1].bottom) < 8) return Math.round(tops[at].top - tops[at - 1].top);
+          return null;
+        })(),
+      };
+    });
+    check('a reply is 14 px on a 21 px line', look.size === '14px' && look.line === '21px', `${look.size}/${look.line}`);
+    check('a numbered item’s text starts 34 px in', look.textIndent === 34, String(look.textIndent));
+    check('a bullet is 13 px in and its text 34 px in', look.bulletIndent === 13 && look.nestedText === 34, `${look.bulletIndent}/${look.nestedText}`);
+    check('one list item follows the last by 4 px, a paragraph by 11 px', look.itemGap === 4 && Math.round(look.paragraphGap) === 11, `${look.itemGap}/${look.paragraphGap}`);
+    check(`one-line thread rows sit ${side === 'b' ? 32 : 30} px apart`, look.rowPitch === (side === 'b' ? 32 : 30), String(look.rowPitch));
+    check('the box has 16 px corners, a shadow, and is as wide as the text', look.radius === '16px' && look.shadow && Math.abs(look.boxWidth - look.columnWidth) <= 1, `${look.radius} ${look.boxWidth}/${look.columnWidth}`);
+    check('the box’s controls sit on a row at its foot: the model at the left, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
+    check('a hairline runs under the header, the width of the pane', look.hairline);
+    check('the title ends in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && ((await page.getByTestId('auto-thread-menu').textContent()) ?? '') === 'Sourdough timings');
     await talk.evaluate((element) => { element.scrollTop = 0; });
     await shot(3, 'thread-long-reply');
     await talk.evaluate((element) => { element.scrollTop = element.scrollHeight; });
@@ -437,6 +486,15 @@ async function tour() {
     check('a click on a follow-up sends it', await until(() => service.requests.some((request) => request.path === `/api/threads/${BREAD}/messages` && request.body?.text === 'Scale it to two loaves')));
     check('the reply streams in', await until(async () => ((await talk.textContent()) ?? '').includes('Beans and peas go in bed 2')));
     await atRest(BREAD);
+    const turns = await talk.evaluate((element) => {
+      const rows = [...element.querySelectorAll('[data-row]')];
+      const his = rows.filter((row) => row.querySelector('[data-testid="auto-message"]'));
+      const second = his[1];
+      const before = rows[rows.indexOf(second) - 1];
+      const after = rows[rows.indexOf(second) + 1];
+      return { turn: Math.round(second.getBoundingClientRect().top - before.getBoundingClientRect().bottom), within: Math.round(after.getBoundingClientRect().top - second.getBoundingClientRect().bottom) };
+    });
+    check('the next turn starts 32 px below the last reply, and his message sits 16 px above what follows it', turns.turn === 32 && turns.within === 16, JSON.stringify(turns));
 
     // --- A reply streaming with its steps above it; a message sent meanwhile waits; Stop.
     service.hold('stream');
@@ -1947,7 +2005,13 @@ async function tour() {
     check('with a long tree, Threads stops at 70% and Library keeps at least 30%', longTree.threads <= longTree.column * 0.7 + 1 && longTree.library >= longTree.column * 0.3 - 1, JSON.stringify(longTree));
     // Three pinned pages show in full, right under Library, and the tree's cut edges fade.
     for (const name of ['Long page 01', 'Long page 02', 'Long page 03']) {
-      await page.getByRole('treeitem', { name: new RegExp(name) }).first().click({ button: 'right' });
+      // The tree draws only the rows near its view: scroll down to the page until its row is drawn.
+      const pageRow = page.getByRole('treeitem', { name: new RegExp(name) });
+      for (let step = 0; step < 40 && (await pageRow.count()) === 0; step += 1) {
+        await page.locator('[data-testid="sidebar-library"] .sidebar-tree-scroll').first().evaluate((element) => { element.scrollTop += element.clientHeight / 2; });
+        await wait(50);
+      }
+      await pageRow.first().click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
       await until(async () => (await page.getByRole('menu').count()) === 0);
     }
