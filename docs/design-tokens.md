@@ -243,6 +243,7 @@ edges at every width.
 | `--radius-composer` | `rounded-composer` | 16 px |
 | `--shadow-composer` | `shadow-composer` | a soft shadow; dark adds a faint light edge |
 | `--thread-row-height` | `h-thread-row`, `min-h-thread-row` | `--row-height-compact`; **B** 30 px (32 px apart with the gap) |
+| `--text-aside-size`, `--text-aside-line` | `text-aside` | 13 / 18 px in both looks: a digest entry's words under its title |
 | `--sidebar-time` | `text-sidebar-time` | `--text-tertiary`; **B** light `--text-secondary` |
 
 A thread reads like a conversation in the Claude app (2026-11-15). A

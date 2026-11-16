@@ -348,7 +348,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
             // With a title, at most two quiet lines at the smaller size. With none, its words are the entry itself.
             <p
               data-testid="auto-entry-words"
-              className={cn('whitespace-pre-line break-words', row.title ? 'mt-0.5 line-clamp-2 text-ui text-foreground-tertiary' : 'line-clamp-3 text-reply text-foreground')}
+              className={cn('whitespace-pre-line break-words', row.title ? 'mt-0.5 line-clamp-2 text-aside text-foreground-tertiary' : 'line-clamp-3 text-reply text-foreground')}
             >
               {row.words}
             </p>

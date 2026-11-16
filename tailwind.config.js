@@ -124,6 +124,11 @@ module.exports = {
           "var(--text-reply-size)",
           { lineHeight: "var(--text-reply-line)" },
         ],
+        // Quiet words under a title in Auto, one step under a message.
+        aside: [
+          "var(--text-aside-size)",
+          { lineHeight: "var(--text-aside-line)" },
+        ],
       },
       // Inter's variable axis: 510 and 590 are Linear's medium and semibold.
       fontWeight: {

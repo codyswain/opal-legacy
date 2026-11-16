@@ -8,7 +8,7 @@ const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
       'font-size': [
-        { text: ['2xs', 'metadata', 'label', 'control', 'ui', 'ui-heading', 'reply'] },
+        { text: ['2xs', 'metadata', 'label', 'control', 'ui', 'ui-heading', 'reply', 'aside'] },
       ],
       // The sidebar's weights are tokens, so a selected row's weight replaces the label's.
       'font-weight': [{ font: ['sidebar-label', 'sidebar-active', 'sidebar-group-label'] }],

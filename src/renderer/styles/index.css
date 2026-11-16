@@ -73,6 +73,9 @@
     --text-reply-size: 0.875rem;
     --text-reply-line: 1.3125rem;
     /* The message box: its corners, and the shadow that lifts it off the thread. */
+    /* Quiet words under a title in Auto (a digest entry): 13px in both looks, one step under the reply. */
+    --text-aside-size: var(--text-ui-size);
+    --text-aside-line: var(--text-ui-line);
     --radius-composer: 1rem;
     --shadow-composer: 0 1px 2px hsl(0 0% 0% / 0.04), 0 4px 16px hsl(0 0% 0% / 0.05);
 
@@ -231,6 +234,8 @@
     --row-height-compact: 2rem;
     --row-height: 2.25rem;
     --thread-row-height: 1.875rem;
+    --text-aside-size: var(--text-control-size);
+    --text-aside-line: var(--text-control-line);
 
     --sidebar-inset: 0.625rem;
     --sidebar-group-gap: 1.25rem;

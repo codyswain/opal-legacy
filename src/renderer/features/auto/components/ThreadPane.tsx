@@ -110,12 +110,12 @@ function Item({ item, title }: { item: AutoItem; title: string | null }) {
       return <Steps steps={item.steps} />;
     case 'asked':
       return (
-        <p className={quiet}>
+        <p className={folded}>
           {item.text} <span className="font-medium text-foreground-secondary">{item.answer || 'No answer'}</span>
         </p>
       );
     case 'note':
-      return <p className={quiet}>{item.text}</p>;
+      return <p className={folded}>{item.text}</p>;
   }
 }
 
