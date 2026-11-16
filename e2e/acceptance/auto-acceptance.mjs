@@ -449,7 +449,7 @@ async function tour() {
     check('one list item follows the last by 4 px, a paragraph by 11 px', look.itemGap === 4 && Math.round(look.paragraphGap) === 11, `${look.itemGap}/${look.paragraphGap}`);
     check(`one-line thread rows sit ${side === 'b' ? 32 : 30} px apart`, look.rowPitch === (side === 'b' ? 32 : 30), String(look.rowPitch));
     check('the box has 16 px corners, a shadow, and is as wide as the text', look.radius === '16px' && look.shadow && Math.abs(look.boxWidth - look.columnWidth) <= 1, `${look.radius} ${look.boxWidth}/${look.columnWidth}`);
-    check('the box’s controls sit on a row at its foot: the model at the left, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
+    check('the box’s controls sit on a row at its foot: the model at the left, the usage ring beside it, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-usage-ring,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
     check('a hairline runs under the header, the width of the pane', look.hairline);
     check('the title ends in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && ((await page.getByTestId('auto-thread-menu').textContent()) ?? '') === 'Sourdough timings');
     await talk.evaluate((element) => { element.scrollTop = 0; });
@@ -1697,7 +1697,9 @@ async function tour() {
     await key('t');
     check('T opens the entry with the caret in its box, for what he wants done, and makes nothing yet', await until(async () => (await focused()) === 'auto-entry-box') && stateOf(queued[2]) === 'open', await focused());
     await key('Tab');
-    check('Tab from the empty box reaches Make it without words', await until(async () => (await focused()) === 'auto-entry-wordless'), await focused());
+    check('Tab from the empty box reaches the usage ring first', await until(async () => (await focused()) === 'auto-usage-ring'), await focused());
+    await key('Tab');
+    check('and the next Tab reaches Make it without words', await until(async () => (await focused()) === 'auto-entry-wordless'), await focused());
     await key('Enter');
     check('which makes a thread of the entry that waits on top of the list, and the keyboard moves on', await until(async () => stateOf(queued[2]) === 'thread' && (await focused()) === queued[3]), await focused());
     check('the line says what was made, with Open', /, made a threadOpenUndo/.test(await saidText()), await saidText());
