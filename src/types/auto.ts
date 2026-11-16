@@ -247,14 +247,12 @@ export interface AutoLimit {
   key: string;
   /** The service's own name for it: "Weekly, all models". */
   label: string;
-  /** How much of it is used, 0 to 1. */
+  /** How much of it is used, 0 to 1; a number past 1 is kept at 1. */
   used: number;
   /** When its window starts again, in Unix seconds. */
   resetsAt: number | null;
-  /** The service's word for it: `allowed`, `rejected`, or another. */
+  /** The service's word for it: `allowed`, `rejected` (reached), or another. */
   status: string;
-  /** When the service last saw this number, in Unix seconds. The numbers move only when a thread runs. */
-  seenAt: number | null;
 }
 
 /** How much of the plan the service's agent has used. Opal never reads the account's email. */

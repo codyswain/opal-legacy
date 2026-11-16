@@ -13,8 +13,8 @@ const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 const USAGE: AutoUsage = {
   plan: 'Pro',
   limits: [
-    { key: 'seven_day', label: 'Weekly, all models', used: 0.45, resetsAt: seconds(new Date(2026, 10, 20, 22, 0)), status: 'allowed', seenAt: seconds(NOW) - 60 },
-    { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73, resetsAt: seconds(new Date(2026, 10, 20, 22, 0)), status: 'allowed', seenAt: seconds(new Date(2026, 10, 18, 9, 12)) },
+    { key: 'seven_day', label: 'Weekly, all models', used: 0.45, resetsAt: seconds(new Date(2026, 10, 20, 22, 0)), status: 'allowed' },
+    { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73, resetsAt: seconds(new Date(2026, 10, 20, 22, 0)), status: 'allowed' },
   ],
   asOf: seconds(NOW) - 60,
 };
@@ -66,15 +66,39 @@ describe('the usage ring', () => {
     expect(screen.getByTestId('auto-usage-arc')).toBeTruthy();
   });
 
-  it('shows the track alone when every window has reset', () => {
-    useUsageStore.setState({ usage: { ...USAGE, limits: USAGE.limits.map((limit) => ({ ...limit, resetsAt: seconds(NOW) - 3600 })) } });
-    render(<Box />);
-    expect(ring().getAttribute('data-fill')).toBe('0');
-    expect(screen.queryByTestId('auto-usage-arc')).toBeNull();
-    expect(ring().getAttribute('aria-label')).toBe('Plan usage, limits reset');
+  it('leaves a limit past its reset time out, and draws no ring when it was the only one', () => {
+    const [all, large] = USAGE.limits;
+    useUsageStore.setState({ usage: { ...USAGE, limits: [all, { ...large, resetsAt: seconds(NOW) - 3600 }] } });
+    const { rerender } = render(<Box />);
+    expect(ring().getAttribute('data-fill')).toBe('0.45');
+    expect(ring().getAttribute('aria-label')).toBe('Plan usage, Weekly · all models 45% used');
+    fireEvent.click(ring());
+    const rows = within(popover() as HTMLElement).getAllByTestId('auto-usage-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('Weekly · all models');
+    expect(popover()?.textContent).not.toContain('Large');
+
+    act(() => useUsageStore.setState({ usage: { ...USAGE, limits: [{ ...large, resetsAt: seconds(NOW) }] } }));
+    rerender(<Box />);
+    expect(screen.queryByTestId('auto-usage-ring')).toBeNull();
+    expect(popover()).toBeNull();
+    expect(screen.getByTestId('row').childElementCount).toBe(0);
   });
 
-  it('opens one row and bar per limit under the plan, with when each was seen when it is old', () => {
+  it('goes when its only limit passes its reset time while it is drawn', () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(NOW);
+    useUsageStore.setState({ usage: { ...USAGE, limits: [{ ...USAGE.limits[0], resetsAt: seconds(NOW) + 20 }] } });
+    render(<Box />);
+    expect(ring()).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(screen.queryByTestId('auto-usage-ring')).toBeNull();
+  });
+
+  it('opens one row and bar per limit under the plan', () => {
     useUsageStore.setState({ usage: USAGE });
     render(<Box />);
     fireEvent.click(ring());
@@ -87,20 +111,8 @@ describe('the usage ring', () => {
     expect(within(rows[0]).getByTestId('auto-usage-when').textContent).toBe('Resets Fri 10:00 pm');
     expect(within(rows[0]).getByTestId('auto-usage-percent').textContent).toBe('45%');
     expect(within(rows[0]).getByTestId('auto-usage-bar').style.width).toBe('45%');
-    expect(within(rows[0]).queryByTestId('auto-usage-as-of')).toBeNull();
     expect(within(rows[1]).getByTestId('auto-usage-percent').textContent).toBe('73%');
     expect(within(rows[1]).getByTestId('auto-usage-bar').style.width).toBe('73%');
-    expect(within(rows[1]).getByTestId('auto-usage-as-of').textContent).toBe('as of 9:12 am');
-  });
-
-  it('says a window that has reset as over, with an empty bar', () => {
-    useUsageStore.setState({ usage: { ...USAGE, limits: [{ ...USAGE.limits[0], resetsAt: seconds(new Date(2026, 10, 16, 22, 0)) }, USAGE.limits[1]] } });
-    render(<Box />);
-    fireEvent.click(ring());
-    const [over] = within(popover() as HTMLElement).getAllByTestId('auto-usage-row');
-    expect(within(over).getByTestId('auto-usage-when').textContent).toBe('Reset Mon 10:00 pm, not seen since');
-    expect(within(over).queryByTestId('auto-usage-percent')).toBeNull();
-    expect(within(over).getByTestId('auto-usage-bar').style.width).toBe('0%');
   });
 
   it('closes on Escape and gives the keyboard back to the box', async () => {

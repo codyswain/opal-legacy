@@ -483,7 +483,6 @@ function toLimit(value: unknown): AutoLimit | null {
     used: Math.min(1, Math.max(0, limit.used)),
     resetsAt: time(limit.resets_at),
     status: plain(limit.status, 40),
-    seenAt: time(limit.seen_at),
   };
 }
 

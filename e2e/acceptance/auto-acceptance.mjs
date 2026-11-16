@@ -2134,23 +2134,23 @@ async function tour() {
     await page.mouse.click(WIDTH / 2, 120);
     check('a click outside closes it', await until(async () => (await ringPopover.count()) === 0, 3_000));
 
-    // A window that has reset, and a number seen hours ago.
+    // A limit past its reset time is left out until the service drops it; alone, it leaves no ring.
     const nowSeconds = Math.floor(Date.now() / 1000);
     service.setUsage({ limits: [
-      { key: 'seven_day', label: 'Weekly, all models', used: 0.95, resets_at: nowSeconds - 2 * 86400 },
-      { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73, seen_at: nowSeconds - 3 * 3600 },
+      { key: 'seven_day', label: 'Weekly, all models', used: 0.95, resets_at: nowSeconds - 60 },
+      { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 },
     ] });
-    check('a reset window leaves the ring: it fills to the other limit', await until(async () => (await fillOf(threadRing)) === '0.73'), await fillOf(threadRing));
+    check('a limit past its reset time leaves the ring: it fills to the other limit', await until(async () => (await fillOf(threadRing)) === '0.73' && (await threadRing.getAttribute('aria-label')) === 'Plan usage, Weekly · Large 73% used'), await threadRing.getAttribute('aria-label'));
     await threadRing.click();
     await ringPopover.waitFor({ timeout: 5_000 });
-    const [resetRow, staleRow] = await rowsText();
-    check('a reset row reads “Reset …, not seen since”, with no percent and an empty bar', /^Weekly · all models\s?Reset [A-Za-z]{3} \d{1,2}:\d{2} [ap]m, not seen since$/.test(resetRow ?? '') && (await ringPopover.getByTestId('auto-usage-bar').first().evaluate((element) => element.style.width)) === '0%', resetRow);
-    check('a stale row says when it was seen, under its bar', /as of \d{1,2}:\d{2} [ap]m$|as of yesterday$/.test(staleRow ?? ''), staleRow);
-    await shot(92, 'usage-reset-and-stale', null, ['light', 'dark'], false);
+    const pastRows = await rowsText();
+    check('and the popover leaves it out: one row, the other limit', pastRows.length === 1 && /^Weekly · Large\s?Resets .+73%$/.test(pastRows[0] ?? ''), pastRows.join(' | '));
     await key('Escape');
     await until(async () => (await ringPopover.count()) === 0);
+    service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.95, resets_at: nowSeconds - 60 }] });
+    check('when it was the only limit there is no ring at all', await until(async () => (await threadRing.count()) === 0));
     service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.45 }, { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 }] });
-    await until(async () => (await fillOf(threadRing)) === '0.73');
+    check('and it comes back with a limit in its window', await until(async () => (await fillOf(threadRing)) === '0.73'), await fillOf(threadRing));
 
     // A column 360 wide still holds the model, the ring and Send on one row.
     await page.evaluate(() => {

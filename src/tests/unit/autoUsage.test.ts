@@ -5,6 +5,7 @@ import {
   DOT,
   fullest,
   isReset,
+  shownLimits,
   ringFill,
   ringLabel,
   usageHeader,
@@ -29,18 +30,18 @@ const ANSWER = {
 };
 
 const limit = (key: string, fields: Partial<AutoLimit> = {}): AutoLimit => ({
-  key, label: `Weekly, ${key}`, used: 0.5, resetsAt: null, status: 'allowed', seenAt: null, ...fields,
+  key, label: `Weekly, ${key}`, used: 0.5, resetsAt: null, status: 'allowed', ...fields,
 });
 const usage = (limits: AutoLimit[], plan = 'Pro'): AutoUsage => ({ plan, limits, asOf: null });
 
 describe('reading the plan usage', () => {
-  it('keeps the plan, the limits in the order sent and the time, and never the email', () => {
+  it('keeps the plan, the limits in the order sent and the time, and never the email or when a number was seen', () => {
     const read = toUsage(ANSWER);
     expect(read).toEqual({
       plan: 'Pro',
       limits: [
-        { key: 'seven_day', label: 'Weekly, all models', used: 0.01, resetsAt: 1795460400, status: 'allowed', seenAt: 1794860400 },
-        { key: 'seven_day_large', label: 'Weekly, Large', used: 0, resetsAt: 1795460400, status: 'allowed', seenAt: 1794860400 },
+        { key: 'seven_day', label: 'Weekly, all models', used: 0.01, resetsAt: 1795460400, status: 'allowed' },
+        { key: 'seven_day_large', label: 'Weekly, Large', used: 0, resetsAt: 1795460400, status: 'allowed' },
       ],
       asOf: 1794860400,
     });
@@ -73,16 +74,46 @@ describe('reading the plan usage', () => {
   it('clamps used to 0..1, and keeps times only when they are positive numbers', () => {
     const read = toUsage({
       limits: [
-        { key: 'over', label: 'Over', used: 1.7, resets_at: -1, seen_at: 'now' },
-        { key: 'under', label: 'Under', used: -0.2, resets_at: 0, seen_at: Number.NaN },
+        { key: 'over', label: 'Over', used: 1.7, resets_at: -1 },
+        { key: 'under', label: 'Under', used: -0.2, resets_at: 0 },
       ],
       as_of: 'yesterday',
     });
     expect(read?.limits).toEqual([
-      { key: 'over', label: 'Over', used: 1, resetsAt: null, status: '', seenAt: null },
-      { key: 'under', label: 'Under', used: 0, resetsAt: null, status: '', seenAt: null },
+      { key: 'over', label: 'Over', used: 1, resetsAt: null, status: '' },
+      { key: 'under', label: 'Under', used: 0, resetsAt: null, status: '' },
     ]);
     expect(read?.asOf).toBeNull();
+  });
+
+  it('reads null account and extra usage values as no plan', () => {
+    const limits = [{ key: 'five_hour', label: '5 hours, all models', used: 0.2, resets_at: 1795460400, status: 'allowed' }];
+    const answers: unknown[] = [
+      { account: null, limits, extra_usage: null },
+      { account: { email: null, plan: null }, limits, extra_usage: { status: null, reason: null } },
+    ];
+    for (const answer of answers) {
+      const read = toUsage(answer);
+      expect(read?.plan).toBe('');
+      expect(read?.limits.map((each) => each.key)).toEqual(['five_hour']);
+      expect(usageHeader(read as AutoUsage)).toBe('Plan usage limits');
+    }
+  });
+
+  it('reads a reached limit, sent as used 1.0 and rejected, and a used past 1, as full', () => {
+    const read = toUsage({
+      limits: [
+        { key: 'five_hour', label: '5 hours, all models', used: 1.0, resets_at: 1795460400, status: 'rejected' },
+        { key: 'seven_day', label: 'Weekly, all models', used: 1.04, resets_at: 1795460400, status: 'allowed' },
+      ],
+    }) as AutoUsage;
+    expect(read.limits.map(({ used, status }) => ({ used, status }))).toEqual([{ used: 1, status: 'rejected' }, { used: 1, status: 'allowed' }]);
+    const before = 1795460400 * 1000 - 3600_000;
+    expect(ringFill(read, before)).toBe(1);
+    expect(usageRows(read, before).map(({ label, percent, fill }) => ({ label, percent, fill }))).toEqual([
+      { label: '5 hours · all models', percent: '100%', fill: 1 },
+      { label: 'Weekly · all models', percent: '100%', fill: 1 },
+    ]);
   });
 
   it('drops a second limit with a key already seen', () => {
@@ -122,12 +153,13 @@ describe('the words for the plan usage', () => {
     expect(DOT).toBe(' · ');
     expect(usageLabel('Weekly, all models')).toBe('Weekly · all models');
     expect(usageLabel('Five hours')).toBe('Five hours');
+    expect(usageLabel('5 hours, all models')).toBe('5 hours · all models');
   });
 
   it('says when each window resets, then its percent', () => {
     const rows = usageRows(usage([
-      limit('all', { label: 'Weekly, all models', used: 0.45, resetsAt: Math.floor(new Date(2026, 10, 20, 22, 0).getTime() / 1000), seenAt: at(-0.1) }),
-      limit('large', { label: 'Weekly, Large', used: 0.73, resetsAt: Math.floor(new Date(2026, 10, 19, 9, 0).getTime() / 1000), seenAt: at(-0.1) }),
+      limit('all', { label: 'Weekly, all models', used: 0.45, resetsAt: Math.floor(new Date(2026, 10, 20, 22, 0).getTime() / 1000) }),
+      limit('large', { label: 'Weekly, Large', used: 0.73, resetsAt: Math.floor(new Date(2026, 10, 19, 9, 0).getTime() / 1000) }),
       limit('none', { used: 0.2 }),
     ]), NOW);
     expect(rows.map(({ label, when, percent, fill }) => ({ label, when, percent, fill }))).toEqual([
@@ -137,21 +169,22 @@ describe('the words for the plan usage', () => {
     ]);
   });
 
-  it('says a window that has reset as over, with an empty bar, and leaves it out of the ring', () => {
-    const over = limit('over', { label: 'Weekly, all models', used: 0.95, resetsAt: Math.floor(new Date(2026, 10, 18, 11, 0).getTime() / 1000) - 7 * 3600 });
-    const reset = Math.floor(new Date(2026, 10, 16, 22, 0).getTime() / 1000);
-    const weekday = limit('weekday', { used: 0.8, resetsAt: reset });
+  it('leaves a limit past its reset time out of the rows and the ring', () => {
+    const over = limit('over', { label: 'Weekly, all models', used: 0.95, resetsAt: at(-1) });
+    const edge = limit('edge', { used: 0.9, resetsAt: NOW / 1000 });
     const open = limit('open', { used: 0.3, resetsAt: at(48) });
-    const now = usage([over, weekday, open]);
+    const now = usage([over, edge, open]);
     expect(isReset(over, NOW)).toBe(true);
-    expect(isReset(limit('edge', { resetsAt: NOW / 1000 }), NOW)).toBe(true);
+    expect(isReset(edge, NOW)).toBe(true);
     expect(isReset(open, NOW)).toBe(false);
-    const rows = usageRows(now, NOW);
-    expect(rows[0]).toMatchObject({ when: 'Reset 4:00 am, not seen since', percent: null, fill: 0, asOf: null });
-    expect(rows[1]).toMatchObject({ when: 'Reset Mon 10:00 pm, not seen since', percent: null, fill: 0 });
+    expect(shownLimits(now, NOW).map((each) => each.key)).toEqual(['open']);
+    expect(usageRows(now, NOW).map((row) => row.key)).toEqual(['open']);
     expect(ringFill(now, NOW)).toBe(0.3);
     expect(fullest(now, NOW)?.key).toBe('open');
-    expect(ringFill(usage([over, weekday]), NOW)).toBe(0);
+    // When it was the only one there is nothing left to show.
+    expect(usageRows(usage([over]), NOW)).toEqual([]);
+    expect(fullest(usage([over]), NOW)).toBeNull();
+    expect(ringFill(usage([over, edge]), NOW)).toBe(0);
     expect(ringFill(usage([]), NOW)).toBe(0);
   });
 
@@ -159,19 +192,7 @@ describe('the words for the plan usage', () => {
     const now = usage([limit('all', { label: 'Weekly, all models', used: 0.73 }), limit('large', { label: 'Weekly, Large', used: 0.45 }), limit('tie', { used: 0.73 })]);
     expect(ringFill(now, NOW)).toBe(0.73);
     expect(ringLabel(now, NOW)).toBe('Plan usage, Weekly · all models 73% used');
-    expect(ringLabel(usage([limit('gone', { resetsAt: at(-1) })]), NOW)).toBe('Plan usage, limits reset');
-  });
-
-  it('says when a number was seen only once it is more than an hour old', () => {
-    const rows = usageRows(usage([
-      limit('fresh', { seenAt: Math.floor(NOW / 1000) - 3600 + 30 }),
-      limit('stale', { seenAt: Math.floor(new Date(2026, 10, 18, 9, 12).getTime() / 1000) }),
-      limit('hour', { seenAt: Math.floor(NOW / 1000) - 3601 }),
-      limit('yesterday', { seenAt: Math.floor(new Date(2026, 10, 17, 20, 0).getTime() / 1000) }),
-      limit('monday', { seenAt: Math.floor(new Date(2026, 10, 16, 20, 0).getTime() / 1000) }),
-      limit('never', { seenAt: null }),
-    ]), NOW);
-    expect(rows.map((row) => row.asOf)).toEqual([null, 'as of 9:12 am', 'as of 10:59 am', 'as of yesterday', 'as of Mon', null]);
+    expect(ringLabel(usage([limit('gone', { resetsAt: at(-1) }), limit('left', { label: 'Weekly, Large', used: 0.2 })]), NOW)).toBe('Plan usage, Weekly · Large 20% used');
   });
 
   it('heads the popover with the plan when the service names one', () => {
@@ -225,6 +246,20 @@ describe('the usage store', () => {
     await settle();
     expect(auto.asked('usage').length).toBeGreaterThan(after);
     expect(useUsageStore.getState().usage?.limits[0].used).toBe(0.9);
+  });
+
+  it('reads on every usage event, whatever it carries', async () => {
+    auto = installAutoApi({ usage: USAGE });
+    await connect();
+    for (const body of [{}, null, { limits: [] }, { email: 'someone@example.com' }]) {
+      const before = auto.asked('usage').length;
+      const event = toListEvent('usage', body);
+      expect(event).toEqual({ kind: 'usage' });
+      dispatchStream({ token: useAutoStore.getState().listToken ?? -1, type: 'event', stream: 'list', event: event as { kind: 'usage' }, cursor: null });
+      await settle();
+      expect(auto.asked('usage').length).toBeGreaterThan(before);
+    }
+    expect(JSON.stringify(useUsageStore.getState().usage)).not.toContain('example.com');
   });
 
   it('reads once more after a read when the event arrives during it, and no more', async () => {
