@@ -13,6 +13,7 @@ import { useTabScroll } from '../hooks/useTabScroll';
 import { filesLocationKey, isAutoLocation } from '../navigation/filesLocation';
 import { tabFile, tabLocation } from '../store/tabsStore';
 import { usePaneTab } from '../panes/PaneContext';
+import { EditorSlot } from '../panes/EditorSlot';
 
 /**
  * One pane's page: its open tab's file, stack, Recent or Auto. Tabs and the
@@ -122,7 +123,10 @@ export const DiskExplorer: React.FC = () => {
         <div ref={page} data-testid="files-focus" className="min-h-0 flex-1">
           {focusedEntry?.path === openedPath && focusedEntry.entry ? (
             focusedEntry.entry.kind === 'markdown' ? (
-              <MarkdownEditor key={focusedEntry.entry.path} path={focusedEntry.entry.path} />
+              // A page live in the other pane shows a line here instead of a second editor.
+              <EditorSlot key={focusedEntry.entry.path} path={focusedEntry.entry.path} className="p-8">
+                <MarkdownEditor path={focusedEntry.entry.path} />
+              </EditorSlot>
             ) : (
               <FileViewer entry={focusedEntry.entry} />
             )

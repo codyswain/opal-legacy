@@ -600,6 +600,21 @@ function openState(state: TabsState, target: FilesLocation, options: OpenOptions
   return inPane(state, state.activePaneId, (view) => openInView(view, location, options));
 }
 
+/**
+ * Back or Forward in the active pane. A step that would land on a page the
+ * other pane shows goes to that pane's tab instead, and this tab's history
+ * stays where it was: a page shows in one place.
+ */
+function stepState(state: TabsState, delta: number): Partial<TabsState> {
+  const pane = selectPane(state, state.activePaneId);
+  const tab = pane ? selectActiveTab(pane) : null;
+  const target = tab?.history[tab.index + delta];
+  const other = selectOtherPane(state);
+  const shown = target && other ? tabShowing([other], filesLocationKey(target.location)) : null;
+  if (shown) return activateIn(state, shown.pane, shown.tab.id);
+  return inPane(state, state.activePaneId, (view) => stepView(view, delta));
+}
+
 function stepView(view: PaneView, delta: number): PaneChange {
   const tab = selectActiveTab(view);
   const index = tab ? tab.index + delta : -1;
@@ -663,9 +678,9 @@ export const useTabsStore = create<TabsStore>((set, get) => {
     open: (location, options = {}) =>
       update((state) => openState(state, location, options)),
 
-    back: () => update((state) => inPane(state, state.activePaneId, (view) => stepView(view, -1))),
+    back: () => update((state) => stepState(state, -1)),
 
-    forward: () => update((state) => inPane(state, state.activePaneId, (view) => stepView(view, 1))),
+    forward: () => update((state) => stepState(state, 1)),
 
     activate: (id) =>
       update((state) => {
@@ -708,6 +723,12 @@ export const useTabsStore = create<TabsStore>((set, get) => {
       if (!closed) return false;
       update((state) => {
         const paneId = closed.paneId && selectPane(state, closed.paneId) ? closed.paneId : state.activePaneId;
+        // A page the other pane shows now is not opened again: its tab there comes forward.
+        const elsewhere = tabShowing(
+          state.panes.filter((pane) => pane.id !== paneId),
+          filesLocationKey(tabLocation(closed.tab))
+        );
+        if (elsewhere) return { ...activateIn(state, elsewhere.pane, elsewhere.tab.id), recentlyClosed: rest };
         const placed = inPane(state, paneId, (view) => ({
           tabs: [...view.tabs.slice(0, closed.index), closed.tab, ...view.tabs.slice(closed.index)],
           activeId: closed.tab.id,

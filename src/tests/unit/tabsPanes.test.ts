@@ -306,3 +306,58 @@ describe('persistence of panes', () => {
     expect(restored.split).toBe(0.5);
   });
 });
+
+describe('a page shows in one place, whatever the way in', () => {
+  it('Back that would land on a page the other pane shows goes to that tab, and the history stays', () => {
+    openTabs([A]);
+    open(B);
+    state().splitRight();
+    open(A);
+    // Left: A then B in one tab's history; right: A. Back in the left would show A twice.
+    state().focusPane(state().panes[0].id);
+    const left = state().panes[0].tabs[0];
+    state().back();
+    expect(activePaneIndex()).toBe(1);
+    expect(paneOpen(1)).toBe(A);
+    expect(state().panes[0].tabs[0].index).toBe(left.index);
+    expect(paneOpen(0)).toBe(B);
+  });
+
+  it('Forward does the same', () => {
+    openTabs([A]);
+    open(B);
+    state().back();
+    state().splitRight();
+    open(B);
+    state().focusPane(state().panes[0].id);
+    state().forward();
+    expect(activePaneIndex()).toBe(1);
+    expect(paneOpen(0)).toBe(A);
+    expect(state().panes[0].tabs[0].index).toBe(0);
+  });
+
+  it('a step to a page nobody else shows moves as before', () => {
+    openTabs([A]);
+    open(B);
+    state().splitRight();
+    open(C);
+    state().focusPane(state().panes[0].id);
+    state().back();
+    expect(activePaneIndex()).toBe(0);
+    expect(paneOpen(0)).toBe(A);
+  });
+
+  it('reopening a closed tab whose page the other pane shows now goes to that tab, and uses the closed tab up', () => {
+    openTabs([A, B]);
+    state().splitRight();
+    state().focusPane(state().panes[0].id);
+    state().close(state().panes[0].tabs[0].id);
+    state().focusPane(state().panes[1].id);
+    open(A);
+    state().focusPane(state().panes[0].id);
+    expect(state().reopenClosed()).toBe(true);
+    expect(panePaths()).toEqual([[B], [A]]);
+    expect(activePaneIndex()).toBe(1);
+    expect(state().recentlyClosed).toHaveLength(0);
+  });
+});

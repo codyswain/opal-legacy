@@ -471,6 +471,61 @@ async function tour() {
     await wait(600);
     check('a session saved before panes loads as one pane with its tabs', (await columnCount()) === 1 && (await tabsOf(0)).join() === 'Garden plan,Reading' && (await pill(0, 'Reading').getAttribute('aria-selected')) === 'true', (await tabsOf(0)).join());
 
+    // --- A page is never editable in two panes, whatever the way in.
+    const daily = abs(`Library/daily/${TODAY}.mdo`);
+    /** How many live editors the window has for a file, and where the "Open in the other pane" lines are. */
+    const liveFor = (file) => page.evaluate((target) => [...document.querySelectorAll('[data-live-editor]')].filter((element) => element.getAttribute('data-live-editor') === target && element.querySelector('.cm-content')).length, file);
+    const lineIn = (index, file) => column(index).locator(`[data-testid="editor-elsewhere"][data-path="${file}"]`);
+    const leftCard = () => column(0).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
+    // Back: the left tab goes Reading, then Kitchen list; the right pane opens Reading; Back in the left would show it twice.
+    await pill(0, 'Reading').click();
+    await tree('Kitchen list.md').click();
+    await until(async () => (await tabsOf(0)).includes('Kitchen list'));
+    await menu('panes.splitRight');
+    await until(async () => (await columnCount()) === 2);
+    await tree('Reading.md').click();
+    await until(async () => (await tabsOf(1)).join() === 'Reading');
+    await leftCard();
+    await menu('history.back');
+    check('Back that would show a page the other pane has goes to that pane’s tab, and the left tab stays', await until(async () => (await activeIndex()) === 1) && (await pill(0, 'Kitchen list').getAttribute('aria-selected')) === 'true' && (await liveFor(abs('Reading.md'))) === 1, `${await activeIndex()} ${(await tabsOf(0)).join()}`);
+    // Reopen: Garden plan closed in the left, then opened in the right; reopening it in the left would show it twice.
+    await pill(0, 'Garden plan').hover();
+    await column(0).locator('[data-testid^="tab-close-"]').first().click();
+    await until(async () => !(await tabsOf(0)).includes('Garden plan'));
+    await column(1).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
+    await tree('Garden plan.md').click({ modifiers: ['Meta'] });
+    await until(async () => (await tabsOf(1)).includes('Garden plan'));
+    await leftCard();
+    await menu('tabs.reopenClosed');
+    check('reopening a closed tab whose page the other pane shows goes to that tab', await until(async () => (await activeIndex()) === 1) && !(await tabsOf(0)).includes('Garden plan') && (await liveFor(abs('Garden plan.md'))) === 1, `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
+    // Today's page in the stream at the left, and the same page opened alone at the right.
+    await leftCard();
+    await page.getByRole('button', { name: 'Daily', exact: true }).first().click();
+    await until(async () => (await column(0).locator(`[data-stack-section="${daily}"] [data-live-editor] .cm-content`).count()) === 1, 10_000);
+    await column(1).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
+    await page.evaluate((file) => { window.location.hash = `#/files?mode=focus&file=${encodeURIComponent(file)}&alone=1`; }, daily);
+    check('today’s page alone beside the stream that shows it gets the line, not a second editor', await until(async () => (await lineIn(1, daily).count()) === 1, 10_000) && (await liveFor(daily)) === 1 && (await lineIn(1, daily).textContent())?.includes('Open in the other pane') === true, `${await liveFor(daily)} live, ${await lineIn(1, daily).count()} lines`);
+    // Typing in both: only the one live editor writes the file.
+    await column(0).locator(`[data-stack-section="${daily}"] .cm-content`).click();
+    await page.keyboard.press('Meta+ArrowDown');
+    await page.keyboard.type(' LIVEONE', { delay: 15 });
+    await lineIn(1, daily).locator('span').first().click();
+    await page.keyboard.type('GHOST', { delay: 15 });
+    await wait(1500);
+    const onDisk = await readFile(daily, 'utf8');
+    check('typed in both panes, the file holds what the one live editor typed and nothing else', onDisk.split('LIVEONE').length === 2 && !onDisk.includes('GHOST'), JSON.stringify(onDisk.slice(-60)));
+    await shot('page-in-other-pane');
+    // Show it here: the stream keeps its tab, and its section shows the line in turn.
+    await lineIn(1, daily).getByRole('button', { name: 'Show it here' }).click();
+    check('Show it here brings the editor to this pane, and the stream’s section shows the line', await until(async () => (await column(1).locator(`[data-live-editor="${daily}"] .cm-content`).count()) === 1 && (await lineIn(0, daily).count()) === 1) && (await liveFor(daily)) === 1 && (await activeIndex()) === 1);
+    await page.keyboard.press('Meta+ArrowDown');
+    await page.keyboard.type(' SECOND', { delay: 15 });
+    check('typing there saves through the one editor', await until(async () => { const text = await readFile(daily, 'utf8'); return text.split('LIVEONE').length === 2 && text.split('SECOND').length === 2; }, 6_000));
+    // Back to one pane for what follows.
+    await menu('panes.close');
+    await until(async () => (await columnCount()) === 1);
+    check('closing the pane lets the page go: the stream draws it again', await until(async () => (await column(0).locator(`[data-stack-section="${daily}"] [data-live-editor] .cm-content`).count()) === 1, 10_000) && (await page.locator('[data-testid="editor-elsewhere"]').count()) === 0);
+
     // --- Thread beside a page once more, for the pictures of a split with the thread at the left.
     await page.addStyleTag({ content: '.cm-cursorLayer, .cm-cursor { visibility: hidden !important; } input, textarea { caret-color: transparent !important; }' });
     await page.getByTestId(`auto-row-${BREAD}`).locator('[data-auto-row]').click({ modifiers: ['Alt'] });
