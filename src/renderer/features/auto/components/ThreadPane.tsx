@@ -627,8 +627,9 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   useGrow(box, draft);
 
   // A thread opens with the caret in its box, and the keyboard comes back to it after an answer, Stop or a rename.
+  // A box drawn while the title is being renamed leaves the caret in the title's field.
   React.useEffect(() => {
-    box.current?.focus({ preventScroll: true });
+    if (!useThreadStore.getState().renaming) box.current?.focus({ preventScroll: true });
   }, [boxFocus]);
 
   const submit = () => {

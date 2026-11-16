@@ -21,7 +21,7 @@ import { useAutoStore } from '../store/autoStore';
 import { useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
 import { useVaultLinks } from '../useVaultLinks';
-import { byKey, focusRowAfterClose, giveBack, keepFocus, rovingTarget, rowElement } from './focus';
+import { PAGE_FIRST, byKey, focusRowAfterClose, giveBack, keepFocus, rovingTarget, rowElement } from './focus';
 import { fadeOf, revealIn, type Fade } from './listScroll';
 import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
 
@@ -555,7 +555,11 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
           data-testid="auto-away-row"
           tabIndex={tabStop === AWAY ? 0 : -1}
           aria-current={awayMarked || undefined}
-          onClick={() => show(AWAY)}
+          onClick={() => {
+            // By a key the keyboard goes onto the page's first row, also when the page already shows.
+            if (byKey()) useAutoStore.getState().requestPageFocus(PAGE_FIRST);
+            show(AWAY);
+          }}
           className={cn(
             rowButton,
             'flex h-row-compact w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui transition-hover',

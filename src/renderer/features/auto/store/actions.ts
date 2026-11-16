@@ -227,10 +227,12 @@ export async function restoreThread(thread: AutoThread, options: { from?: From }
   const post = api.request({ kind: 'archive', id: thread.id, archived: false }).catch((): null => null);
   /** Back in the archive, and still open in the pane if he was reading it. */
   const putAway = () => {
-    const wasOpen = useThreadStore.getState().openId === thread.id;
+    const { openId, fromAway } = useThreadStore.getState();
+    const wasOpen = openId === thread.id;
     leave(thread.id);
     useAutoStore.getState().archiveChanged(gone);
-    if (wasOpen) useThreadStore.getState().open(thread.id, { focus: false });
+    // Leaving the list closed it for a moment; it opens again as it was, from the Put away page if it came from there.
+    if (wasOpen) useThreadStore.getState().open(thread.id, { focus: false, fromAway });
   };
   let undone = false;
   const offer = said.offer({

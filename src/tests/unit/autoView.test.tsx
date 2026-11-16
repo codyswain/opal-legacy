@@ -1144,4 +1144,17 @@ describe('the sidebar review, smaller items', () => {
     act(() => useAutoStore.setState({ loaded: true }));
     expect(fold.style.height).toBe('');
   });
+  it('keeps the title field open after Rename is picked from a row’s menu with the pointer', async () => {
+    await open();
+    await openThread('bread');
+    box().focus();
+    const pointer = userEvent.setup();
+    await pointer.pointer({ keys: '[MouseRight]', target: within(row('seeds')).getAllByRole('button')[0] });
+    const menu = within(await screen.findByTestId('auto-row-menu-seeds'));
+    await pointer.click(menu.getByRole('menuitem', { name: 'Rename' }));
+    const field = await screen.findByRole('textbox', { name: 'Thread title' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByRole('textbox', { name: 'Thread title' })).toBe(field);
+    expect(document.activeElement).toBe(field);
+  });
 });

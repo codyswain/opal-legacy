@@ -362,6 +362,18 @@ describe('archived threads', () => {
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'gone4', archived: false }));
   });
 
+  it('keeps a thread opened from the page under the marked Put away row when its bringing back is undone', async () => {
+    await open();
+    await openArchive();
+    await openThread('gone1');
+    fireEvent.click(screen.getByTestId('auto-restore-open'));
+    await waitFor(() => expect(screen.getByTestId('auto-archive-open')).toBeInTheDocument());
+    fireEvent.click(within(screen.getByTestId('auto-said')).getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(screen.getByTestId('auto-away')).toBeInTheDocument());
+    expect(screen.getByTestId('auto-title').textContent).toBe('Old thread 1');
+    expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
+  });
+
   it('puts it back in the archive with the service’s sentence when the service refuses', async () => {
     await open();
     await openArchive();

@@ -189,16 +189,15 @@ where a nav icon does, so top-level labels line up with Daily and Recent.
 | `--radius-sidebar-row` | `rounded-sidebar-row` | 6 px | 8 |
 | `--sidebar-group-label-height` | `min-h-sidebar-group-label` | 16 px, the label's line | a row and its 2 px gap, 34 |
 | `--sidebar-group-label-weight` | `font-sidebar-group-label` | 510 | 400 |
-| `--tree-scrollbar-gutter` | `sidebar-tree-scroll` | `auto` | `stable`, the 10 px scrollbar |
-| `--tree-row-end` | `mr-tree-row-end` | the inset, 8 px | 0 |
 
 So a row's icon starts 17 px from the sidebar's edge and its label 40 px
 (**B** about 20 and 46).
 
-In **B** the tree keeps its scrollbar's gutter at all times and its rows
-have no right margin, so the gutter takes the inset's place: a selected
-tree row ends at the same x as the Daily or Pinned pill whether or not the
-tree scrolls. The thumb still shows only while scrolling or hovered.
+In both looks the tree and Threads keep a scrollbar gutter as wide as the
+inset at all times, and their rows have no right margin, so the gutter
+takes the inset's place: a marked tree row, a marked thread row and the
+Daily or Pinned pill end at the same x whether or not either part scrolls.
+The thumb still shows only while scrolling or hovered.
 Daily's "+" uses `text-sidebar-icon`.
 
 The frame's icon buttons (both sidebars' top rows and the tab row's "+")
@@ -260,10 +259,15 @@ the same point either way.
 A row's "Your move: …" and "Not started" are in `text-foreground`, as words
 and never as a button; a row has no answer buttons. There is no line of
 counts: the Threads heading carries one number, `text-metadata` in
-`text-foreground-tertiary`, beside the New thread button. The section
-headings (`SidebarFold.tsx`) are `h-row-compact` buttons in
-`font-sidebar-group-label` `text-foreground-tertiary` with a chevron that
-turns when the section folds. The Digest row is the first row of Threads,
+`text-foreground-tertiary`, beside the New thread button, and in
+`text-foreground` while Threads is folded. The section headings
+(`SidebarFold.tsx`) are `h-row-compact` buttons in `text-label`
+`font-medium` `text-foreground-secondary`, one step above the group labels
+inside them ("For the Mac"), with a chevron that turns when the section
+folds. Pinned pages sit right under "Library"; their "Pinned" label is for
+screen readers only. They take their rows' height, and past eight they
+scroll with the fade. Only a row the heading's count takes in has the
+heavier title. The Digest row is the first row of Threads,
 one line, with its count where a thread's time goes. Threads takes the
 height its rows need, up to 70% of the room it shares with Library, and
 scrolls inside that (`.auto-threads-scroll`): the scrollbar's gutter is
@@ -275,10 +279,13 @@ option of a question is filled: every one is an outline button, with its
 number, 1 to 3, in `text-foreground-tertiary` beside it, shown only while
 the card or the row has the keyboard, which is when the number picks.
 
-What is put away sits at the foot of the list behind three lines, each a
-`h-row-compact` row in `text-foreground-tertiary` with a chevron:
-"Waiting on a reply" and "Snoozed" end with their count in `text-metadata`,
-"Archived" with none. A row behind them is a list row. A waiting row's
+What is put away is one `h-row-compact` row pinned at the foot of Threads,
+"Put away" in `text-foreground-tertiary` with an archive icon and the count
+of what is snoozed or waiting in `text-metadata`, marked like a page row
+while its page or a thread opened from it shows. The Put away page is in
+the queue's reading column: a `text-label` heading in
+`text-foreground-tertiary` per group, rows with a `text-reply` medium
+title, and at their right an outline "Bring back" button. A waiting row's
 first line ("Waiting on Sam until Tue 5:00 pm") is `text-control` in
 `text-foreground`, and what it waits for, where and what was last heard is
 `text-control` in `text-foreground-tertiary` under it; an archived row adds
@@ -305,7 +312,8 @@ the name first, cut if it is long, then what happened, then Undo, and
 "2 more" when Undo reaches further back. A put-away is one sentence in the
 phone's words, whole ("Snoozed until tomorrow 9:00 am.", "Archived:" and
 then the name); a refusal is the service's sentence, whole, and then a
-shortened name. A table or a code block that scrolls sideways fades at the edge
+shortened name. With the sidebar not shown the line sits at the foot of the Auto page
+instead. A table or a code block that scrolls sideways fades at the edge
 it is cut at (`[data-fade]`).
 
 ## Page headings
