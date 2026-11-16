@@ -517,7 +517,7 @@ async function tour() {
     await shot('page-in-other-pane');
     // Show it here: the stream keeps its tab, and its section shows the line in turn.
     await lineIn(1, daily).getByRole('button', { name: 'Show it here' }).click();
-    check('Show it here brings the editor to this pane, and the stream’s section shows the line', await until(async () => (await column(1).locator(`[data-live-editor="${daily}"] .cm-content`).count()) === 1 && (await lineIn(0, daily).count()) === 1) && (await liveFor(daily)) === 1 && (await activeIndex()) === 1);
+    check('Show it here brings the editor to this pane with the keyboard in it, and the stream’s section shows the line', await until(async () => (await column(1).locator(`[data-live-editor="${daily}"] .cm-content`).count()) === 1 && (await lineIn(0, daily).count()) === 1 && (await column(1).locator(`[data-live-editor="${daily}"] .cm-content`).evaluate((element) => element.contains(document.activeElement)))) && (await liveFor(daily)) === 1 && (await activeIndex()) === 1);
     await page.keyboard.press('Meta+ArrowDown');
     await page.keyboard.type(' SECOND', { delay: 15 });
     check('typing there saves through the one editor', await until(async () => { const text = await readFile(daily, 'utf8'); return text.split('LIVEONE').length === 2 && text.split('SECOND').length === 2; }, 6_000));

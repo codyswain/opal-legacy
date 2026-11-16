@@ -50,7 +50,23 @@ export function showHere(path: string, paneId: string): void {
     if (location.mode !== 'stack' && location.mode !== 'browse' && location.file === path) tabs.close(otherTab.id);
   }
   useTabsStore.getState().focusPane(paneId);
-  focusActivePane();
+  focusWhenLive(path, paneId);
+}
+
+/**
+ * Puts the keyboard in the page's editor here once it is up, which can take a
+ * few frames while it reads the file; else in the pane as focusActivePane does.
+ */
+function focusWhenLive(path: string, paneId: string, frames = 60): void {
+  window.requestAnimationFrame(() => {
+    const column = document.querySelector<HTMLElement>(`[data-pane-column="${CSS.escape(paneId)}"]`);
+    const editor = [...(column?.querySelectorAll<HTMLElement>('[data-live-editor]') ?? [])]
+      .find((element) => element.getAttribute('data-live-editor') === path)
+      ?.querySelector<HTMLElement>('.cm-content[contenteditable="true"]');
+    if (editor) editor.focus();
+    else if (frames > 0) focusWhenLive(path, paneId, frames - 1);
+    else focusActivePane();
+  });
 }
 
 /**
