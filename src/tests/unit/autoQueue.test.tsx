@@ -997,6 +997,63 @@ describe('changes made somewhere else', () => {
   });
 });
 
+describe('a re-read while he works', () => {
+  /** Reads the list again as a return to the front does, and waits until the digest has been read with it. */
+  const reread = async (date: string | null = null) => {
+    const before = auto.asked('digest').filter((route) => route.date === date).length;
+    await act(() => useAutoStore.getState().refresh());
+    await waitFor(() => expect(auto.asked('digest').filter((route) => route.date === date).length).toBeGreaterThan(before));
+  };
+
+  it('keeps the day he stepped to and the entry he opened, while the row moves to a newer day', async () => {
+    await openQueue();
+    fireEvent.click(screen.getByRole('button', { name: 'Earlier day' }));
+    await waitFor(() => expect(entryIds()).toEqual(['item-1', 'item-2']));
+    openEntry('item-2');
+    expect(entry('item-2').getAttribute('data-open')).toBe('true');
+    auto.state.digests['2026-11-14'] = autoDigest('2026-11-14', [['Top 3', [digestEntry('item-1'), digestEntry('item-2')]]]);
+    await reread(EARLIER);
+    await waitFor(() => expect(digestWord()).toBe('Digest2 left'));
+    expect(screen.getByTestId('auto-queue-day').textContent).toBe('Thursday, November 12');
+    expect(entryIds()).toEqual(['item-1', 'item-2']);
+    expect(entry('item-2').getAttribute('data-open')).toBe('true');
+  });
+
+  it('keeps the entry open on the latest day', async () => {
+    await openQueue();
+    openEntry('item-1');
+    await reread();
+    expect(screen.getByTestId('auto-queue-left').getAttribute('aria-pressed')).toBe('true');
+    expect(entry('item-1').getAttribute('data-open')).toBe('true');
+  });
+
+  it('keeps the open thread, its words in the box and the caret', async () => {
+    await open({ snapshots: { bread: autoSnapshot(BREAD) } });
+    fireEvent.click(within(row('bread')).getAllByRole('button')[0]);
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('bread'));
+    const box = screen.getByTestId('auto-box') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: 'Add the chard' } });
+    act(() => box.focus());
+    const threadReads = auto.asked('thread').length;
+    await reread();
+    expect(useThreadStore.getState().openId).toBe('bread');
+    expect(screen.getByTestId('auto-box')).toBe(box);
+    expect(box.value).toBe('Add the chard');
+    expect(document.activeElement).toBe(box);
+    // A thread that reads well is not read again.
+    expect(auto.asked('thread')).toHaveLength(threadReads);
+  });
+
+  it('keeps the keyboard on the row it was on', async () => {
+    await open();
+    const button = within(row('seeds')).getAllByRole('button')[0];
+    act(() => button.focus());
+    await reread();
+    expect(document.activeElement).toBe(button);
+    expect(rowIds()).toEqual(['beds', 'bread', 'seeds', 'inspect']);
+  });
+});
+
 describe('what the queue asks the service for', () => {
   it('never a tick by number, never the inbox, never a send', async () => {
     await openQueue();

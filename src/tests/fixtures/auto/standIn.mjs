@@ -1224,6 +1224,10 @@ export async function startStandIn(options = {}) {
     entries: () => shown().map((id) => entry(threads.get(id))),
     /** A day's digest as the service answers it; the latest with no date. */
     digest: (date) => digestOf(date ?? days()[0]),
+    /** A new day's digest is written, as by the morning's run, and the list stream says nothing of it. */
+    addDigest(date, sections) {
+      digests.set(date, { date, path: `Library/digests/${date} digest.md`, sections });
+    },
     /** Signs the service out of, or back into, its agent: the list stream says so. */
     signOut(out = true) {
       state.signedOut = out;
