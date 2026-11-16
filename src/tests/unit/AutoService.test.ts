@@ -823,6 +823,44 @@ describe('the digest queue', () => {
     expect(first.text.endsWith('says:\n\nAsk about peat-free\n\nAsk for collection on Saturday')).toBe(true);
   });
 
+  it('adds an entry to the thread it matches, once, bringing a snoozed thread back, and refuses a match that has gone', async () => {
+    const OLD = '2026-11-12';
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const before = (await auto.request({ kind: 'digest', date: OLD })) as { success: true; data: AutoDigest };
+    // Two matches on that day, one of them to a snoozed thread; the done to-do has none.
+    expect(entry(before.data, 'item-2')?.continues).toEqual({ id: '5a0000000007', title: 'Pantry labels', snoozed: true });
+    expect(entry(before.data, 'text-yesterday-1a2b3c4d')?.continues).toEqual({ id: '5a0000000009', title: 'Rain barrel', snoozed: false });
+    expect(entry(before.data, 'item-1')?.continues).toBeNull();
+
+    const added = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' });
+    expect(standIn.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/digest/continue', body: { date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' } });
+    const { thread } = (added.success ? added.data : null) as { thread: AutoThread };
+    expect(thread).toMatchObject({ id: '5a0000000007', snoozed: null });
+    await until(() => events('list').some((message) => message.event.kind === 'digest' && message.event.date === OLD), 'the digest event');
+    const after = (await auto.request({ kind: 'digest', date: OLD })) as { success: true; data: AutoDigest };
+    expect(entry(after.data, 'item-2')).toMatchObject({ state: 'thread', thread: '5a0000000007', continues: null });
+    expect(after.data.left).toBe(before.data.left - 1);
+    const said = () => [...((standIn.thread('5a0000000007')?.items ?? []) as Array<{ role: string; text: string }>), ...(((standIn.thread('5a0000000007')?.live as { items?: Array<{ role: string; text: string }> } | null)?.items) ?? [])].filter((item) => item.role === 'user');
+    await until(() => said().length === 2, 'the entry in the thread');
+    expect(said()[1].text.startsWith('Digest, Thursday November 12, item 2: Sharpen the secateurs')).toBe(true);
+    expect(said()[1].text.endsWith('says:\n\nThe stone is in the blue tin\n\nBring the stone')).toBe(true);
+
+    // The same click again answers the thread and adds nothing.
+    const repeat = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' });
+    expect(repeat.success && (repeat.data as { thread: AutoThread }).thread.id).toBe('5a0000000007');
+    expect(said()).toHaveLength(2);
+
+    // A match that has gone is the service's no_match, and no entry is the service's 404.
+    standIn.setContinues('text-yesterday-1a2b3c4d', null);
+    const gone = await auto.request({ kind: 'digest-continue', date: OLD, id: 'text-yesterday-1a2b3c4d', thread: '5a0000000009', words: null, cid: 'c0ffee0002' });
+    expect(gone.success === false && gone.error).toMatchObject({ kind: 'refused', code: 'no_match', status: 409 });
+    expect(standIn.requests.at(-1)?.body).toEqual({ date: OLD, id: 'text-yesterday-1a2b3c4d', thread: '5a0000000009', cid: 'c0ffee0002' });
+    const missing = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-99', thread: '5a0000000009', words: null, cid: null });
+    expect(missing.success === false && missing.error).toMatchObject({ kind: 'refused', status: 404 });
+  });
+
   it('gives the service’s sentence for an entry or a day it does not have', async () => {
     const auto = await connected();
     const missing = await auto.request({ kind: 'digest-resolve', date: DAY, ids: ['item-99'], resolved: true });

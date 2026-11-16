@@ -5,7 +5,7 @@
 // scripted replies that stream in, a question, a permission request,
 // follow-ups, snooze, move, archive, rename, a waiting entry with `start`,
 // the mark for the Mac, a few days of digests as a queue (resolve, note, a
-// thread from an entry), and switches for signed-out, failing writes and
+// thread from an entry, an entry added to the thread it matches), and switches for signed-out, failing writes and
 // being out of reach.
 // It runs no agent and reaches no network.
 //
@@ -226,10 +226,12 @@ function fixtureDigests(kind) {
   day('2026-11-12', [
     { title: 'Top 3', entries: [
       { id: 'item-1', kind: 'item', title: 'Water the tomatoes', n: 1, checked: true, priority: '', note: '', draft: null, md: 'Before nine, while the bed is in shade.' },
-      { id: 'item-2', kind: 'item', title: 'Sharpen the secateurs', n: 2, checked: false, priority: 'Low', note: 'The stone is in the blue tin', draft: null, md: 'They tore the rose stems last week.' },
+      // It matches a thread that is snoozed. `continues` names the thread; the answer gives its title as it is then.
+      { id: 'item-2', kind: 'item', title: 'Sharpen the secateurs', n: 2, checked: false, priority: 'Low', note: 'The stone is in the blue tin', draft: null, md: 'They tore the rose stems last week.',
+        continues: '5a0000000007' },
     ] },
     { title: 'Yesterday', entries: [
-      text('text-yesterday-1a2b3c4d', 'Four rows of carrots are in. The fleece is pegged down.'),
+      text('text-yesterday-1a2b3c4d', 'Four rows of carrots are in. The fleece is pegged down.', { continues: '5a0000000009' }),
     ] },
   ]);
   day('2026-11-11', []);
@@ -379,9 +381,19 @@ export async function startStandIn(options = {}) {
   const entriesOf = (digest) => digest.sections.flatMap((section) => section.entries);
   const isResolved = (found) => (found.kind === 'item' ? found.checked : found.resolved);
 
-  /** The thread a digest entry became. One put away before anything was said in it does not count. */
+  /** The entries added to the thread they matched, by day and entry: the thread's id and the client's id for the click. */
+  const continued = new Map();
+
+  /** The thread a digest entry became, or was added to. One put away before anything was said in it does not count. */
   function threadOf(date, id) {
-    return [...threads.values()].find((thread) => thread.digest?.date === date && thread.digest.id === id && !(thread.archived && thread.waits)) ?? null;
+    const made = [...threads.values()].find((thread) => thread.digest?.date === date && thread.digest.id === id && !(thread.archived && thread.waits));
+    return made ?? threads.get(continued.get(`${date}/${id}`)?.thread) ?? null;
+  }
+
+  /** The thread an open entry matches, as clients read it: only while that thread exists and is not archived. */
+  function continuesOf(found, state) {
+    const thread = state === 'open' && found.continues ? threads.get(found.continues) : null;
+    return thread && !thread.archived ? { id: thread.id, title: thread.title, snoozed: thread.snoozed !== null && thread.snoozed !== undefined } : null;
   }
 
   /** A day's digest as the service answers it, each entry with what became of it. */
@@ -395,8 +407,8 @@ export async function startStandIn(options = {}) {
         const thread = threadOf(date, found.id);
         const state = isResolved(found) ? 'resolved' : thread ? 'thread' : 'open';
         count[state] += 1;
-        const { resolved, ...shown } = found;
-        return { ...shown, section: section.title, state, thread: thread ? thread.id : null };
+        const { resolved, continues, ...shown } = found;
+        return { ...shown, section: section.title, state, thread: thread ? thread.id : null, continues: continuesOf(found, state) };
       }),
     })).filter((section) => section.entries.length > 0);
     return {
@@ -1042,6 +1054,41 @@ export async function startStandIn(options = {}) {
         emitList('digest', { date: data.date });
         return answer(response, 200, digestOf(data.date));
       }
+      if (path === '/api/digest/continue') {
+        if (typeof data.thread !== 'string' || !data.thread) return refuse(response, 400, 'bad_request', 'Name the thread to add it to.');
+        const found = find(data.id);
+        if (!found) return refuse(response, 404, 'not_found', 'No such entry.');
+        const words = typeof data.words === 'string' && data.words.trim() ? data.words : null;
+        if (data.words !== undefined && (!words || words.length > 100_000)) return refuse(response, 400, 'bad_request', 'Say something first.');
+        const key = `${data.date}/${found.id}`;
+        const cid = typeof data.cid === 'string' ? data.cid.slice(0, 40) : '';
+        // The same click again: the entry is already there, and nothing more is sent.
+        const done = continued.get(key);
+        if (done && done.thread === data.thread) return answer(response, 200, { thread: entry(threads.get(done.thread)) });
+        const shownState = isResolved(found) ? 'resolved' : threadOf(data.date, found.id) ? 'thread' : 'open';
+        const match = continuesOf(found, shownState);
+        if (!match || match.id !== data.thread) return refuse(response, 409, 'no_match', 'That entry no longer matches the thread.');
+        const thread = threads.get(match.id);
+        const section = digest.sections.find((each) => each.entries.includes(found)).title;
+        const said = [found.note, words].filter(Boolean).join('\n\n');
+        const text = said ? `${seedOf(data.date, found, section)}\n\n${NAME} says:\n\n${said}` : seedOf(data.date, found, section);
+        continued.set(key, { thread: thread.id, cid });
+        // A snoozed thread comes back, on top.
+        if (thread.snoozed) {
+          Object.assign(thread, { snoozed: null, snoozed_at: null, wait: null });
+          toTop(thread);
+        }
+        pickedUp(thread, client);
+        if (thread.run) {
+          thread.queue.push({ cid, text });
+          emitThread(thread, 'queue', { queue: thread.queue });
+          changed(thread);
+        } else {
+          startTurn(thread, { role: 'user', text, ...(cid ? { cid } : {}) });
+        }
+        emitList('digest', { date: data.date });
+        return answer(response, 200, { thread: entry(thread) });
+      }
       if (path === '/api/digest/thread') {
         const words = typeof data.words === 'string' && data.words.trim() ? data.words : null;
         if (data.words !== undefined && (!words || words.length > 100_000)) return refuse(response, 400, 'bad_request', 'Say something first.');
@@ -1249,6 +1296,19 @@ export async function startStandIn(options = {}) {
     entries: () => shown().map((id) => entry(threads.get(id))),
     /** A day's digest as the service answers it; the latest with no date. */
     digest: (date) => digestOf(date ?? days()[0]),
+    /**
+     * Sets or drops the thread a digest entry matches (null drops it), and
+     * says on the list stream that the day changed, unless `silent`, as a
+     * match that goes between a client's read and its click. The day is
+     * 2026-11-12, where the default matches are, unless another is named.
+     */
+    setContinues(id, thread, date = '2026-11-12', { silent = false } = {}) {
+      const found = digests.get(date) ? entriesOf(digests.get(date)).find((each) => each.id === id) : null;
+      if (!found) throw new Error(`No entry ${id} on ${date}`);
+      if (thread) found.continues = thread;
+      else delete found.continues;
+      if (!silent) emitList('digest', { date });
+    },
     /** A new day's digest is written, as by the morning's run, and the list stream says nothing of it. */
     addDigest(date, sections) {
       digests.set(date, { date, path: `Library/digests/${date} digest.md`, sections });

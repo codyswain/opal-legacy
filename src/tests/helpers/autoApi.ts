@@ -30,7 +30,7 @@ export function autoSnapshot(thread: AutoThread, fields: Partial<AutoSnapshot> =
 
 /** An entry of a made-up digest. */
 export function digestEntry(id: string, fields: Partial<AutoDigestEntry> = {}): AutoDigestEntry {
-  return { id, kind: 'text', title: '', md: `Words of ${id}`, section: '', state: 'open', thread: null, note: '', priority: '', draft: null, ...fields };
+  return { id, kind: 'text', title: '', md: `Words of ${id}`, section: '', state: 'open', thread: null, note: '', priority: '', draft: null, continues: null, ...fields };
 }
 
 /** A day's digest from its sections; each entry takes its section's title, and `left` counts the open ones. */
@@ -225,6 +225,19 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         state.threads = [thread, ...state.threads.filter((each) => each.id !== id)];
         state.snapshots[id] = autoSnapshot(thread, waits ? { seed: found.md } : { live: { items: [{ role: 'user', text: route.words ?? '', cid: route.cid }], activity: '', state: 'working', question: null } });
         change(route.date, [route.id], () => ({ state: 'thread', thread: id }));
+        return ok({ thread });
+      }
+      case 'digest-continue': {
+        const found = state.digests[route.date]?.sections.flatMap((section) => section.entries).find((each) => each.id === route.id);
+        if (!found) return NO_DIGEST;
+        const into = state.threads.find((each) => each.id === route.thread);
+        if (found.state !== 'open' || found.continues?.id !== route.thread || !into) {
+          return { success: false, error: { kind: 'refused', message: 'That entry no longer matches the thread.', code: 'no_match', status: 409 } };
+        }
+        // The entry goes in as one message, and a snoozed thread comes back.
+        const thread: AutoThread = { ...into, snoozed: null, status: 'working', last: route.words ?? found.md.slice(0, 80) };
+        state.threads = state.threads.map((each) => (each.id === thread.id ? thread : each));
+        change(route.date, [route.id], () => ({ state: 'thread', thread: thread.id, continues: null }));
         return ok({ thread });
       }
     }

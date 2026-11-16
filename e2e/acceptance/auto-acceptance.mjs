@@ -2291,10 +2291,103 @@ async function tour() {
     await until(async () => (await focused()) === renamed);
     check('the stand-in received exactly the renames made', JSON.stringify(renamePosts().slice(renamesBefore)) === JSON.stringify([{ path: `/api/threads/${renamed}/rename`, title: 'see' }, { path: `/api/threads/${renamed}/rename`, title: renamedTitle }]), JSON.stringify(renamePosts().slice(renamesBefore)));
 
+    // --- An entry that matches a thread he has: "Continues: <thread>", and one click adds the entry there.
+    const OLD_DAY = '2026-11-12';
+    const SNOOZED_MATCH = '5a0000000007';
+    const PLAIN_MATCH = '5a0000000009';
+    const continuesLines = () => queue.locator('[data-testid="auto-entry-continues"]').evaluateAll((lines) => lines.map((line) => line.closest('li')?.getAttribute('data-testid')?.replace('auto-entry-', '')));
+    /** An entry's box, and where its title line and words sit inside it. */
+    const entryGeometry = (id) => entry(id).evaluate((item) => {
+      const box = item.getBoundingClientRect();
+      const title = item.querySelector('[data-auto-entry] p')?.getBoundingClientRect();
+      const words = item.querySelector('[data-testid="auto-entry-words"]')?.getBoundingClientRect();
+      const line = item.querySelector('[data-testid="auto-entry-continues"]')?.getBoundingClientRect();
+      return { height: box.height, width: box.width, title: title ? [title.top - box.top, title.left - box.left, title.height] : null, words: words ? [words.top - box.top, words.left - box.left, words.height] : null, line: line ? line.height + parseFloat(getComputedStyle(item.querySelector('[data-testid="auto-entry-continues"]')).marginTop) : 0 };
+    });
+    const leftCount = async () => Number(((await textOf('auto-queue-left')) ?? '').replace(/\D+/g, ''));
+    /** The last message he sent a thread, from what the stand-in holds. */
+    const lastSaid = (id) => {
+      const thread = service.thread(id);
+      const said = [...(thread?.items ?? []), ...(thread?.live?.items ?? [])].filter((item) => item.role === 'user');
+      return said.at(-1)?.text ?? '';
+    };
+    // The default matches, on the second day back. The snoozed one is put away again first, for a run that brought it back.
+    if (!service.thread(SNOOZED_MATCH)?.snoozed) await fromPhone(`/api/threads/${SNOOZED_MATCH}/snooze`, { until: Math.floor(Date.now() / 1000) + 86400 });
+    service.setContinues('item-2', null);
+    service.setContinues('text-yesterday-1a2b3c4d', null);
+    await digestRow.click();
+    await queue.waitFor({ timeout: 10_000 });
+    for (let step = 0; step < 4 && (await textOf('auto-queue-day')) !== 'Thursday, November 12'; step += 1) {
+      await page.getByRole('button', { name: 'Earlier day' }).click();
+      await until(async () => (await textOf('auto-queue-day')) !== '', 2_000);
+      await wait(300);
+    }
+    check('the queue steps back to the day with the matches', (await textOf('auto-queue-day')) === 'Thursday, November 12', await textOf('auto-queue-day'));
+    await until(async () => (await continuesLines()).length === 0);
+    const withoutMatch = { 'item-1': await entryGeometry('item-1'), 'item-2': await entryGeometry('item-2'), 'text-yesterday-1a2b3c4d': await entryGeometry('text-yesterday-1a2b3c4d') };
+    service.setContinues('item-2', SNOOZED_MATCH);
+    service.setContinues('text-yesterday-1a2b3c4d', PLAIN_MATCH);
+    check('the line shows on the two matching entries and on no other', await until(async () => (await continuesLines()).join() === 'item-2,text-yesterday-1a2b3c4d'), (await continuesLines()).join());
+    const snoozedTitle = service.thread(SNOOZED_MATCH)?.title ?? '';
+    const plainTitle = service.thread(PLAIN_MATCH)?.title ?? '';
+    check('it names the thread, and says when it is snoozed', (await textOf('auto-entry-item-2').catch(() => '')).includes(`Continues: ${snoozedTitle} (snoozed)`) && ((await entry('text-yesterday-1a2b3c4d').getByTestId('auto-entry-continues').textContent()) ?? '') === `Continues: ${plainTitle}`, `${snoozedTitle} | ${plainTitle}`);
+    const withMatch = { 'item-1': await entryGeometry('item-1'), 'item-2': await entryGeometry('item-2'), 'text-yesterday-1a2b3c4d': await entryGeometry('text-yesterday-1a2b3c4d') };
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    check('a row without a match measures as before', same(withoutMatch['item-1'], withMatch['item-1']), `${JSON.stringify(withoutMatch['item-1'])} ${JSON.stringify(withMatch['item-1'])}`);
+    check('a matching row keeps its title and words where they were, and grows by the line alone', ['item-2', 'text-yesterday-1a2b3c4d'].every((id) => same(withoutMatch[id].title, withMatch[id].title) && same(withoutMatch[id].words, withMatch[id].words) && Math.abs(withMatch[id].height - withoutMatch[id].height - withMatch[id].line) < 0.6), JSON.stringify([withoutMatch, withMatch]));
+    await shot(97, 'continues-row', () => entry('text-yesterday-1a2b3c4d').hover());
+    check('the row’s act that makes a thread reads Add to it', await (async () => {
+      await entry('text-yesterday-1a2b3c4d').hover();
+      return (await entry('text-yesterday-1a2b3c4d').getByRole('button', { name: 'Add to it', exact: true }).count()) === 1 && (await entry('text-yesterday-1a2b3c4d').getByRole('button', { name: 'Thread', exact: true }).count()) === 0;
+    })());
+    const continuesBefore = posts('/api/digest/continue').length;
+    const leftBeforeAdd = await leftCount();
+    await act('text-yesterday-1a2b3c4d', 'Add to it');
+    check('Add to it from the row posts once, with the day, the entry and the thread', await until(() => posts('/api/digest/continue').length === continuesBefore + 1) && (() => {
+      const body = posts('/api/digest/continue').at(-1);
+      return body.date === OLD_DAY && body.id === 'text-yesterday-1a2b3c4d' && body.thread === PLAIN_MATCH && body.words === undefined && typeof body.cid === 'string';
+    })(), JSON.stringify(posts('/api/digest/continue').at(-1)));
+    check('the queue’s count goes down by one, and the line is gone', await until(async () => (await leftCount()) === leftBeforeAdd - 1 && !(await continuesLines()).includes('text-yesterday-1a2b3c4d')), `${leftBeforeAdd} -> ${await leftCount()}`);
+    check('the thread has the entry as its last message', await until(() => lastSaid(PLAIN_MATCH).startsWith('Digest, Thursday November 12') && lastSaid(PLAIN_MATCH).includes('Four rows of carrots')), lastSaid(PLAIN_MATCH).slice(0, 80));
+    check('the line at the sidebar’s foot says what it was added to, with no Undo', await until(async () => (await saidText()).startsWith(`Added to ${plainTitle}`)) && (await said.getByRole('button', { name: 'Undo' }).count()) === 0, await saidText());
+
+    // From the open entry, with his words, into the snoozed thread.
+    await entry('item-2').locator('[data-auto-entry]').click();
+    const entryBox = entry('item-2').getByTestId('auto-entry-box');
+    await entryBox.waitFor({ timeout: 5_000 });
+    check('the open entry says the line in full above its box, with Add to it and New thread instead', ((await entry('item-2').getByTestId('auto-entry-continues-open').textContent()) ?? '') === `Continues: ${snoozedTitle} (snoozed)` && (await entry('item-2').getByTestId('auto-send').getAttribute('aria-label')) === 'Add to it' && (await entry('item-2').getByTestId('auto-send').getAttribute('data-ready')) === 'true' && ((await entry('item-2').getByTestId('auto-entry-new-thread').textContent()) ?? '') === 'New thread instead');
+    await shot(98, 'continues-open');
+    await entryBox.fill('Bring the stone too');
+    service.slow(1_200);
+    const continuesBeforeOpen = posts('/api/digest/continue').length;
+    await entry('item-2').getByTestId('auto-send').click();
+    await entry('item-2').getByTestId('auto-send').click({ timeout: 500 }).catch(() => undefined);
+    await entryBox.press('Enter', { timeout: 500 }).catch(() => undefined);
+    await wait(2_000);
+    service.slow(0);
+    check('a second click while the first is out sends nothing more', posts('/api/digest/continue').length === continuesBeforeOpen + 1, String(posts('/api/digest/continue').length - continuesBeforeOpen));
+    check('his words arrive with the entry, and the snoozed thread is back', await until(() => posts('/api/digest/continue').at(-1)?.words === 'Bring the stone too' && lastSaid(SNOOZED_MATCH).includes('Bring the stone too') && lastSaid(SNOOZED_MATCH).includes('Sharpen the secateurs') && !service.thread(SNOOZED_MATCH)?.snoozed), `${lastSaid(SNOOZED_MATCH).slice(-60)} ${service.thread(SNOOZED_MATCH)?.snoozed}`);
+
+    // On the latest day: a match that has gone by the time of the click, and a new thread after all.
+    service.setContinues('item-1', PLAIN_MATCH, NEW_DAY);
+    service.setContinues('item-2', PLAIN_MATCH, NEW_DAY);
+    for (let step = 0; step < 4 && (await textOf('auto-queue-day')) !== 'Saturday, November 14'; step += 1) {
+      await page.getByRole('button', { name: 'Later day' }).click();
+      await wait(300);
+    }
+    check('both entries of the latest day show their line', await until(async () => (await textOf('auto-queue-day')) === 'Saturday, November 14' && (await continuesLines()).join() === 'item-1,item-2'), (await continuesLines()).join());
+    service.setContinues('item-1', null, NEW_DAY, { silent: true });
+    const noMatchBefore = posts('/api/digest/continue').length;
+    await act('item-1', 'Add to it');
+    check('a match gone before the click: the 409 leaves the entry open, the line gone and the sentence shown', await until(async () => (await entryIds()).includes('item-1') && (await entry('item-1').getAttribute('data-state')) === 'open' && (await entry('item-1').getByTestId('auto-entry-continues').count()) === 0 && (await saidText()).startsWith('That thread no longer matches.')) && posts('/api/digest/continue').length === noMatchBefore + 1, await saidText());
+    await entry('item-2').locator('[data-auto-entry]').click();
+    await entry('item-2').getByTestId('auto-entry-new-thread').click();
+    check('New thread instead still makes a new thread, and the line is gone after', await until(async () => JSON.stringify(posts('/api/digest/thread').at(-1)) === JSON.stringify({ date: NEW_DAY, id: 'item-2', start: false }) && service.entries().some((thread) => thread.title === 'Net the peas') && service.digest(NEW_DAY)?.sections[0].entries.find((each) => each.id === 'item-2')?.continues === null && !(await continuesLines()).includes('item-2')) && posts('/api/digest/continue').length === noMatchBefore + 1, JSON.stringify(posts('/api/digest/thread').at(-1)));
+
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);
     check('Opal never ticked a box by number and never asked for the inbox', !paths.some((requestPath) => requestPath.includes('/digest/tick') || requestPath.includes('/digest/inbox')));
-    const KNOWN = /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\?archived=1(&limit=\d+)?|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread|archive)|usage)$/;
+    const KNOWN = /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\?archived=1(&limit=\d+)?|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread|continue|archive)|usage)$/;
     check('Opal asked only for routes it has', paths.every((requestPath) => KNOWN.test(requestPath)), paths.find((requestPath) => !KNOWN.test(requestPath)) ?? '');
     check('every snooze carried a time or null, and a wait carried only his words', posts('/api/threads/').length === 0 && service.requests.filter((request) => request.method === 'POST' && /\/snooze$/.test(request.path) && request.headers['x-auto-client'] !== 'phone').every((request) => Object.keys(request.body).every((field) => field === 'until' || field === 'wait') && (request.body.wait === undefined || JSON.stringify(Object.keys(request.body.wait)) === '["say"]')));
     check('no request marked a message as a send', !service.requests.some((request) => JSON.stringify(request.body ?? {}).includes('sends')));

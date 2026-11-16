@@ -77,6 +77,15 @@ export interface DigestStore {
   setNote: (id: string, text: string) => Promise<boolean>;
   /** Makes an entry a thread without words: it waits on top of the list, not started. He stays in the queue. */
   makeThread: (id: string) => Promise<void>;
+  /**
+   * Adds an open entry to the thread it matches, with his words if any, in
+   * one post per click. It leaves "Left" at once, as a thread made of it
+   * does, and says "Added to <title>" with a way on to the thread and no
+   * Undo: there is no way back from it. A match that has gone is read again
+   * and said once; a post that does not arrive leaves the entry open, his
+   * words back in its box under "Not sent". Answers whether it was added.
+   */
+  continueThread: (id: string, words?: string) => Promise<boolean>;
   setWords: (id: string, text: string) => void;
   /** Starts a thread with the entry and his words, and opens it. His words stay in the box if the post fails. */
   say: (id: string, text: string) => Promise<boolean>;
@@ -88,6 +97,8 @@ export interface DigestStore {
 export const selectDay = (state: Pick<DigestStore, 'latest' | 'past'>): AutoDigest | null => state.past ?? state.latest;
 
 const UNREACHABLE = "Can't reach Auto.";
+/** What is said once when the thread an entry was shown to match no longer matches it. */
+export const NO_MATCH = 'That thread no longer matches.';
 /** The queue's first control, for when no entry is left to hold the focus. */
 export const QUEUE_TOP = ':top';
 /** The entry that is the queue's Tab stop: where the keyboard goes when the queue opens. */
@@ -158,6 +169,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     else giveBack();
   };
   const said = () => useSaidStore.getState();
+  /** The entries being added to a thread now, by day and entry: a second click while one is out sends nothing. */
+  const continuing = new Set<string>();
   /** The archived days as the service last listed them. */
   let served: string[] = [];
   const named = (day: AutoDigest, id: string): string => {
@@ -455,6 +468,63 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       }
       useAutoStore.getState().upsert(result.data.thread);
       await reload(date);
+    },
+
+    continueThread: async (id, text = '') => {
+      const day = selectDay(get());
+      const api = autoApi();
+      if (!day || !api) return false;
+      const found = allEntries(day).find((entry) => entry.id === id);
+      const match = found?.state === 'open' ? found.continues : null;
+      const date = day.date;
+      const key = wordsKey(date, id);
+      if (!match || continuing.has(key)) return false;
+      continuing.add(key);
+      const words = text.trim();
+      const name = named(day, id);
+      // The same words sent again go under the same id, so a click that did arrive adds nothing the second time.
+      const cid = cidFor(get().failed, key, words);
+      // The entry leaves "Left" at once, as a thread made of it does, until the post has landed.
+      const end = keep(date, [id], () => 'thread');
+      moveOn(day, [id]);
+      const result = useAutoStore.getState().reachable
+        ? await api.request({ kind: 'digest-continue', date, id, thread: match.id, words: words || null, cid }).catch((): null => null)
+        : null;
+      continuing.delete(key);
+      end();
+      if (result?.success) {
+        const left = { ...get().words };
+        delete left[key];
+        set({ words: left, ...(get().notSent === key ? { notSent: null, failed: null } : {}) });
+        const thread = result.data.thread;
+        useAutoStore.getState().upsert(thread);
+        said().offer({
+          name: thread.title || match.title,
+          text: `Added to ${thread.title || match.title}`,
+          whole: true,
+          subject: `${date}/${id}`,
+          open: () => useThreadStore.getState().open(thread.id),
+        });
+        await reload(date);
+        return true;
+      }
+      const now = held(date);
+      if (now) took(withState(now, [id], () => 'open'));
+      if (result?.error.kind === 'refused' && result.error.code === 'no_match') {
+        // The match has gone: the day is read again, and the line under the entry goes with it.
+        await reload(date);
+        said().refuse(NO_MATCH, name);
+        return false;
+      }
+      if (result?.error.kind === 'refused') {
+        said().refuse(result.error.message, name);
+        return false;
+      }
+      // It did not arrive: the entry is open again with his words in its box, to send again.
+      const back = { ...get().words };
+      if (words) back[key] = words;
+      set({ words: back, notSent: key, failed: { thread: key, text: words, cid }, opened: id });
+      return false;
     },
 
     setWords: (id, text) => {

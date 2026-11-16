@@ -116,6 +116,19 @@ export interface AutoDigestEntry {
   priority: string;
   /** A reply drafted for the entry, as words to paste: who it is for, and the words. */
   draft: { title: string; paste: string } | null;
+  /**
+   * A thread he already has that this open entry matches, as the service
+   * found it: the entry can be added there instead of becoming a new thread.
+   * Null for no match, and for an entry that is not open.
+   */
+  continues: AutoContinues | null;
+}
+
+/** The thread an open digest entry matches: its id, its title, and whether it is snoozed. */
+export interface AutoContinues {
+  id: string;
+  title: string;
+  snoozed: boolean;
 }
 
 export interface AutoDigestSection {
@@ -308,6 +321,8 @@ export type AutoRoute =
    * words; without, it waits on top of the list until he says something.
    */
   | { kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null }
+  /** Adds an open entry to the thread it matches, with his words if any. Only his click sends it. */
+  | { kind: 'digest-continue'; date: string; id: string; thread: string; words: string | null; cid: string | null }
   /** How much of the plan the service's agent has used. Read only. */
   | { kind: 'usage' };
 
@@ -336,6 +351,7 @@ export interface AutoRouteData {
   'digest-resolve': AutoDigest;
   'digest-note': AutoDigest;
   'digest-thread': { thread: AutoThread };
+  'digest-continue': { thread: AutoThread };
   usage: AutoUsage;
 }
 

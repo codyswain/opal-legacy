@@ -1,7 +1,22 @@
 import * as React from 'react';
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { AutoDigest, AutoDigestEntry } from '@/types/auto';
-import { Button, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@/renderer/shared/ui';
+import {
+  Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+  IconButton,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
 import {
@@ -143,11 +158,47 @@ function DraftedReply({ entry }: { entry: AutoDigestEntry }) {
   );
 }
 
+/** The thread an open entry matches, as the service found it, or null: only an open entry has one. */
+const matchOf = (entry: AutoDigestEntry) => (entry.state === 'open' ? entry.continues : null);
+
+/** "Continues: <title>", and "(snoozed)" for a thread that is put away until a time. */
+function ContinuesLine({ entry, whole = false }: { entry: AutoDigestEntry; whole?: boolean }) {
+  const match = matchOf(entry);
+  if (!match) return null;
+  const snoozed = match.snoozed ? ' (snoozed)' : '';
+  if (!whole) {
+    return (
+      <p data-testid="auto-entry-continues" className="mt-0.5 truncate text-aside text-foreground-tertiary" title={`${match.title}${snoozed}`}>
+        Continues: {match.title}
+        {snoozed}
+      </p>
+    );
+  }
+  // Above the open entry's box, in full, the title a way to read that thread first.
+  return (
+    <p data-testid="auto-entry-continues-open" className="mb-1.5 break-words text-aside text-foreground-tertiary">
+      Continues:{' '}
+      <button
+        type="button"
+        data-testid="auto-entry-continues-thread"
+        className="rounded-sm text-foreground underline decoration-foreground-tertiary/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-focus"
+        onClick={() => useThreadStore.getState().open(match.id)}
+      >
+        {match.title}
+      </button>
+      {snoozed}
+    </p>
+  );
+}
+
 /**
  * The box under an open entry: the one way to make a thread of it. Enter
  * starts a thread with the entry and these words, and opens it. With no
  * words Enter does nothing, and "Make it without words" makes a thread that
  * waits in the list, not started. Nothing is made if he leaves the box.
+ * An entry that matches a thread he has is added to that thread instead:
+ * Enter and the box's button read "Add to it" and need no words, and "New
+ * thread instead" makes a thread of it as before.
  */
 function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   const key = wordsKey(date, entry.id);
@@ -163,15 +214,33 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
     area.current?.focus();
     useDigestStore.setState({ boxWanted: null });
   }, [wanted]);
+  const match = matchOf(entry);
   const submit = () => {
-    if (!words.trim() || sending) return;
+    if (sending) return;
+    if (match) {
+      setSending(true);
+      void useDigestStore.getState().continueThread(entry.id, words).then(() => setSending(false));
+      return;
+    }
+    if (!words.trim()) return;
+    setSending(true);
+    void useDigestStore.getState().say(entry.id, words).then(() => setSending(false));
+  };
+  /** A new thread of the entry after all: with the box's words, or waiting in the list without any. */
+  const newThread = () => {
+    if (sending) return;
+    if (!words.trim()) {
+      void useDigestStore.getState().makeThread(entry.id);
+      return;
+    }
     setSending(true);
     void useDigestStore.getState().say(entry.id, words).then(() => setSending(false));
   };
   return (
     <div>
       {/* Enter was taken: his words leave the box and show on their way, until the thread opens. */}
-      {sending ? (
+      <ContinuesLine entry={entry} whole />
+      {sending && words.trim() ? (
         <div data-testid="auto-entry-pending" className="mb-2 ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-2xl bg-surface-active px-3.5 py-2 text-reply text-foreground opacity-60">
           {words.trim()}
         </div>
@@ -179,12 +248,12 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
       {notSent ? (
         <p role="status" data-testid="auto-entry-not-sent" className="mb-1 flex items-center gap-1 text-control font-medium text-foreground">
           Not sent
-          <Button size="compact" variant="ghost" className="text-control" disabled={!words.trim() || sending} onClick={submit}>
+          <Button size="compact" variant="ghost" className="text-control" disabled={(!match && !words.trim()) || sending} onClick={submit}>
             Retry
           </Button>
         </p>
       ) : null}
-      <BoxFrame field={area} onSubmit={submit} row={<><UsageRing field={area} /><div className="flex-1" /><SendButton label="Start a thread with it" ready={words.trim() !== ''} disabled={sending} /></>}>
+      <BoxFrame field={area} onSubmit={submit} row={<><UsageRing field={area} /><div className="flex-1" /><SendButton label={match ? 'Add to it' : 'Start a thread with it'} ready={match !== null || words.trim() !== ''} disabled={sending} /></>}>
         <textarea
           ref={area}
           rows={1}
@@ -204,8 +273,21 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           className={boxField}
         />
       </BoxFrame>
+      {/* With a match, a new thread stays one click away, with his words or without. */}
+      {match && !sending ? (
+        <Button
+          size="compact"
+          variant="ghost"
+          data-testid="auto-entry-new-thread"
+          title={words.trim() ? 'Starts a new thread with your words' : 'Puts a new thread in the list, not started'}
+          className="-ml-2 mt-1 font-normal text-foreground-tertiary"
+          onClick={newThread}
+        >
+          New thread instead
+        </Button>
+      ) : null}
       {/* The one-step thread, one step further in. It leaves once he has words. */}
-      {!words.trim() && !sending ? (
+      {!match && !words.trim() && !sending ? (
         <Button
           size="compact"
           variant="ghost"
@@ -238,6 +320,27 @@ function Act({ label, hint, onClick }: { label: string; hint: string; onClick: (
   );
 }
 
+/**
+ * The menu of an entry that matches a thread: Add to it, and a new thread
+ * of it after all. The row's column of actions has room for two words, so
+ * "New thread" is here. Any other entry has no menu.
+ */
+function RowMenu({ entry, onAdd, onNew, children }: { entry: AutoDigestEntry; onAdd: () => void; onNew: () => void; children: React.ReactElement }) {
+  if (!matchOf(entry)) return children;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent data-testid={`auto-entry-menu-${entry.id}`}>
+        <ContextMenuItem onSelect={onAdd}>
+          Add to it
+          <ContextMenuShortcut aria-hidden>T</ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onNew}>New thread</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 interface EntryProps {
   entry: AutoDigestEntry;
   date: string;
@@ -262,6 +365,9 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
   const became = entry.state === 'thread';
   const row = closedRow(entry);
   const title = open ? rowTitle(entry) : row.title;
+  const match = matchOf(entry);
+  const { continueThread, makeThread } = useDigestStore.getState();
+  const rowRef = React.useRef<HTMLDivElement>(null);
 
   /** Opens the entry in place, or the thread it became. */
   const activate = () => {
@@ -271,9 +377,18 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.target !== event.currentTarget || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (match && event.shiftKey && event.key === 'F10') {
+      // The row's menu, from the keyboard: Add to it and New thread.
+      event.preventDefault();
+      const box = rowRef.current?.getBoundingClientRect();
+      rowRef.current?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: (box?.left ?? 0) + 24, clientY: (box?.top ?? 0) + 24 }));
+      return;
+    }
     const key = event.key.toLowerCase();
     if (key === 'enter' || key === ' ') activate();
     else if (key === 'e') void resolve([entry.id], !resolved);
+    // A thread he has that the entry matches: T adds it there, in one press.
+    else if (key === 't' && match) void continueThread(entry.id);
     // A thread starts with his words: T opens the entry with the caret in its box, and makes nothing yet.
     else if (key === 't' && entry.state === 'open') openBox(entry.id);
     else if (key === 'n') useDigestStore.getState().openNote(entry.id);
@@ -288,7 +403,11 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
   ) : (
     <>
       <Act label="Resolve" hint="E" onClick={() => void resolve([entry.id], true)} />
-      {became ? null : <Act label="Thread" hint="T" onClick={() => openBox(entry.id)} />}
+      {became ? null : match ? (
+        <Act label="Add to it" hint="T" onClick={() => void continueThread(entry.id)} />
+      ) : (
+        <Act label="Thread" hint="T" onClick={() => openBox(entry.id)} />
+      )}
     </>
   );
   // An entry that opens is brought into view whole, its box included: the last one would open under the fold.
@@ -314,56 +433,60 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
       )}
     >
       <div className="flex items-start">
-        <div
-          role="button"
-          tabIndex={tabStop ? 0 : -1}
-          aria-expanded={became && thread ? undefined : open}
-          aria-keyshortcuts={`E N${entry.state === 'open' ? ' T' : ''}`}
-          data-auto-entry
-          data-entry-id={entry.id}
-          onClick={(event) => {
-            // A link in the entry's words is followed, and selected words stay selected.
-            if ((event.target as HTMLElement).closest('a, [role="link"], button') || window.getSelection()?.toString()) return;
-            activate();
-          }}
-          onKeyDown={onKeyDown}
-          className={cn('min-w-0 flex-1 cursor-default rounded-row px-3 py-2 outline-none', resolved && !open && 'opacity-60')}
-        >
-          {title || entry.priority || row.time ? (
-            <p className="flex items-baseline gap-2 text-reply font-medium text-foreground">
-              <span className="min-w-0 flex-1">
-                {entry.priority ? <span className="font-normal text-foreground-tertiary">{entry.priority} </span> : null}
-                {title}
-              </span>
-              {/* Too narrow for the column at the right: the time ends the title line. */}
-              {row.time && !open && !roomy ? <span className="shrink-0 text-metadata font-normal tabular-nums text-foreground-tertiary">{row.time}</span> : null}
-            </p>
-          ) : null}
-          {open ? (
-            entry.md ? (
-              <div className={cn(title && 'mt-0.5')}>
-                <Markdown text={entry.md} className={title ? 'text-foreground-secondary' : 'text-foreground'} />
-              </div>
-            ) : null
-          ) : row.words ? (
-            // With a title, at most two quiet lines at the smaller size. With none, its words are the entry itself.
-            <p
-              data-testid="auto-entry-words"
-              className={cn('whitespace-pre-line break-words', row.title ? 'mt-0.5 line-clamp-2 text-aside text-foreground-tertiary' : 'line-clamp-3 text-reply text-foreground')}
-            >
-              {row.words}
-            </p>
-          ) : null}
-          {!open && entry.note ? (
-            <p data-testid="auto-entry-note" className="mt-1.5 line-clamp-2 border-l-2 border-foreground pl-3 text-ui text-foreground">{entry.note}</p>
-          ) : null}
-          {resolved ? (
-            <p className={cn(quiet, 'mt-1')}>Resolved</p>
-          ) : became ? (
-            // Its words are above already: the thread's line is said bare, "Not started" for one nobody has started.
-            thread ? <ThreadLine thread={thread} bare className="mt-1" /> : <p className={cn(quiet, 'mt-1')}>A thread</p>
-          ) : null}
-        </div>
+        <RowMenu entry={entry} onAdd={() => void continueThread(entry.id)} onNew={() => void makeThread(entry.id)}>
+          <div
+            ref={rowRef}
+            role="button"
+            tabIndex={tabStop ? 0 : -1}
+            aria-expanded={became && thread ? undefined : open}
+            aria-keyshortcuts={`E N${entry.state === 'open' ? ' T' : ''}`}
+            data-auto-entry
+            data-entry-id={entry.id}
+            onClick={(event) => {
+              // A link in the entry's words is followed, and selected words stay selected.
+              if ((event.target as HTMLElement).closest('a, [role="link"], button') || window.getSelection()?.toString()) return;
+              activate();
+            }}
+            onKeyDown={onKeyDown}
+            className={cn('min-w-0 flex-1 cursor-default rounded-row px-3 py-2 outline-none', resolved && !open && 'opacity-60')}
+          >
+            {title || entry.priority || row.time ? (
+              <p className="flex items-baseline gap-2 text-reply font-medium text-foreground">
+                <span className="min-w-0 flex-1">
+                  {entry.priority ? <span className="font-normal text-foreground-tertiary">{entry.priority} </span> : null}
+                  {title}
+                </span>
+                {/* Too narrow for the column at the right: the time ends the title line. */}
+                {row.time && !open && !roomy ? <span className="shrink-0 text-metadata font-normal tabular-nums text-foreground-tertiary">{row.time}</span> : null}
+              </p>
+            ) : null}
+            {open ? (
+              entry.md ? (
+                <div className={cn(title && 'mt-0.5')}>
+                  <Markdown text={entry.md} className={title ? 'text-foreground-secondary' : 'text-foreground'} />
+                </div>
+              ) : null
+            ) : row.words ? (
+              // With a title, at most two quiet lines at the smaller size. With none, its words are the entry itself.
+              <p
+                data-testid="auto-entry-words"
+                className={cn('whitespace-pre-line break-words', row.title ? 'mt-0.5 line-clamp-2 text-aside text-foreground-tertiary' : 'line-clamp-3 text-reply text-foreground')}
+              >
+                {row.words}
+              </p>
+            ) : null}
+            {!open ? <ContinuesLine entry={entry} /> : null}
+            {!open && entry.note ? (
+              <p data-testid="auto-entry-note" className="mt-1.5 line-clamp-2 border-l-2 border-foreground pl-3 text-ui text-foreground">{entry.note}</p>
+            ) : null}
+            {resolved ? (
+              <p className={cn(quiet, 'mt-1')}>Resolved</p>
+            ) : became ? (
+              // Its words are above already: the thread's line is said bare, "Not started" for one nobody has started.
+              thread ? <ThreadLine thread={thread} bare className="mt-1" /> : <p className={cn(quiet, 'mt-1')}>A thread</p>
+            ) : null}
+          </div>
+        </RowMenu>
         {/* A column of its own at the row's right, so the actions never sit on the words. */}
         {roomy ? (
           <div className="relative flex w-36 shrink-0 justify-end py-1.5 pr-1.5">
