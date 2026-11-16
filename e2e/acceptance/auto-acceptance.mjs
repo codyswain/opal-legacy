@@ -2005,7 +2005,13 @@ async function tour() {
     check('with a long tree, Threads stops at 70% and Library keeps at least 30%', longTree.threads <= longTree.column * 0.7 + 1 && longTree.library >= longTree.column * 0.3 - 1, JSON.stringify(longTree));
     // Three pinned pages show in full, right under Library, and the tree's cut edges fade.
     for (const name of ['Long page 01', 'Long page 02', 'Long page 03']) {
-      await page.getByRole('treeitem', { name: new RegExp(name) }).first().click({ button: 'right' });
+      // The tree draws only the rows near its view: scroll down to the page until its row is drawn.
+      const pageRow = page.getByRole('treeitem', { name: new RegExp(name) });
+      for (let step = 0; step < 40 && (await pageRow.count()) === 0; step += 1) {
+        await page.locator('[data-testid="sidebar-library"] .sidebar-tree-scroll').first().evaluate((element) => { element.scrollTop += element.clientHeight / 2; });
+        await wait(50);
+      }
+      await pageRow.first().click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
       await until(async () => (await page.getByRole('menu').count()) === 0);
     }
