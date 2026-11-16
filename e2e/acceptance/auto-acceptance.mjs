@@ -2110,11 +2110,14 @@ async function tour() {
     const listBefore = (await rowIds()).join();
     await threadRing.click();
     await ringPopover.waitFor({ timeout: 5_000 });
-    const geometry = await page.evaluate(() => {
+    const measure = () => page.evaluate(() => {
       const ring = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-usage-ring"]').getBoundingClientRect();
       const pop = document.querySelector('[data-testid="auto-usage-popover"]').getBoundingClientRect();
       return { width: pop.width, leftGap: Math.abs(pop.left - ring.left), above: pop.bottom <= ring.top, inside: pop.left >= 0 && pop.right <= window.innerWidth };
     });
+    // The popover is placed a frame after it mounts: measure once it has settled.
+    let geometry = await measure();
+    await until(async () => (geometry = await measure()).leftGap <= 2, 3_000);
     check('a click opens the popover above the ring, 360 wide, its left edge on the ring’s and inside the window', Math.abs(geometry.width - 360) < 0.6 && geometry.leftGap <= 2 && geometry.above && geometry.inside, JSON.stringify(geometry));
     const rowsText = () => ringPopover.getByTestId('auto-usage-row').evaluateAll((rows) => rows.map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()));
     check('the popover heads with the plan and has a row per limit, in the order sent', ((await ringPopover.textContent()) ?? '').startsWith('Plan usage limits · Pro') && (await rowsText()).length === 2 && /^Weekly · all models\s?Resets .+45%$/.test((await rowsText())[0]) && /^Weekly · Large\s?Resets .+73%$/.test((await rowsText())[1]), (await rowsText()).join(' | '));
@@ -2152,25 +2155,24 @@ async function tour() {
     service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.45 }, { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 }] });
     check('and it comes back with a limit in its window', await until(async () => (await fillOf(threadRing)) === '0.73'), await fillOf(threadRing));
 
-    // A column 360 wide still holds the model, the ring and Send on one row.
-    await page.evaluate(() => {
-      const column = document.querySelector('[data-testid="auto-thread"] form')?.closest('.auto-column');
-      if (column) column.style.maxWidth = '360px';
-    });
-    const narrow = await page.evaluate(() => {
-      const rowElement = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-box-row"]');
+    // A column 360 wide still holds the model, the ring and Send on one row. The
+    // column's own padding is added, so the box itself is 360 wide.
+    const narrow = await page.evaluate(async () => {
+      const rowElement = [...document.querySelectorAll('[data-testid="auto-thread"] [data-testid="auto-box-row"]')].find((element) => element.offsetParent !== null && element.closest('[aria-hidden="true"]') === null);
+      const column = rowElement?.closest('form')?.closest('.auto-column');
+      if (!rowElement || !column) return { width: 0, column: !!column };
+      column.style.maxWidth = 'calc(360px + 3rem)';
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const form = rowElement.closest('form').getBoundingClientRect();
       const mid = (id) => {
         const rect = rowElement.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
         return rect ? { y: rect.top + rect.height / 2, left: rect.left, right: rect.right } : null;
       };
-      return { width: form.width, model: mid('auto-model'), ring: mid('auto-usage-ring'), send: mid('auto-send'), formRight: form.right };
+      const result = { width: form.width, model: mid('auto-model'), ring: mid('auto-usage-ring'), send: mid('auto-send'), formRight: form.right };
+      column.style.maxWidth = '';
+      return result;
     });
     check('in a column 360 wide the model, the ring and Send share one row', Math.abs(narrow.width - 360) < 1 && narrow.model && narrow.ring && narrow.send && Math.abs(narrow.model.y - narrow.ring.y) < 1 && Math.abs(narrow.send.y - narrow.ring.y) < 1 && narrow.model.right <= narrow.ring.left && narrow.ring.right < narrow.send.left && narrow.send.right <= narrow.formRight, JSON.stringify(narrow));
-    await page.evaluate(() => {
-      const column = document.querySelector('[data-testid="auto-thread"] form')?.closest('.auto-column');
-      if (column) column.style.maxWidth = '';
-    });
 
     // The new thread's box, and a digest entry's box.
     await newThread.click();
