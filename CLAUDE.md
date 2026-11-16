@@ -163,6 +163,18 @@ not exist.
   A page's footer line ("N properties · N words") toggles a read-only
   properties block under the title: the frontmatter, then the file's path,
   times and size from `markdown:properties`
+- **Panes:** the page area holds one or two panes side by side, each its own
+  card with its own row of tabs (`tabsStore` keeps `panes` and
+  `activePaneId`; `tabs`, `activeId` and every old action and selector mean
+  the active pane). A page reads its own pane's tab through `PaneContext`
+  (`usePaneTab`); the right sidebar, Back and Forward, the address and the
+  sidebar's marked row follow the active pane, the one last clicked or typed
+  in. A page shows in one pane only: opening it again goes to its tab. Split
+  Right (⌃⌘\), Move Tab to Other Pane (⌃⇧⌘→), Focus Other Pane (⌃⌘→), Close
+  Pane; "Open to the side" and Option+click open in the other pane. A pane's
+  last tab closed closes it; a window too narrow for two 360 px panes shows
+  only the active one. The session saves both panes and still writes the old
+  `tabs`/`active` shape
 - **Links in:** `opal://open?path=<path>` (relative to the vault, or
   absolute) opens that file in a new tab, or switches to the tab showing it.
   macOS hands the link to `open-url`; `OpalLinks` in `src/main/protocol`
