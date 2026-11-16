@@ -336,8 +336,9 @@ describe('the box under the keyboard', () => {
     fireEvent.click(option);
     await waitFor(() => expect(last('answer')?.answer).toEqual({ id: 'q1', answers: { 'Which bed?': 'Bed 4' } }));
     await waitFor(() => expect(document.activeElement).toBe(box()));
-    fireEvent.click(screen.getByTestId('auto-title'));
-    const title = screen.getByRole('textbox', { name: 'Thread title' });
+    await userEvent.setup().click(screen.getByTestId('auto-thread-menu'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    const title = await screen.findByRole('textbox', { name: 'Thread title' });
     fireEvent.change(title, { target: { value: 'Bread, the long way' } });
     // The Enter ends in the title: the keyboard moves to the box within the same press, and the key must not follow it there as a new line.
     expect(fireEvent.keyDown(title, { key: 'Enter' })).toBe(false);
@@ -626,7 +627,7 @@ describe('undo', () => {
 });
 
 describe('the open thread’s own actions', () => {
-  it('has Snooze, Archive and a menu in its header, and Done for a thread from the digest', async () => {
+  it('has Snooze and Archive at its header’s right, a menu on its title, and Done for a thread from the digest', async () => {
     await open();
     await openThread('bread');
     const header = within(screen.getByTestId('auto-thread').querySelector('header') as HTMLElement);
@@ -634,7 +635,11 @@ describe('the open thread’s own actions', () => {
     expect(header.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
     expect(header.queryByRole('button', { name: 'Done' })).toBeNull();
     expect(header.queryByTestId('auto-stop')).toBeNull();
-    await userEvent.setup().click(header.getByRole('button', { name: 'Thread menu' }));
+    expect(header.queryByRole('button', { name: 'Thread menu' })).toBeNull();
+    const title = header.getByTestId('auto-thread-menu');
+    expect(title.textContent).toBe('Sourdough timings');
+    expect(title.querySelector('[data-testid="auto-title-chevron"]')).not.toBeNull();
+    await userEvent.setup().click(title);
     expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Mark for the Mac', 'Rename']);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Mark for the Mac' }));
     await waitFor(() => expect(last('desk')).toEqual({ kind: 'desk', id: 'bread', on: true }));

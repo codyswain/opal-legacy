@@ -421,6 +421,47 @@ describe('a thread', () => {
     expect(within(row('bread')).getAllByRole('button')[0].getAttribute('aria-current')).toBe('true');
   });
 
+  it('ends a folded line in a chevron, for one step that keeps its link and for many that open', async () => {
+    await open();
+    await openThread('bread');
+    const one = screen.getByTestId('auto-steps');
+    expect(one.querySelector('[data-testid="auto-steps-chevron"]')).not.toBeNull();
+    expect(within(one).getByRole('button', { name: 'Recipes/Bread.md' })).toBeInTheDocument();
+    act(() => auto.thread({ kind: 'turn', items: [user('Sort the seeds', 'a1')], state: 'working', activity: '' }));
+    const steps = ['Seeds.md', 'sowing months'].map((text) => ({ g: 'run', text, path: null as string | null }));
+    act(() => auto.thread({ kind: 'add', item: { role: 'steps', steps } }));
+    const many = screen.getAllByTestId('auto-steps').at(-1) as HTMLElement;
+    expect(within(many).getByRole('button').querySelector('[data-testid="auto-steps-chevron"]')).not.toBeNull();
+  });
+
+  it('holds the box’s controls on a row at its foot: the model at the left, Stop and Send at the right', async () => {
+    await open();
+    await openThread('bread');
+    const foot = screen.getByTestId('auto-box-row');
+    expect(foot.closest('form')).toBe(box().closest('form'));
+    // The words come first, the row after them.
+    expect(box().compareDocumentPosition(foot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(foot).getByTestId('auto-model')).toBeInTheDocument();
+    act(() => auto.thread({ kind: 'turn', items: [user('Sort the seeds', 'a1')], state: 'working', activity: '' }));
+    const buttons = within(foot).getAllByRole('button');
+    expect(buttons.map((button) => button.getAttribute('data-testid'))).toEqual(['auto-model', 'auto-stop', 'auto-send']);
+  });
+
+  it('draws Send grey with no words and filled once there are words', async () => {
+    await open();
+    await openThread('bread');
+    const send = screen.getByTestId('auto-send');
+    expect(send).toBeDisabled();
+    expect(send.hasAttribute('data-ready')).toBe(false);
+    expect(send.className).toContain('bg-surface-active');
+    fireEvent.change(box(), { target: { value: 'Add rye' } });
+    expect(send).toBeEnabled();
+    expect(send.hasAttribute('data-ready')).toBe(true);
+    expect(send.className).toContain('bg-primary');
+    fireEvent.change(box(), { target: { value: '   ' } });
+    expect(send).toBeDisabled();
+  });
+
   it('opens a vault file named in a step or a reply as a page in its own tab', async () => {
     await open();
     await openThread('bread');
@@ -738,17 +779,20 @@ describe('a thread', () => {
     expect(names.filter((name) => /send|confirm/i.test(name))).toEqual(['Send to Auto']);
   });
 
-  it('renames from the title, and picks the model from the header', async () => {
+  it('renames from the title’s menu, and picks the model from the box’s foot', async () => {
     await open();
     await openThread('bread');
-    fireEvent.click(screen.getByTestId('auto-title'));
-    const field = screen.getByRole('textbox', { name: 'Thread title' });
+    await userEvent.setup().click(screen.getByTestId('auto-thread-menu'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    const field = await screen.findByRole('textbox', { name: 'Thread title' });
     fireEvent.change(field, { target: { value: 'Bread timings' } });
     fireEvent.keyDown(field, { key: 'Enter' });
     fireEvent.blur(field);
     await waitFor(() => expect(last('rename')).toEqual({ kind: 'rename', id: 'bread', title: 'Bread timings' }));
     await waitFor(() => expect(screen.getByTestId('auto-title').textContent).toBe('Bread timings'));
 
+    expect(screen.getByTestId('auto-model').closest('[data-testid="auto-box-row"]')).not.toBeNull();
+    expect(screen.getByTestId('auto-thread-header').querySelector('[data-testid="auto-model"]')).toBeNull();
     await userEvent.setup().click(screen.getByTestId('auto-model'));
     fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Small' }));
     await waitFor(() => expect(last('model')).toEqual({ kind: 'model', id: 'bread', model: 'small' }));

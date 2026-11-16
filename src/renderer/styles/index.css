@@ -52,6 +52,10 @@
     --sidebar-label: var(--text-secondary);
     --sidebar-icon: var(--icon);
     --sidebar-selected: var(--surface-selected);
+    /* A thread's time beside its title in the sidebar: one step lighter than the title. */
+    --sidebar-time: var(--text-tertiary);
+    /* An Auto thread's row; in the roomy look one-line rows sit 32px apart, their 2px gap included. */
+    --thread-row-height: var(--row-height-compact);
     /* A group label ("Pinned"): its box's least height, its gap below included, and its weight. */
     --sidebar-group-label-height: 1rem;
     --sidebar-group-label-weight: 510;
@@ -63,10 +67,14 @@
     /*
      * Auto, the tab for the agent service: the size of a message's text.
      * Replies are read like a page, so their size is the same in both
-     * looks, as the page's body is.
+     * looks, as the page's body is: 14px on a 21px line, as the Claude app
+     * sets a conversation (2026-11-15).
      */
-    --text-reply-size: 0.9375rem;
-    --text-reply-line: 1.5rem;
+    --text-reply-size: 0.875rem;
+    --text-reply-line: 1.3125rem;
+    /* The message box: its corners, and the shadow that lifts it off the thread. */
+    --radius-composer: 1rem;
+    --shadow-composer: 0 1px 2px hsl(0 0% 0% / 0.04), 0 4px 16px hsl(0 0% 0% / 0.05);
 
     /* Page headings, in em of the page's 16px body. */
     --heading-title: 1.8em;
@@ -132,6 +140,8 @@
     --text-primary: 0 0% 14.9%;
     --text-secondary: 0 0% 24.7%;
     --text-tertiary: 0 0% 42%;
+    /* Text in an Auto thread, its digest queue and Put away: #171717, darker than pages. */
+    --text-thread: 0 0% 9%;
     /* The lightest grey that keeps 3:1 on the chrome. */
     --icon: 0 0% 53%;
     /* A dark ring on light grounds, a light one on dark grounds. */
@@ -184,6 +194,8 @@
     --text-primary: 0 0% 92.9%;
     --text-secondary: 0 0% 79.6%;
     --text-tertiary: 0 0% 56.1%;
+    /* Dark mode keeps its text colour in a thread. */
+    --text-thread: var(--text-primary);
     --icon: 0 0% 40.4%;
     --focus: 0 0% 70%;
     --selection: hsl(0 0% 100% / 0.2);
@@ -194,6 +206,8 @@
     --shadow-control: 0 2px 4px hsl(0 0% 0% / 0.1);
     --shadow-overlay: 0 4px 24px hsl(0 0% 0% / 0.2);
     --shadow-dialog: 0 7px 32px hsl(0 0% 0% / 0.35);
+    /* On a dark page a shadow alone does not read: a faint light edge on top carries it. */
+    --shadow-composer: 0 0 0 1px hsl(0 0% 100% / 0.02), 0 4px 18px hsl(0 0% 0% / 0.45);
   }
 
   /*
@@ -216,6 +230,7 @@
 
     --row-height-compact: 2rem;
     --row-height: 2.25rem;
+    --thread-row-height: 1.875rem;
 
     --sidebar-inset: 0.625rem;
     --sidebar-group-gap: 1.25rem;
@@ -248,6 +263,7 @@
     --chrome: 0 0% 98%;
     --ground: 0 0% 98%;
     --sidebar-label: var(--text-primary);
+    --sidebar-time: var(--text-secondary);
     --sidebar-icon: var(--text-primary);
     --frame-icon: var(--text-primary);
     --sidebar-selected: 0 0% 0% / 0.09;

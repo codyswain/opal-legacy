@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Clock, MoreHorizontal, Square, Undo2 } from 'lucide-react';
+import { Archive, ArrowDown, Check, ChevronDown, ChevronRight, Clock, Undo2 } from 'lucide-react';
 import type { AutoItem, AutoStep, AutoThread } from '@/types/auto';
 import {
   Button,
@@ -26,23 +26,26 @@ import { failure, parseEntry, sentLine, showsNext, stepLines, stepsSummary, turn
 import { archiveThread, restoreThread, snoozeThread } from '../store/actions';
 import { modelChoices, useAutoStore } from '../store/autoStore';
 import { draftKey, useThreadStore } from '../store/threadStore';
+import { BoxFrame, boxField, paneHeader, SendButton, StopButton } from './Box';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
 import { focusRowNow, rowElement } from './focus';
 import { SnoozeButton } from './SnoozeMenu';
 
 const quiet = 'text-control text-foreground-tertiary';
+/** A folded line of what Auto did: the reply's size, in grey. */
+const folded = 'text-reply text-foreground-tertiary';
 const stepLink = 'rounded-sm underline decoration-foreground-tertiary/50 underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus';
 
 /** One of his messages. */
 function Bubble({ text, faded = false }: { text: string; faded?: boolean }) {
   return (
-    <div data-testid="auto-message" className={cn('ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-card bg-surface-active px-3 py-2 text-reply text-foreground', faded && 'opacity-60')}>
+    <div data-testid="auto-message" className={cn('ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-2xl bg-surface-active px-3.5 py-2 text-reply text-foreground', faded && 'opacity-60')}>
       {text}
     </div>
   );
 }
 
-/** What Auto did between messages: one grey line, which opens to every step. */
+/** What Auto did between messages: one grey line ending in a chevron, which opens to every step. */
 function Steps({ steps }: { steps: AutoStep[] }) {
   const { openVault } = React.useContext(MarkdownLinksContext);
   const [open, setOpen] = React.useState(false);
@@ -63,10 +66,17 @@ function Steps({ steps }: { steps: AutoStep[] }) {
       </div>
     );
   };
-  // One step is its own line: there is nothing to open.
-  if (lines.length === 1) return <div data-testid="auto-steps" className={quiet}>{line(0)}</div>;
+  // One step is its own line, and keeps its link: there is nothing to open, so its chevron is only drawn.
+  if (lines.length === 1) {
+    return (
+      <div data-testid="auto-steps" className={cn(folded, 'flex min-w-0 items-center gap-1')}>
+        <div className="min-w-0">{line(0)}</div>
+        <ChevronRight aria-hidden data-testid="auto-steps-chevron" className="h-3.5 w-3.5 shrink-0" />
+      </div>
+    );
+  }
   return (
-    <div data-testid="auto-steps" className={cn(quiet, 'flex flex-col gap-0.5')}>
+    <div data-testid="auto-steps" className={cn(folded, 'flex flex-col gap-0.5')}>
       <button
         type="button"
         aria-expanded={open}
@@ -74,7 +84,7 @@ function Steps({ steps }: { steps: AutoStep[] }) {
         className="flex w-fit max-w-full items-center gap-1 rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus"
       >
         <span className="min-w-0 truncate">{stepsSummary(steps)}</span>
-        <ChevronRight aria-hidden className={cn('h-3 w-3 shrink-0 transition-transform duration-quick', open && 'rotate-90')} />
+        <ChevronRight aria-hidden data-testid="auto-steps-chevron" className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-quick', open && 'rotate-90')} />
       </button>
       {open ? <div className="flex flex-col gap-0.5 pl-0.5">{lines.map((_line, at) => line(at))}</div> : null}
     </div>
@@ -113,6 +123,8 @@ function Item({ item, title }: { item: AutoItem; title: string | null }) {
 interface Row {
   key: string;
   quiet: boolean;
+  /** His message: a new turn, with more room above it than the rows within a turn. */
+  his?: boolean;
   /** The start of the newest reply: an unread thread opens here when the reply is taller than the pane. */
   anchor?: boolean;
   node: React.ReactNode;
@@ -133,7 +145,7 @@ function NextLine({ line }: { line: string }) {
           type="button"
           title="Option-click to change it first"
           onClick={(event) => (event.altKey ? editNext(line) : void send(line, false))}
-          className="max-w-lg rounded-card border border-border-strong px-3 py-1.5 text-left text-ui text-foreground-secondary outline-none transition-hover hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus"
+          className="max-w-lg rounded-full border border-border-default px-3.5 py-1 text-left text-reply text-foreground-secondary outline-none transition-hover hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus"
         >
           {line}
         </button>
@@ -154,7 +166,7 @@ function NextLine({ line }: { line: string }) {
  * scrolled up; then it keeps his place and offers "Jump to the end". Each
  * thread comes back where he left it.
  */
-function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivElement>; onScrolled: (scrolled: boolean) => void }) {
+function Talk({ scroller }: { scroller: React.RefObject<HTMLDivElement> }) {
   const own = useThreadStore((state) => state.view);
   // What the pane held before a thread never seen was opened: it stays until that thread arrives, or 300 ms.
   const ghost = useThreadStore((state) => state.ghost);
@@ -231,7 +243,6 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
     }
     height.current = element.scrollHeight;
     if (threadId) keepPlace(threadPlace(threadId), placeIn(element));
-    onScrolled(element.scrollTop > 0);
   });
 
   const rows: Row[] = [];
@@ -239,7 +250,7 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
     if (problem) rows.push({ key: 'problem', quiet: false, node: <p role="alert" className="text-ui text-foreground-secondary">{problem}</p> });
     else if (slow) rows.push({ key: 'loading', quiet: false, node: <p role="status" className="text-ui text-foreground-tertiary">Loading…</p> });
     // A new thread shows his words at once, on their way, before the service has made the thread.
-    for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, node: <Bubble text={message.text} faded /> });
+    for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, his: true, node: <Bubble text={message.text} faded /> });
     // The empty thread, with every thread done or put away: it says so, as the list does.
     if (!problem && !slow && pending.length === 0 && listEmpty) rows.push({ key: 'nothing', quiet: false, node: <p data-testid="auto-nothing-left" className="text-ui text-foreground-tertiary">Nothing left.</p> });
   } else {
@@ -254,7 +265,7 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
         if (!draws(item)) return;
         const anchor = from !== null && at > from && !anchored;
         if (anchor) anchored = true;
-        rows.push({ key: `${prefix}${at}`, quiet: isQuiet(item), anchor, node: <Item item={item} title={title} /> });
+        rows.push({ key: `${prefix}${at}`, quiet: isQuiet(item), his: item.role === 'user', anchor, node: <Item item={item} title={title} /> });
       });
     };
     items(view.history, 'h', start);
@@ -288,7 +299,7 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
     }
     if (failed) rows.push({ key: 'failed', quiet: false, node: <p role="alert" data-testid="auto-failed" className="text-ui text-foreground-secondary">{failed}</p> });
     // A message sent at rest shows at once; the turn it starts takes its place.
-    if (!view.live) for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, node: <Bubble text={message.text} faded /> });
+    if (!view.live) for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, his: true, node: <Bubble text={message.text} faded /> });
     view.sent.forEach((sent, at) => {
       rows.push({
         key: `sent${at}`,
@@ -332,13 +343,12 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
           // The row at the top of the pane, and how far it is from the top: what a change of width keeps in place.
           const top = [...element.querySelectorAll<HTMLElement>('[data-row]')].find((row) => row.offsetTop + row.offsetHeight > element.scrollTop);
           anchor.current = top ? { key: top.getAttribute('data-row') ?? '', gap: top.offsetTop - element.scrollTop } : null;
-          onScrolled(element.scrollTop > 0);
         }}
       >
         {/* What the pane held before is only shown, never acted on: its cards and buttons belong to another thread. */}
         <div aria-hidden={own ? undefined : ghost ? true : undefined} className={cn('auto-column relative flex flex-col pb-6 pt-2', !own && ghost && 'pointer-events-none')}>
           {rows.map((row, at) => (
-            <div key={row.key} data-row={row.key} data-anchor={row.anchor || undefined} className={cn('flex flex-col', at === 0 ? '' : row.quiet && rows[at - 1].quiet ? 'mt-1' : 'mt-4')}>
+            <div key={row.key} data-row={row.key} data-anchor={row.anchor || undefined} className={cn('flex flex-col', at === 0 ? '' : row.his && !rows[at - 1].his ? 'mt-8' : row.quiet && rows[at - 1].quiet ? 'mt-1' : 'mt-4')}>
               {row.node}
             </div>
           ))}
@@ -366,8 +376,12 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
   );
 }
 
-/** The title; a click turns it into a field. Enter or leaving the field renames, Escape does not. */
-function Title({ title, canRename, editing, setEditing }: { title: string; canRename: boolean; editing: boolean; setEditing: (editing: boolean) => void }) {
+/**
+ * The title. With a menu it is a button ending in a chevron that opens the
+ * thread's menu; Rename there turns it into a field. Enter or leaving the
+ * field renames, Escape does not.
+ */
+function Title({ title, menu, editing, setEditing }: { title: string; menu: React.ReactNode; editing: boolean; setEditing: (editing: boolean) => void }) {
   const [typed, setTyped] = React.useState(title);
   const cancelled = React.useRef(false);
   React.useEffect(() => {
@@ -377,7 +391,7 @@ function Title({ title, canRename, editing, setEditing }: { title: string; canRe
     }
     // Only when the field opens: the title may change under it.
   }, [editing]);
-  if (!canRename) return <h1 className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{title}</h1>;
+  if (!menu) return <h1 data-testid="auto-title" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{title}</h1>;
   if (editing) {
     return (
       <input
@@ -406,23 +420,46 @@ function Title({ title, canRename, editing, setEditing }: { title: string; canRe
     );
   }
   return (
-    <h1 className="-ml-1.5 min-w-0 flex-1">
-      <button
-        type="button"
-        title="Rename"
-        data-testid="auto-title"
-        onClick={() => setEditing(true)}
-        className="block max-w-full truncate rounded-control px-1.5 py-1 text-ui font-medium text-foreground outline-none transition-hover hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-focus"
-      >
-        {title || 'Untitled'}
-      </button>
+    <h1 className="-ml-2 flex min-w-0 flex-1">
+      <Menu>
+        <MenuTrigger asChild>
+          <button
+            type="button"
+            title="Thread menu"
+            data-testid="auto-thread-menu"
+            className="flex min-w-0 max-w-full items-center gap-1 rounded-control px-2 py-1 text-ui font-medium text-foreground outline-none transition-hover hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-focus data-[state=open]:bg-surface-active"
+          >
+            <span data-testid="auto-title" className="min-w-0 truncate">{title || 'Untitled'}</span>
+            <ChevronDown aria-hidden data-testid="auto-title-chevron" className="h-3.5 w-3.5 shrink-0 text-foreground-tertiary" />
+          </button>
+        </MenuTrigger>
+        {menu}
+      </Menu>
     </h1>
   );
 }
 
-/** Snooze, Done, Archive and a "…" menu for the open thread: the same as its row offers. An archived thread has Bring back in their place. */
-function ThreadActions({ thread, onRename }: { thread: AutoThread; onRename: () => void }) {
+/** What the title's chevron opens: the thread's menu, as its row offers it less what the header shows. */
+function ThreadMenu({ thread, onRename }: { thread: AutoThread; onRename: () => void }) {
   const marked = thread.desk !== null;
+  return (
+    <MenuContent
+      align="start"
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        // Rename moves the keyboard to the title; anything else returns it to the box.
+        if (!(document.activeElement instanceof HTMLInputElement)) useThreadStore.getState().focusBox();
+      }}
+    >
+      {thread.snoozed !== null ? <MenuItem onSelect={() => void snoozeThread(thread, null, { from: 'pane' })}>Bring back</MenuItem> : null}
+      <MenuItem onSelect={() => void useAutoStore.getState().desk(thread, !marked)}>{marked ? 'Take off the Mac mark' : 'Mark for the Mac'}</MenuItem>
+      <MenuItem onSelect={() => window.setTimeout(onRename, 0)}>Rename</MenuItem>
+    </MenuContent>
+  );
+}
+
+/** Snooze, Done and Archive for the open thread, at the header's right. An archived thread has Bring back in their place. */
+function ThreadActions({ thread }: { thread: AutoThread }) {
   if (thread.archived) {
     return (
       <IconButton label="Bring back" data-testid="auto-restore-open" className="-mr-1.5" onClick={() => void restoreThread(thread, { from: 'pane' })}>
@@ -438,77 +475,75 @@ function ThreadActions({ thread, onRename }: { thread: AutoThread; onRename: () 
           <Check aria-hidden className="h-3.5 w-3.5" />
         </IconButton>
       ) : null}
-      <IconButton label="Archive" data-testid="auto-archive-open" onClick={() => void archiveThread(thread, { from: 'pane' })}>
+      <IconButton label="Archive" data-testid="auto-archive-open" className="-mr-1.5" onClick={() => void archiveThread(thread, { from: 'pane' })}>
         <Archive aria-hidden className="h-3.5 w-3.5" />
       </IconButton>
-      <Menu>
-        <MenuTrigger asChild>
-          <IconButton label="Thread menu" data-testid="auto-thread-menu" className="-mr-1.5">
-            <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
-          </IconButton>
-        </MenuTrigger>
-        <MenuContent
-          align="end"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            // Rename moves the keyboard to the title; anything else returns it to the box.
-            if (!(document.activeElement instanceof HTMLInputElement)) useThreadStore.getState().focusBox();
-          }}
-        >
-          {thread.snoozed !== null ? <MenuItem onSelect={() => void snoozeThread(thread, null, { from: 'pane' })}>Bring back</MenuItem> : null}
-          <MenuItem onSelect={() => void useAutoStore.getState().desk(thread, !marked)}>{marked ? 'Take off the Mac mark' : 'Mark for the Mac'}</MenuItem>
-          <MenuItem onSelect={() => window.setTimeout(onRename, 0)}>Rename</MenuItem>
-        </MenuContent>
-      </Menu>
     </>
   );
 }
 
-function ThreadHeader({ scrolled }: { scrolled: boolean }) {
+/** The open thread, or the list's or the archive's entry for it, as the header and the box show it. */
+function useShownThread(): { isNew: boolean; thread: AutoThread | null; ghost: boolean } {
   const openId = useThreadStore((state) => state.openId);
   const view = useThreadStore((state) => state.view);
-  const newModel = useThreadStore((state) => state.newModel);
-  const status = useAutoStore((state) => state.status);
   // The list's own entry, or the archive's: the title shows from it while the thread loads, or cannot be read.
   const entry = useAutoStore((state) => state.threads.find((thread) => thread.id === openId) ?? state.archive.threads.find((thread) => thread.id === openId));
-  const renaming = useThreadStore((state) => state.renaming);
   // While the pane still holds the thread before, its header does too.
   const ghost = useThreadStore((state) => (state.view ? null : state.ghost));
-  const { setModel, setRenaming } = useThreadStore.getState();
   const isNew = paneThread(openId) === null;
-  const thread = isNew ? null : ghost?.thread ?? entry ?? view?.thread ?? null;
+  return { isNew, thread: isNew ? null : ghost?.thread ?? entry ?? view?.thread ?? null, ghost: ghost !== null };
+}
+
+/** The model, at the left of the box's foot. */
+function ModelPicker() {
+  const newModel = useThreadStore((state) => state.newModel);
+  const status = useAutoStore((state) => state.status);
+  const { isNew, thread } = useShownThread();
+  if (!isNew && !thread) return null;
   const models = modelChoices(status);
   const model = isNew ? newModel : thread?.model ?? '';
   const label = models.find(([key]) => key === model)?.[1] ?? model;
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <Button size="compact" variant="ghost" aria-label={`Model: ${label}`} data-testid="auto-model" className="gap-1 rounded-full px-2.5 font-normal text-foreground-tertiary">
+          {label}
+          <ChevronDown aria-hidden className="h-3 w-3" />
+        </Button>
+      </MenuTrigger>
+      <MenuContent
+        align="start"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          useThreadStore.getState().focusBox();
+        }}
+      >
+        <MenuRadioGroup value={model} onValueChange={(value) => void useThreadStore.getState().setModel(value)}>
+          {models.map(([key, name]) => (
+            <MenuRadioItem key={key} value={key}>{name}</MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
+  );
+}
+
+function ThreadHeader() {
+  const openId = useThreadStore((state) => state.openId);
+  const renaming = useThreadStore((state) => state.renaming);
+  const { setRenaming } = useThreadStore.getState();
+  const { isNew, thread, ghost } = useShownThread();
+  const menu = thread && !ghost && !thread.archived ? <ThreadMenu thread={thread} onRename={() => setRenaming(true)} /> : null;
 
   return (
-    <header className={cn('auto-beside-talk shrink-0 border-b', scrolled ? 'border-border-subtle' : 'border-transparent')}>
+    <header data-testid="auto-thread-header" className={paneHeader}>
       <div className="auto-column flex h-header items-center gap-1">
         {isNew ? (
-          <Title title="New thread" canRename={false} editing={false} setEditing={setRenaming} />
+          <Title title="New thread" menu={null} editing={false} setEditing={setRenaming} />
         ) : (
-          <Title key={openId} title={thread?.title ?? ''} canRename={thread !== null && !ghost} editing={renaming && !ghost} setEditing={setRenaming} />
+          <Title key={openId} title={thread?.title ?? ''} menu={menu} editing={renaming && menu !== null} setEditing={setRenaming} />
         )}
-        <div className="flex shrink-0 items-center gap-0.5">
-          {isNew || thread ? (
-            <Menu>
-              <MenuTrigger asChild>
-                <Button size="compact" variant="ghost" aria-label={`Model: ${label}`} data-testid="auto-model" className={cn('font-normal text-foreground-tertiary', isNew && '-mr-2')}>
-                  {label}
-                  <ChevronDown aria-hidden className="h-3 w-3" />
-                </Button>
-              </MenuTrigger>
-              <MenuContent align="end">
-                <MenuRadioGroup value={model} onValueChange={(value) => void setModel(value)}>
-                  {models.map(([key, name]) => (
-                    <MenuRadioItem key={key} value={key}>{name}</MenuRadioItem>
-                  ))}
-                </MenuRadioGroup>
-              </MenuContent>
-            </Menu>
-          ) : null}
-          {thread && !ghost ? <ThreadActions thread={thread} onRename={() => setRenaming(true)} /> : null}
-        </div>
+        <div className="flex shrink-0 items-center gap-0.5">{thread && !ghost ? <ThreadActions thread={thread} /> : null}</div>
       </div>
     </header>
   );
@@ -601,8 +636,9 @@ const capital = (words: string): string => (words ? words.charAt(0).toUpperCase(
 
 /**
  * The box. Enter sends, Shift+Enter adds a line. While a question waits it
- * is the answer field. What waits behind a running turn shows above it, and
- * Stop sits beside Send while a turn runs.
+ * is the answer field. What waits behind a running turn shows above it. Its
+ * foot holds the model at the left, and Stop, while a turn runs, and Send
+ * at the right.
  */
 function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   const openId = useThreadStore((state) => state.openId);
@@ -676,12 +712,17 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
             </Button>
           </p>
         ) : null}
-        <form
-          className="flex items-end gap-1.5 rounded-card border border-border-strong bg-surface py-1.5 pl-3 pr-1.5 focus-within:border-foreground-tertiary"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
+        <BoxFrame
+          field={box}
+          onSubmit={submit}
+          row={
+            <>
+              <ModelPicker />
+              <div className="flex-1" />
+              {running ? <StopButton onStop={() => void stop()} /> : null}
+              <SendButton label={refusing ? 'Say no' : answering ? 'Answer' : 'Send to Auto'} ready={draft.trim() !== ''} />
+            </>
+          }
         >
           <textarea
             ref={box}
@@ -692,17 +733,9 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={onKeyDown}
-            className="my-1 min-w-0 flex-1 resize-none bg-transparent text-reply text-foreground outline-none placeholder:text-icon"
+            className={boxField}
           />
-          {running ? (
-            <IconButton label="Stop" shortcut="⌘." variant="outline" data-testid="auto-stop" onClick={() => void stop()}>
-              <Square aria-hidden className="h-2.5 w-2.5 fill-current" />
-            </IconButton>
-          ) : null}
-          <IconButton type="submit" label={refusing ? 'Say no' : answering ? 'Answer' : 'Send to Auto'} shortcut="↩" variant="subtle" disabled={!draft.trim()}>
-            <ArrowUp aria-hidden className="h-4 w-4" />
-          </IconButton>
-        </form>
+        </BoxFrame>
       </div>
     </div>
   );
@@ -710,13 +743,11 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
 
 /** The open thread: its header, the thread and the box, on one reading column. */
 export function ThreadPane() {
-  // Once the thread is scrolled, a hairline parts it from the header it passes under.
-  const [scrolled, setScrolled] = React.useState(false);
   const talk = React.useRef<HTMLDivElement>(null);
   return (
-    <section data-testid="auto-thread" aria-label="Thread" className="flex min-w-0 flex-1 flex-col">
-      <ThreadHeader scrolled={scrolled} />
-      <Talk scroller={talk} onScrolled={setScrolled} />
+    <section data-testid="auto-thread" aria-label="Thread" className="auto-ink flex min-w-0 flex-1 flex-col">
+      <ThreadHeader />
+      <Talk scroller={talk} />
       <Composer talk={talk} />
     </section>
   );

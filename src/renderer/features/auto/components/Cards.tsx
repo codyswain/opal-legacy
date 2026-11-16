@@ -8,7 +8,8 @@ import { answerAllow, answerDeny, answerNo, answerOption, answerPicks, isPicked,
 import type { EntryCard } from '../model/threadModel';
 import { useThreadStore } from '../store/threadStore';
 
-const card = 'rounded-card border border-border-strong p-4';
+/** A card in a thread: the box's light border, with corners one step under its 16px. */
+const card = 'rounded-xl border border-border-default p-4';
 
 /** What the service said to an answer it did not take, such as a question that has closed. */
 function CardProblem() {
@@ -164,7 +165,7 @@ export function EntryCardView({ entry, title }: { entry: EntryCard; title: strin
   const named = title !== null && entry.title.toLowerCase().startsWith(title.trim().toLowerCase().replace(/…$/, ''));
   const from = entry.from;
   return (
-    <div data-testid="auto-entry" className="rounded-card border border-border-subtle bg-surface-sunken p-4">
+    <div data-testid="auto-entry" className="rounded-xl border border-border-subtle bg-surface-sunken p-4">
       <p className="text-metadata text-foreground-tertiary">Digest, {entry.source}</p>
       {/* The priority is a quiet word before the title, as the queue sets it. */}
       {named && !entry.priority ? null : (

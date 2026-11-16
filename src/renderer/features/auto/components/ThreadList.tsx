@@ -58,7 +58,7 @@ const rowButton = 'rounded-sidebar-row text-left outline-none focus-visible:ring
 // Hidden by opacity, not display, so an open menu keeps the button it hangs from. They sit over the time, or over the
 // end of the title when the time is shorter than they are; the line fades out under them (`.auto-row-line`).
 const rowActions =
-  'pointer-events-none absolute right-0 top-0 flex h-row-compact items-center opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[[data-auto-row]:focus-visible]:pointer-events-auto group-has-[[data-auto-row]:focus-visible]:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100';
+  'pointer-events-none absolute right-0 top-0 flex h-thread-row items-center opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[[data-auto-row]:focus-visible]:pointer-events-auto group-has-[[data-auto-row]:focus-visible]:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100';
 const timeHides =
   'group-hover:invisible group-has-[[data-auto-row]:focus-visible]:invisible group-has-[[data-state=open]]:invisible';
 /** The second line starts under the title, past the slot the dot sits in. */
@@ -160,7 +160,7 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
               title={title}
               onClick={() => show(thread.id)}
               onKeyDown={onKeyDown}
-              className={cn(rowButton, 'flex min-h-row-compact w-full min-w-0 flex-col justify-center px-2 py-1')}
+              className={cn(rowButton, 'flex min-h-thread-row w-full min-w-0 flex-col justify-center px-2 py-1')}
             >
               <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
                 <span className="flex w-sidebar-icon shrink-0 justify-center">
@@ -169,7 +169,7 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
                 <span data-heavy={heavy || undefined} className={cn('min-w-0 flex-1 truncate text-ui', heavy ? 'font-semibold text-foreground' : current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label')}>
                   {title}
                 </span>
-                <span className={cn('shrink-0 text-right text-metadata tabular-nums text-foreground-tertiary', timeHides)}>{time}</span>
+                <span className={cn('shrink-0 text-right text-metadata tabular-nums text-sidebar-time', timeHides)}>{time}</span>
               </span>
               <NeedsLine thread={thread} />
             </button>
@@ -354,11 +354,11 @@ function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop
               event.preventDefault();
               archive();
             }}
-            className={cn(rowButton, 'flex h-row-compact w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui', current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label')}
+            className={cn(rowButton, 'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui', current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label')}
           >
             <Newspaper aria-hidden className="stroke-sidebar-icon h-sidebar-icon w-sidebar-icon shrink-0 text-sidebar-icon" />
             <span className="min-w-0 flex-1 truncate">Digest</span>
-            {digest ? <span data-testid="auto-digest-left" className="shrink-0 text-metadata font-normal tabular-nums text-foreground-tertiary">{leftWord(digest)}</span> : null}
+            {digest ? <span data-testid="auto-digest-left" className="shrink-0 text-metadata font-normal tabular-nums text-sidebar-time">{leftWord(digest)}</span> : null}
           </button>
         </div>
       </ContextMenuTrigger>
@@ -562,7 +562,7 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
           }}
           className={cn(
             rowButton,
-            'flex h-row-compact w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui transition-hover',
+            'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui transition-hover',
             awayMarked ? 'bg-sidebar-selected font-sidebar-active text-foreground' : 'font-sidebar-label text-foreground-tertiary hover:bg-surface-hover hover:text-foreground'
           )}
         >
@@ -570,7 +570,7 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
             <Archive aria-hidden className="h-3.5 w-3.5" />
           </span>
           <span className="min-w-0 flex-1 truncate">Put away</span>
-          {awayCount > 0 ? <span data-testid="auto-away-count" className="shrink-0 text-metadata tabular-nums text-foreground-tertiary">{awayCount}</span> : null}
+          {awayCount > 0 ? <span data-testid="auto-away-count" className="shrink-0 text-metadata tabular-nums text-sidebar-time">{awayCount}</span> : null}
         </button>
       </div>
     </nav>

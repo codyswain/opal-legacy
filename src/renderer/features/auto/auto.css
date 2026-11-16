@@ -1,7 +1,8 @@
 /*
  * Auto: a reply's Markdown, drawn with the look pages have for lists,
  * tables, code, quotes and links, in the interface typeface. Sizes are in em
- * of the reply's text (--text-reply-size).
+ * of the reply's text (--text-reply-size): 14px on a 21px line, so a
+ * paragraph follows the last by 11px and a list item by 4px.
  */
 .auto-md {
   font-size: var(--text-reply-size);
@@ -18,7 +19,7 @@
 
 /* Blocks sit apart by one step; a heading takes a little more above it. */
 .auto-md > :not(:first-child) {
-  margin-top: 0.75em;
+  margin-top: 0.7857em;
 }
 
 .auto-md h1,
@@ -75,31 +76,56 @@
   box-shadow: 0 0 0 2px hsl(var(--focus));
 }
 
+/* Code in a line: a light grey chip. */
 .auto-md code {
-  padding: 0.1em 0.2em;
+  padding: 0.1em 0.3em;
   border-radius: 4px;
-  background-color: hsl(var(--foreground) / 0.045);
+  background-color: hsl(var(--foreground) / 0.06);
   font-family: var(--font-mono);
   font-size: 0.85em;
 }
 
+/*
+ * A list's text starts 34px in. A bullet is a dot of the text's colour whose
+ * left edge is 13px in, centred on the first line; a number is the text's
+ * colour too, ending before the text as the browser sets it.
+ */
 .auto-md ul,
 .auto-md ol {
-  padding-left: 1.5em;
+  padding-left: 2.4286em;
 }
 
-.auto-md ul { list-style: disc; }
+.auto-md ul { list-style: none; }
 .auto-md ol { list-style: decimal; }
-.auto-md ul ul { list-style: circle; }
+
+.auto-md ul > li {
+  position: relative;
+}
+
+.auto-md ul > li:not([data-task])::before {
+  content: "";
+  position: absolute;
+  left: -1.5em;
+  top: calc(var(--text-reply-line) / 2 - 0.1607em);
+  width: 0.3214em;
+  height: 0.3214em;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.auto-md ul ul > li:not([data-task])::before {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
 
 .auto-md li::marker {
-  color: hsl(var(--text-tertiary));
+  color: inherit;
   font-variant-numeric: tabular-nums;
 }
 
 .auto-md li:not(:first-child),
 .auto-md li > :not(:first-child) {
-  margin-top: 0.25em;
+  margin-top: 0.2857em;
 }
 
 /* A task: its box in the marker's place. */
@@ -110,8 +136,8 @@
 
 .auto-md-task {
   position: absolute;
-  left: -1.4em;
-  top: 0.3em;
+  left: -1.5em;
+  top: calc(var(--text-reply-line) / 2 - 0.475em);
   box-sizing: border-box;
   width: 0.95em;
   height: 0.95em;
@@ -362,3 +388,17 @@
 
 .auto-row[data-drop='above']::before { top: -2px; }
 .auto-row[data-drop='below']::after { bottom: -2px; }
+
+/*
+ * A thread, the digest's queue and Put away read in a darker ink than pages
+ * in light mode (--text-thread, #171717); dark mode keeps its text colour.
+ */
+.auto-ink {
+  --text-primary: var(--text-thread);
+  --foreground: var(--text-thread);
+}
+
+/* The message box: on a dark page it is one step lighter, so its edge and shadow read. */
+.dark .auto-box {
+  background-color: hsl(var(--surface-raised));
+}

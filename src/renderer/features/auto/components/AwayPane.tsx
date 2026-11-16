@@ -12,6 +12,7 @@ import { useAutoStore } from '../store/autoStore';
 import { useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
 import { PAGE_FIRST, PAGE_TOP, byKey, focusPageAfterClose, focusRowNow, keepFocus, pageNext, pageRowElement, rovingTarget, setPageOrder } from './focus';
+import { paneHeader } from './Box';
 import { SnoozeButton } from './SnoozeMenu';
 import { ThreadLine } from './ThreadLine';
 import { RowMenuItems, useNow } from './ThreadList';
@@ -139,7 +140,6 @@ export function AwayPane() {
   const view = React.useMemo(() => listView(threads), [threads]);
   const pane = React.useRef<HTMLElement>(null);
   const scroller = React.useRef<HTMLDivElement>(null);
-  const [scrolled, setScrolled] = React.useState(false);
   const [active, setActive] = React.useState<string | null>(lastActive);
   const moreArchived = archive.total > archive.threads.length;
 
@@ -282,7 +282,7 @@ export function AwayPane() {
       tabIndex={-1}
       data-testid="auto-away-page"
       aria-label="Put away"
-      className="flex min-w-0 flex-1 flex-col outline-none"
+      className="auto-ink flex min-w-0 flex-1 flex-col outline-none"
       onFocus={(event) => {
         const id = (event.target as HTMLElement).getAttribute?.('data-row-id');
         if (id && (event.target as HTMLElement).hasAttribute('data-away-row')) {
@@ -295,7 +295,7 @@ export function AwayPane() {
         if (event.relatedTarget || (event.target as HTMLElement).isConnected) keyboardOn.current = null;
       }}
     >
-      <header className={cn('auto-beside-talk shrink-0 border-b', scrolled ? 'border-border-subtle' : 'border-transparent')}>
+      <header className={paneHeader}>
         <div className="auto-column">
           <div className="flex h-header items-center">
             <h1 className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">Put away</h1>
@@ -308,7 +308,6 @@ export function AwayPane() {
         className="auto-talk min-h-0 flex-1 overflow-y-auto"
         onKeyDown={onKeyDown}
         onScroll={(event) => {
-          setScrolled(event.currentTarget.scrollTop > 0);
           keepPlace(AWAY_PLACE, placeIn(event.currentTarget));
         }}
       >

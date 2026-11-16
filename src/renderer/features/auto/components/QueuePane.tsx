@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowUp, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { AutoDigest, AutoDigestEntry } from '@/types/auto';
 import { Button, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
@@ -23,6 +23,7 @@ import { useAutoStore } from '../store/autoStore';
 import { QUEUE_FIRST, QUEUE_TOP, selectDay, useDigestStore } from '../store/digestStore';
 import { useThreadStore } from '../store/threadStore';
 import { focusRowNow, keepFocus, rovingTarget } from './focus';
+import { BoxFrame, boxField, paneHeader, SendButton } from './Box';
 import { ThreadLine } from './ThreadLine';
 import { useGrow } from './ThreadPane';
 
@@ -170,7 +171,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
     <div>
       {/* Enter was taken: his words leave the box and show on their way, until the thread opens. */}
       {sending ? (
-        <div data-testid="auto-entry-pending" className="mb-2 ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-card bg-surface-active px-3 py-2 text-reply text-foreground opacity-60">
+        <div data-testid="auto-entry-pending" className="mb-2 ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-2xl bg-surface-active px-3.5 py-2 text-reply text-foreground opacity-60">
           {words.trim()}
         </div>
       ) : null}
@@ -182,13 +183,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           </Button>
         </p>
       ) : null}
-      <form
-        className="flex items-end gap-2 rounded-card border border-border-strong bg-surface py-1.5 pl-3 pr-1.5 focus-within:border-foreground-tertiary"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
+      <BoxFrame field={area} onSubmit={submit} row={<><div className="flex-1" /><SendButton label="Start a thread with it" ready={words.trim() !== ''} disabled={sending} /></>}>
         <textarea
           ref={area}
           rows={1}
@@ -205,12 +200,9 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
               submit();
             }
           }}
-          className={cn(field, 'my-1')}
+          className={boxField}
         />
-        <IconButton type="submit" label="Start a thread with it" shortcut="↩" variant="subtle" disabled={!words.trim() || sending}>
-          <ArrowUp aria-hidden className="h-4 w-4" />
-        </IconButton>
-      </form>
+      </BoxFrame>
       {/* The one-step thread, one step further in. It leaves once he has words. */}
       {!words.trim() && !sending ? (
         <Button
@@ -492,7 +484,6 @@ export function QueuePane() {
   const filter = useDigestStore((state) => state.filter);
   const focusEntry = useDigestStore((state) => state.focusEntry);
   const { openVault } = React.useContext(MarkdownLinksContext);
-  const [scrolled, setScrolled] = React.useState(false);
   const [roomy, setRoomy] = React.useState(true);
   const pane = React.useRef<HTMLElement>(null);
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -588,8 +579,8 @@ export function QueuePane() {
   };
 
   return (
-    <section ref={pane} data-testid="auto-queue-pane" aria-label="Digest" onKeyDown={onPaneKeyDown} className="flex min-w-0 flex-1 flex-col">
-      <header className={cn('auto-beside-talk shrink-0 border-b', scrolled ? 'border-border-subtle' : 'border-transparent')}>
+    <section ref={pane} data-testid="auto-queue-pane" aria-label="Digest" onKeyDown={onPaneKeyDown} className="auto-ink flex min-w-0 flex-1 flex-col">
+      <header className={paneHeader}>
         <div className="auto-column">
           <div className="flex h-header items-center gap-1">
             <h1 data-testid="auto-queue-day" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
@@ -637,7 +628,6 @@ export function QueuePane() {
         className="auto-talk min-h-0 flex-1 overflow-y-auto"
         onKeyDown={onKeyDown}
         onScroll={(event) => {
-          setScrolled(event.currentTarget.scrollTop > 0);
           if (date) keepPlace(queuePlace(date), placeIn(event.currentTarget));
         }}
       >
