@@ -35,7 +35,8 @@
 // the digest archived from its queue and its own row and brought back, a click on a row's icon that leaves the caret in a page, pinned pages shown in full, how long a thread has been
 // working, words before a digest thread, what Undo leaves behind, words
 // begun before a card arrived, the queue's own keys, and a new day's digest
-// that no event announced, read when the window comes back to the front. Saves light and
+// that no event announced, read when the window comes back to the front. Then the
+// plan usage ring in each box and its popover. Saves light and
 // dark screenshots of each at 1500 x 933 for people to look at; nothing
 // compares them. Run from the repository root after the Vite bundles are built (see
 // README.md here):
@@ -448,7 +449,7 @@ async function tour() {
     check('one list item follows the last by 4 px, a paragraph by 11 px', look.itemGap === 4 && Math.round(look.paragraphGap) === 11, `${look.itemGap}/${look.paragraphGap}`);
     check(`one-line thread rows sit ${side === 'b' ? 32 : 30} px apart`, look.rowPitch === (side === 'b' ? 32 : 30), String(look.rowPitch));
     check('the box has 16 px corners, a shadow, and is as wide as the text', look.radius === '16px' && look.shadow && Math.abs(look.boxWidth - look.columnWidth) <= 1, `${look.radius} ${look.boxWidth}/${look.columnWidth}`);
-    check('the box’s controls sit on a row at its foot: the model at the left, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
+    check('the box’s controls sit on a row at its foot: the model at the left, the usage ring beside it, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-usage-ring,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
     check('a hairline runs under the header, the width of the pane', look.hairline);
     check('the title ends in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && ((await page.getByTestId('auto-thread-menu').textContent()) ?? '') === 'Sourdough timings');
     await talk.evaluate((element) => { element.scrollTop = 0; });
@@ -1696,7 +1697,9 @@ async function tour() {
     await key('t');
     check('T opens the entry with the caret in its box, for what he wants done, and makes nothing yet', await until(async () => (await focused()) === 'auto-entry-box') && stateOf(queued[2]) === 'open', await focused());
     await key('Tab');
-    check('Tab from the empty box reaches Make it without words', await until(async () => (await focused()) === 'auto-entry-wordless'), await focused());
+    check('Tab from the empty box reaches the usage ring first', await until(async () => (await focused()) === 'auto-usage-ring'), await focused());
+    await key('Tab');
+    check('and the next Tab reaches Make it without words', await until(async () => (await focused()) === 'auto-entry-wordless'), await focused());
     await key('Enter');
     check('which makes a thread of the entry that waits on top of the list, and the keyboard moves on', await until(async () => stateOf(queued[2]) === 'thread' && (await focused()) === queued[3]), await focused());
     check('the line says what was made, with Open', /, made a threadOpenUndo/.test(await saidText()), await saidText());
@@ -2074,10 +2077,161 @@ async function tour() {
       Date.now = window.__realNow;
     });
 
+    // --- The plan usage ring in the foot row of every box, and its popover.
+    const ringIn = (scope) => page.locator(`[data-testid="${scope}"] [data-testid="auto-usage-ring"]`);
+    const ringPopover = page.getByTestId('auto-usage-popover');
+    const threadRing = ringIn('auto-thread');
+    const fillOf = async (ring) => (await ring.getAttribute('data-fill').catch(() => null)) ?? '';
+    /** The foot row of the open thread's box: its height, and where the model and Send sit. */
+    const boxRow = () => page.evaluate(() => {
+      const rowElement = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-box-row"]');
+      const rect = (element) => (element ? element.getBoundingClientRect() : null);
+      const row = rect(rowElement);
+      const model = rect(rowElement?.querySelector('[data-testid="auto-model"]'));
+      const send = rect(rowElement?.querySelector('[data-testid="auto-send"]'));
+      return row ? { height: row.height, top: row.top, modelLeft: model?.left ?? -1, sendRight: send?.right ?? -1 } : null;
+    });
+    await row(BREAD).locator('[data-auto-row]').click();
+    await box.waitFor({ timeout: 10_000 });
+    check('the ring shows in an open thread’s box, filled to the fullest limit', await until(async () => (await threadRing.count()) === 1 && (await fillOf(threadRing)) === '0.73'), await fillOf(threadRing));
+    check('it sits right after the model, at the left of the row', await page.evaluate(() => {
+      const ring = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-usage-ring"]');
+      return ring?.previousElementSibling?.getAttribute('data-testid') === 'auto-model';
+    }));
+    const withRing = await boxRow();
+    await shot(90, 'usage-ring');
+    service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.2 }, { key: 'seven_day_large', label: 'Weekly, Large', used: 0.6 }] });
+    check('setUsage moves the ring without a reload', await until(async () => (await fillOf(threadRing)) === '0.6'), await fillOf(threadRing));
+    service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.45 }, { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 }] });
+    await until(async () => (await fillOf(threadRing)) === '0.73');
+
+    // Opened by a click: 360 wide, its left edge on the ring button's, two rows.
+    const draftBefore = await box.inputValue();
+    const listBefore = (await rowIds()).join();
+    await threadRing.click();
+    await ringPopover.waitFor({ timeout: 5_000 });
+    const measure = () => page.evaluate(() => {
+      const ring = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-usage-ring"]').getBoundingClientRect();
+      const pop = document.querySelector('[data-testid="auto-usage-popover"]').getBoundingClientRect();
+      return { width: pop.width, leftGap: Math.abs(pop.left - ring.left), above: pop.bottom <= ring.top, inside: pop.left >= 0 && pop.right <= window.innerWidth };
+    });
+    // The popover is placed a frame after it mounts: measure once it has settled.
+    let geometry = await measure();
+    await until(async () => (geometry = await measure()).leftGap <= 2, 3_000);
+    check('a click opens the popover above the ring, 360 wide, its left edge on the ring’s and inside the window', Math.abs(geometry.width - 360) < 0.6 && geometry.leftGap <= 2 && geometry.above && geometry.inside, JSON.stringify(geometry));
+    const rowsText = () => ringPopover.getByTestId('auto-usage-row').evaluateAll((rows) => rows.map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()));
+    check('the popover heads with the plan and has a row per limit, in the order sent', ((await ringPopover.textContent()) ?? '').startsWith('Plan usage limits · Pro') && (await rowsText()).length === 2 && /^Weekly · all models\s?Resets .+45%$/.test((await rowsText())[0]) && /^Weekly · Large\s?Resets .+73%$/.test((await rowsText())[1]), (await rowsText()).join(' | '));
+    check('opening it moves nothing and sends nothing', (await box.inputValue()) === draftBefore && (await rowIds()).join() === listBefore && !service.requests.slice(-5).some((request) => request.method === 'POST'));
+    await shot(91, 'usage-popover', null, ['light', 'dark'], false);
+    await key('Escape');
+    check('Escape closes it and the caret is back in the box', await until(async () => (await ringPopover.count()) === 0 && (await focused()) === 'auto-box', 3_000), await focused());
+    // By the keyboard: Enter, and Space.
+    await threadRing.focus();
+    await key('Enter');
+    check('Enter on the ring opens it', await until(async () => (await ringPopover.count()) === 1, 3_000));
+    await key('Escape');
+    await until(async () => (await ringPopover.count()) === 0);
+    await threadRing.focus();
+    await key('Space');
+    check('Space on the ring opens it', await until(async () => (await ringPopover.count()) === 1, 3_000));
+    await page.mouse.click(WIDTH / 2, 120);
+    check('a click outside closes it', await until(async () => (await ringPopover.count()) === 0, 3_000));
+
+    // A weekly limit that resets a week from now, to the second: at 360 wide its label, its reset words and its percent all show whole.
+    service.setUsage({ limits: [
+      { key: 'seven_day', label: 'Weekly, all models', used: 0.45, resets_at: Math.floor(Date.now() / 1000) + 7 * 86400 },
+      { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 },
+    ] });
+    await until(async () => (await fillOf(threadRing)) === '0.73');
+    await threadRing.click();
+    await ringPopover.waitFor({ timeout: 5_000 });
+    const weekOut = await until(async () => /^Weekly · all models\s?Resets [A-Za-z]{3} \d{1,2}:\d{2} [ap]m\s?45%$/.test((await rowsText())[0] ?? ''), 3_000);
+    const whole = await ringPopover.getByTestId('auto-usage-row').first().evaluate((row) => {
+      const part = (id) => {
+        const element = row.querySelector(`[data-testid="${id}"]`);
+        return element ? { text: element.textContent, scroll: element.scrollWidth, client: element.clientWidth } : null;
+      };
+      return { width: Math.round(row.closest('[data-testid="auto-usage-popover"]').getBoundingClientRect().width), label: part('auto-usage-label'), when: part('auto-usage-when'), percent: part('auto-usage-percent') };
+    });
+    const shown = (part) => part && part.scroll <= part.client;
+    check('at 360 wide a weekly limit a week out shows its whole label, its whole reset words and its percent', weekOut && whole.width === 360 && shown(whole.label) && shown(whole.when) && shown(whole.percent) && whole.label.text === 'Weekly · all models', JSON.stringify(whole));
+    await key('Escape');
+    await until(async () => (await ringPopover.count()) === 0);
+
+    // A limit past its reset time is left out until the service drops it; alone, it leaves no ring.
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    service.setUsage({ limits: [
+      { key: 'seven_day', label: 'Weekly, all models', used: 0.95, resets_at: nowSeconds - 60 },
+      { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 },
+    ] });
+    check('a limit past its reset time leaves the ring: it fills to the other limit', await until(async () => (await fillOf(threadRing)) === '0.73' && (await threadRing.getAttribute('aria-label')) === 'Plan usage, Weekly · Large 73% used'), await threadRing.getAttribute('aria-label'));
+    await threadRing.click();
+    await ringPopover.waitFor({ timeout: 5_000 });
+    const pastRows = await rowsText();
+    check('and the popover leaves it out: one row, the other limit', pastRows.length === 1 && /^Weekly · Large\s?Resets .+73%$/.test(pastRows[0] ?? ''), pastRows.join(' | '));
+    await key('Escape');
+    await until(async () => (await ringPopover.count()) === 0);
+    service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.95, resets_at: nowSeconds - 60 }] });
+    check('when it was the only limit there is no ring at all', await until(async () => (await threadRing.count()) === 0));
+    service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.45 }, { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 }] });
+    check('and it comes back with a limit in its window', await until(async () => (await fillOf(threadRing)) === '0.73'), await fillOf(threadRing));
+
+    // A column 360 wide still holds the model, the ring and Send on one row. The
+    // column's own padding is added, so the box itself is 360 wide.
+    const narrow = await page.evaluate(async () => {
+      const rowElement = [...document.querySelectorAll('[data-testid="auto-thread"] [data-testid="auto-box-row"]')].find((element) => element.offsetParent !== null && element.closest('[aria-hidden="true"]') === null);
+      const column = rowElement?.closest('form')?.closest('.auto-column');
+      if (!rowElement || !column) return { width: 0, column: !!column };
+      column.style.maxWidth = 'calc(360px + 3rem)';
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const form = rowElement.closest('form').getBoundingClientRect();
+      const mid = (id) => {
+        const rect = rowElement.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+        return rect ? { y: rect.top + rect.height / 2, left: rect.left, right: rect.right } : null;
+      };
+      const result = { width: form.width, model: mid('auto-model'), ring: mid('auto-usage-ring'), send: mid('auto-send'), formRight: form.right };
+      column.style.maxWidth = '';
+      return result;
+    });
+    check('in a column 360 wide the model, the ring and Send share one row', Math.abs(narrow.width - 360) < 1 && narrow.model && narrow.ring && narrow.send && Math.abs(narrow.model.y - narrow.ring.y) < 1 && Math.abs(narrow.send.y - narrow.ring.y) < 1 && narrow.model.right <= narrow.ring.left && narrow.ring.right < narrow.send.left && narrow.send.right <= narrow.formRight, JSON.stringify(narrow));
+
+    // The new thread's box, and a digest entry's box.
+    await newThread.click();
+    check('the ring shows in the new thread’s box', await until(async () => (await threadRing.count()) === 1));
+    await shot(93, 'usage-new-thread');
+    await digestRow.click();
+    await page.getByTestId('auto-queue').waitFor({ timeout: 10_000 });
+    const firstEntry = (await entryIds())[0];
+    await entry(firstEntry).locator('[data-auto-entry]').click();
+    const entryRing = entry(firstEntry).getByTestId('auto-usage-ring');
+    check('the ring shows in a digest entry’s box, at the left of its row', await until(async () => (await entryRing.count()) === 1) && await entry(firstEntry).getByTestId('auto-box-row').evaluate((element) => element.firstElementChild?.getAttribute('data-testid') === 'auto-usage-ring'));
+    await shot(94, 'usage-entry-box');
+    await entryRing.click();
+    await ringPopover.waitFor({ timeout: 5_000 });
+    await key('Escape');
+    check('closed from an entry, the caret goes back to that entry’s box', await until(async () => (await ringPopover.count()) === 0 && (await focused()) === 'auto-entry-box', 3_000), await focused());
+
+    // An older service without the route: no ring, and the row as it was.
+    await row(BREAD).locator('[data-auto-row]').click();
+    await box.waitFor({ timeout: 10_000 });
+    service.setUsage({ missing: true });
+    check('a service that answers 404 shows no ring', await until(async () => (await threadRing.count()) === 0));
+    const without = await boxRow();
+    check('without the ring the box’s row measures as with it: same height and the same model and Send', without && withRing && without.height === withRing.height && without.modelLeft === withRing.modelLeft && without.sendRight === withRing.sendRight, `${JSON.stringify(without)} ${JSON.stringify(withRing)}`);
+    check('a 404 marks nothing out of reach and says nothing', (await page.getByTestId('auto-unreachable').count()) === 0 && (await page.getByTestId('auto-out-of-reach').count()) === 0);
+    service.setUsage({ missing: false });
+    check('the ring comes back once the route answers', await until(async () => (await threadRing.count()) === 1));
+
+    // Out of reach: the ring goes, and comes back when the service does.
+    service.down();
+    check('with the service down the ring goes', await until(async () => (await threadRing.count()) === 0, 15_000));
+    service.down(false);
+    check('and comes back when it returns', await until(async () => (await threadRing.count()) === 1 && (await fillOf(threadRing)) === '0.73', 40_000));
+
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);
     check('Opal never ticked a box by number and never asked for the inbox', !paths.some((requestPath) => requestPath.includes('/digest/tick') || requestPath.includes('/digest/inbox')));
-    const KNOWN = /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\?archived=1(&limit=\d+)?|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread|archive))$/;
+    const KNOWN = /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\?archived=1(&limit=\d+)?|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread|archive)|usage)$/;
     check('Opal asked only for routes it has', paths.every((requestPath) => KNOWN.test(requestPath)), paths.find((requestPath) => !KNOWN.test(requestPath)) ?? '');
     check('every snooze carried a time or null, and a wait carried only his words', posts('/api/threads/').length === 0 && service.requests.filter((request) => request.method === 'POST' && /\/snooze$/.test(request.path) && request.headers['x-auto-client'] !== 'phone').every((request) => Object.keys(request.body).every((field) => field === 'until' || field === 'wait') && (request.body.wait === undefined || JSON.stringify(Object.keys(request.body.wait)) === '["say"]')));
     check('no request marked a message as a send', !service.requests.some((request) => JSON.stringify(request.body ?? {}).includes('sends')));

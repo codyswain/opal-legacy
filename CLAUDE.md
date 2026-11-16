@@ -357,7 +357,13 @@ not exist.
   a reply or an entry is looked up by `autoPages.ts` through `RootRegistry`
   and opens as a page in its own tab; a page opened while the Auto tab is
   in front goes to the tab that shows it or to a new one (`tabsStore.ts`),
-  never into the Auto tab. Tests and `auto-acceptance.mjs` talk only
+  never into the Auto tab. A small ring by the message box, right after the
+  model in a thread's box and at the left of a digest entry's box, shows how
+  much of the plan is used (`UsageRing.tsx`, `usageStore.ts`, `usageModel.ts`,
+  read only from `GET /api/usage` and its `usage` event; nothing shows on a
+  404 or out of reach, and a failed read sets no problem); its popover has a
+  row and bar per limit, a limit past its reset time is left out (no ring
+  when none is left), and the email is never read. Tests and `auto-acceptance.mjs` talk only
   to the stand-in service in `src/tests/fixtures/auto`, on 127.0.0.1
 - **Path alias:** `@/*` maps to `src/*`
 

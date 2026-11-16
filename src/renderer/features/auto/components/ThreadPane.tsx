@@ -30,6 +30,7 @@ import { BoxFrame, boxField, paneHeader, SendButton, StopButton } from './Box';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
 import { focusRowNow, rowElement } from './focus';
 import { SnoozeButton } from './SnoozeMenu';
+import { UsageRing } from './UsageRing';
 
 const quiet = 'text-control text-foreground-tertiary';
 /** A folded line of what Auto did: the reply's size, in grey. */
@@ -718,6 +719,7 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
           row={
             <>
               <ModelPicker />
+              <UsageRing field={box} />
               <div className="flex-1" />
               {running ? <StopButton onStop={() => void stop()} /> : null}
               <SendButton label={refusing ? 'Say no' : answering ? 'Answer' : 'Send to Auto'} ready={draft.trim() !== ''} />

@@ -25,6 +25,7 @@ import { useThreadStore } from '../store/threadStore';
 import { focusRowNow, keepFocus, rovingTarget } from './focus';
 import { BoxFrame, boxField, paneHeader, SendButton } from './Box';
 import { ThreadLine } from './ThreadLine';
+import { UsageRing } from './UsageRing';
 import { useGrow } from './ThreadPane';
 
 const quiet = 'text-control text-foreground-tertiary';
@@ -183,7 +184,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           </Button>
         </p>
       ) : null}
-      <BoxFrame field={area} onSubmit={submit} row={<><div className="flex-1" /><SendButton label="Start a thread with it" ready={words.trim() !== ''} disabled={sending} /></>}>
+      <BoxFrame field={area} onSubmit={submit} row={<><UsageRing field={area} /><div className="flex-1" /><SendButton label="Start a thread with it" ready={words.trim() !== ''} disabled={sending} /></>}>
         <textarea
           ref={area}
           rows={1}

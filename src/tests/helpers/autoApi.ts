@@ -12,6 +12,7 @@ import type {
   AutoStreamMessage,
   AutoThread,
   AutoThreadEvent,
+  AutoUsage,
 } from '@/types/auto';
 
 /** A list entry of a made-up thread. */
@@ -79,6 +80,8 @@ export interface FakeAuto {
     gate: Promise<void> | null;
     /** While set, a read of a thread waits for it before it answers: a snapshot that arrives late. */
     threadGate: Promise<void> | null;
+    /** The plan's usage; null answers 404, as a service without the route does. */
+    usage: AutoUsage | null;
   };
   /** Every route asked for, in order. */
   routes: () => AutoRoute[];
@@ -92,7 +95,7 @@ export interface FakeAuto {
   stream: (stream: 'list' | 'thread', type: 'open' | 'down') => void;
 }
 
-const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'archived', 'thread', 'digest', 'digests']);
+const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'archived', 'thread', 'digest', 'digests', 'usage']);
 const NO_DIGEST: AutoResult<never> = { success: false, error: { kind: 'refused', message: 'No digest.', code: 'not_found', status: 404 } };
 
 /** Puts a fake of the main process's Auto bridge on `window`: an in-memory service and two streams to push events down. */
@@ -111,6 +114,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     failThread: null,
     gate: null,
     threadGate: null,
+    usage: null,
     ...options,
   };
   const followed: FakeAuto['followed'] = { list: null, thread: null };
@@ -206,6 +210,8 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         const date = route.date ?? days()[0];
         return date && state.digests[date] ? ok(state.digests[date]) : NO_DIGEST;
       }
+      case 'usage':
+        return state.usage ? ok(state.usage) : { success: false, error: { kind: 'refused', message: 'Not found.', code: 'not_found', status: 404 } };
       case 'digest-resolve':
         return change(route.date, route.ids, (found) => ({ state: route.resolved ? 'resolved' : found.thread ? 'thread' : 'open' }));
       case 'digest-note':

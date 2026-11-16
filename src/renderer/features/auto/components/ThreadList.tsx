@@ -11,6 +11,7 @@ import {
   ContextMenuTrigger,
   IconButton,
 } from '@/renderer/shared/ui';
+import { useNow } from '@/renderer/shared/hooks/useNow';
 import { cn } from '@/renderer/shared/utils';
 import { emptyList, fromDigest, isMarked, isYours, listView, moveBy, moveTarget, needsLine, rowTime, type ListGroup } from '../model/listModel';
 import { leftWord } from '../model/digestModel';
@@ -26,16 +27,6 @@ import { fadeOf, revealIn, type Fade } from './listScroll';
 import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
 
 const DRAG_TYPE = 'application/x-opal-auto-thread';
-
-/** Re-renders so times and day names move on. */
-export function useNow(intervalMs = 30_000): number {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return now;
-}
 
 interface RowProps {
   thread: AutoThread;

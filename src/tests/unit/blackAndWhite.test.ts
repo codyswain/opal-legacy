@@ -7,7 +7,8 @@ import resolveConfig from 'tailwindcss/resolveConfig';
 /**
  * Opal is black and white first (the pages-first spec, "Look"): every token is
  * a neutral grey, and no component can reach a hued colour. The only colour on
- * screen comes from images inside notes, and from the touched list's palette.
+ * screen comes from images inside notes, from the touched list's palette and
+ * from the plan usage ring's one blue.
  */
 
 /**
@@ -17,6 +18,14 @@ import resolveConfig from 'tailwindcss/resolveConfig';
  * file and nowhere else.
  */
 const PALETTE_EXCEPTION = 'src/renderer/features/disk-explorer/components/stack/touchedPalette.css';
+
+/**
+ * The second exception, asked for on 2026-11-16 ("a colored circle"): the
+ * plan usage ring by the message box and its popover's bars take one blue,
+ * the same in light and dark, defined in this one file and nowhere else.
+ */
+const USAGE_EXCEPTION = 'src/renderer/features/auto/components/usagePalette.css';
+const EXCEPTIONS = [PALETTE_EXCEPTION, USAGE_EXCEPTION];
 
 const ROOT = path.resolve(__dirname, '../../..');
 const require = createRequire(__filename);
@@ -85,8 +94,8 @@ describe('black and white', () => {
 
   it('keeps hued colours and palette classes out of the renderer source', () => {
     const files = sourceFiles(path.join(ROOT, 'src/renderer'));
-    expect(files.map((file) => path.relative(ROOT, file))).toContain(PALETTE_EXCEPTION);
-    const offenders = files.filter((file) => path.relative(ROOT, file) !== PALETTE_EXCEPTION).flatMap((file) => {
+    for (const exception of EXCEPTIONS) expect(files.map((file) => path.relative(ROOT, file))).toContain(exception);
+    const offenders = files.filter((file) => !EXCEPTIONS.includes(path.relative(ROOT, file))).flatMap((file) => {
       const text = readFileSync(file, 'utf8');
       const classes = [...text.matchAll(new RegExp(`\\b[a-z-]+-(?:${HUES})-\\d{2,3}\\b`, 'g'))].map(([match]) => match);
       const literals = colours(text).filter(({ spread }) => spread > MAX_SPREAD).map(({ colour }) => colour);
@@ -100,5 +109,16 @@ describe('black and white', () => {
     const names = [...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(([, name]) => name);
     expect(names).toEqual([...Array(16).keys()].map((index) => `--touched-${index % 8}`));
     expect(colours(css)).toHaveLength(16);
+  });
+
+  it('keeps the usage colour to one blue, defined once and nothing else', () => {
+    const css = readFileSync(path.join(ROOT, USAGE_EXCEPTION), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(([, name]) => name)).toEqual(['--usage']);
+    expect(colours(css).map(({ colour }) => colour.toLowerCase())).toEqual(['#407bd9']);
+    // Only the ring and its popover take it.
+    const users = sourceFiles(path.join(ROOT, 'src/renderer'))
+      .filter((file) => !EXCEPTIONS.includes(path.relative(ROOT, file)) && readFileSync(file, 'utf8').includes('var(--usage)'))
+      .map((file) => path.relative(ROOT, file));
+    expect(users).toEqual(['src/renderer/features/auto/components/UsageRing.tsx']);
   });
 });

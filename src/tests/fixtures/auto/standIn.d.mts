@@ -18,6 +18,18 @@ export interface StandInOptions {
   retryMs?: number;
   mount?: string;
   port?: number;
+  /** 'default': two limits at 45% and 73%. 'none': nothing seen yet. 'missing': the route answers 404, as an older service. */
+  usage?: 'default' | 'none' | 'missing';
+}
+
+/** One limit as `setUsage` takes it; missing times are now and three days on. */
+export interface StandInLimit {
+  key: string;
+  label: string;
+  used: number;
+  resets_at?: number | null;
+  status?: string;
+  seen_at?: number | null;
 }
 
 export interface StandIn {
@@ -43,6 +55,8 @@ export interface StandIn {
   failWrites: (how: false | 'refuse' | 'drop') => void;
   /** Every answer but a stream's waits this many ms; 0 stops it. */
   slow: (ms: number) => void;
+  /** Changes the plan's usage and sends the `usage` event on the list stream. */
+  setUsage: (change?: { limits?: StandInLimit[]; plan?: string; missing?: boolean }) => void;
   down: (isDown?: boolean) => void;
   dropStreams: () => void;
   restart: () => void;

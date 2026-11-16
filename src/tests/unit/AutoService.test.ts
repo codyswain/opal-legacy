@@ -6,7 +6,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AutoService, type AutoFetch, type AutoServiceDependencies } from '@/main/auto/AutoService';
 import { AutoAddressError } from '@/main/auto/autoRequests';
-import type { AutoDigest, AutoDigestDays, AutoSnapshot, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
+import type { AutoDigest, AutoDigestDays, AutoSnapshot, AutoStatus, AutoStreamMessage, AutoThread, AutoUsage } from '@/types/auto';
 import { startStandIn, type StandIn } from '../fixtures/auto/standIn.mjs';
 
 const BREAD = '5a0000000002';
@@ -216,6 +216,40 @@ describe('requests', () => {
     });
     const snapshot = await (await connected({ fetch: strange({ thread: 'none' }) })).request({ kind: 'thread', id: BREAD });
     expect(snapshot.success === false && snapshot.error.kind).toBe('unreachable');
+  });
+});
+
+describe('the plan usage', () => {
+  it('reads the usage with a GET, keeping the plan and the limits and never an email', async () => {
+    const auto = await connected();
+    const usage = await auto.request({ kind: 'usage' });
+    expect(asked.at(-1)?.url).toBe(`${standIn.url}/api/usage`);
+    expect(asked.at(-1)?.init.method).toBe('GET');
+    const data = (usage.success ? usage.data : null) as AutoUsage;
+    expect(data.plan).toBe('Pro');
+    expect(data.limits.map(({ label, used }) => ({ label, used }))).toEqual([
+      { label: 'Weekly, all models', used: 0.45 },
+      { label: 'Weekly, Large', used: 0.73 },
+    ]);
+    expect(JSON.stringify(data)).not.toMatch(/email|@/);
+  });
+
+  it('gives a refusal with its status for a service without the route', async () => {
+    await standIn.close();
+    standIn = await startStandIn({ usage: 'missing', retryMs: 500 });
+    const auto = await connected();
+    const usage = await auto.request({ kind: 'usage' });
+    expect(usage.success === false && usage.error).toMatchObject({ kind: 'refused', status: 404 });
+  });
+
+  it('passes on the usage event of the list stream, and reads the new numbers', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    standIn.setUsage({ limits: [{ key: 'five_hour', label: 'Five hours', used: 0.9 }] });
+    await until(() => kinds('list').includes('usage'), 'the usage event');
+    const usage = await auto.request({ kind: 'usage' });
+    expect(usage.success && (usage.data as AutoUsage).limits.map(({ key, used }) => ({ key, used }))).toEqual([{ key: 'five_hour', used: 0.9 }]);
   });
 });
 
