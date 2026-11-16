@@ -255,13 +255,13 @@
   }
 
   /*
-   * The frame is one light grey, #fafafa, for both sidebars, the top row and
+   * The frame is one light grey, #fdfdfd (the Claude app's, 2026-11-15), for both sidebars, the top row and
    * the band round the page; the page keeps its ring. On it the white tab
    * pill would vanish, so the active tab is a grey pill like a selected row.
    */
   :root[data-roomy]:not(.dark) {
-    --chrome: 0 0% 98%;
-    --ground: 0 0% 98%;
+    --chrome: 0 0% 99.2%;
+    --ground: 0 0% 99.2%;
     --sidebar-label: var(--text-primary);
     --sidebar-time: var(--text-secondary);
     --sidebar-icon: var(--text-primary);

@@ -103,8 +103,8 @@ const WINDOW_BACKGROUND = {
   light: "#ECECEC",
   dark: "#0B0B0B",
 } as const;
-// Version B of the roomy variant lightens the light chrome to #fafafa.
-const ROOMY_LIGHT_BACKGROUND = "#FAFAFA";
+// Version B of the roomy variant lightens the light chrome to #fdfdfd.
+const ROOMY_LIGHT_BACKGROUND = "#FDFDFD";
 /** The variants' sides as last read, for the window's first-frame colour. */
 let variantSides: VariantSides = {};
 const windowBackground = (theme: ResolvedTheme) =>
