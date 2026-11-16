@@ -164,15 +164,29 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     set({ box });
   };
 
+  // Counts follows and unfollows. A follow answered after a later call is stale: its
+  // stream starts from an older cursor and would replay what the pane has moved past.
+  let following = 0;
+  let asking = false;
+  // Counts loads. A snapshot asked for before a later load is dropped: the later one stands for it.
+  let loads = 0;
+
   const follow = async (id: string, cursor: string | null) => {
     const api = autoApi();
     if (!api || !get().watching || get().openId !== id) return;
+    const ask = ++following;
+    asking = true;
     const result = await api.follow({ stream: 'thread', id, cursor }).catch((): null => null);
+    if (ask !== following) return;
+    asking = false;
     if (result?.success && get().openId === id && get().watching) set({ token: result.data.token });
   };
 
   const unfollow = () => {
-    if (get().token === null) return;
+    following += 1;
+    // A follow still on its way is ended too: the main process takes the two in order.
+    if (get().token === null && !asking) return;
+    asking = false;
     set({ token: null });
     void autoApi()?.unfollow('thread').catch(() => undefined);
   };
@@ -297,13 +311,14 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const api = autoApi();
       if (!api || !id) return;
       unfollow();
+      const asked = ++loads;
       set({ loading: true, slow: false });
       if (slowTimer) clearTimeout(slowTimer);
       slowTimer = setTimeout(() => {
         if (get().openId === id && get().loading && get().view === null) set({ slow: true, ghost: null });
       }, SLOW_MS);
       const result = await api.request({ kind: 'thread', id }).catch((): null => null);
-      if (get().openId !== id) return;
+      if (get().openId !== id || asked !== loads) return;
       if (!result?.success) {
         // A thread that is gone says so; a service out of reach is the list's to report.
         const refused = result?.error.kind === 'refused';
@@ -372,7 +387,11 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         ...(event.kind === 'question' && next.question?.id !== view.question?.id ? { earlier: begunBefore(get().earlier, get().box, view.thread.id, next.question) } : {}),
         ...(event.kind === 'turn' ? { notSent: null } : {}),
       });
-      if (event.kind === 'thread') useAutoStore.getState().upsert(event.thread);
+      // The list's own stream says when a thread joins or leaves the list. This one can replay
+      // from an older snapshot's cursor, where an old "archived" would take away a row that is back.
+      if (event.kind === 'thread' && !event.thread.archived && useAutoStore.getState().threads.some((thread) => thread.id === event.thread.id)) {
+        useAutoStore.getState().upsert(event.thread);
+      }
     },
 
     setDraft: (text) => {
