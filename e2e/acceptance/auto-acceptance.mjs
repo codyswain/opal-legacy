@@ -451,7 +451,7 @@ async function tour() {
     check('the box has 16 px corners, a shadow, and is as wide as the text', look.radius === '16px' && look.shadow && Math.abs(look.boxWidth - look.columnWidth) <= 1, `${look.radius} ${look.boxWidth}/${look.columnWidth}`);
     check('the box’s controls sit on a row at its foot: the model at the left, the usage ring beside it, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-usage-ring,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
     check('a hairline runs under the header, the width of the pane', look.hairline);
-    check('the title ends in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && ((await page.getByTestId('auto-thread-menu').textContent()) ?? '') === 'Sourdough timings');
+    check('the title’s words end in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && (await textOf('auto-title')) === 'Sourdough timings');
     await talk.evaluate((element) => { element.scrollTop = 0; });
     await shot(3, 'thread-long-reply');
     await talk.evaluate((element) => { element.scrollTop = element.scrollHeight; });
@@ -862,7 +862,7 @@ async function tour() {
     await shot(28, 'undo-archive');
     await said.getByRole('button', { name: 'Undo' }).click();
     check('Undo puts it back where it was', await until(async () => (await rowIds()).indexOf(BARREL) === barrelAt && service.thread(BARREL)?.archived === false));
-    // Rename, from a row's menu: the thread opens with its title as a field.
+    // Rename, from a row's menu: the thread opens and the row's title is the field.
     await fromMenu(BARREL, 'Rename');
     const rowTitle = page.getByRole('textbox', { name: 'Thread title' });
     await rowTitle.waitFor({ timeout: 5_000 });
@@ -2227,6 +2227,69 @@ async function tour() {
     check('with the service down the ring goes', await until(async () => (await threadRing.count()) === 0, 15_000));
     service.down(false);
     check('and comes back when it returns', await until(async () => (await threadRing.count()) === 1 && (await fillOf(threadRing)) === '0.73', 40_000));
+
+    // --- Renaming a thread: a double-click on a row's title, on the open thread's title, and Rename first in the row's menu.
+    await row(BREAD).locator('[data-auto-row]').click();
+    await box.waitFor({ timeout: 10_000 });
+    const renamePosts = () => service.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/rename') && request.headers['x-auto-client'] !== 'phone').map((request) => ({ path: request.path, title: request.body?.title }));
+    const renamesBefore = renamePosts().length;
+    const renamed = (await listedIds()).find((id) => id !== BREAD && service.thread(id) && !service.thread(id).snoozed && service.thread(id).status !== 'waiting');
+    const renamedTitle = service.thread(renamed)?.title ?? '';
+    /** The row's box, where its title's words start, and the middle of their line: the field must keep all three. */
+    const rowGeometry = (id) => page.evaluate((thread) => {
+      const rowElement = document.querySelector(`[data-testid="auto-row-${thread}"]`);
+      const words = document.querySelector(`[data-testid="auto-row-title-field-${thread}"]`) ?? document.querySelector(`[data-testid="auto-row-title-${thread}"]`);
+      if (!rowElement || !words) return null;
+      const box = rowElement.getBoundingClientRect();
+      const text = words.getBoundingClientRect();
+      const style = getComputedStyle(words);
+      return {
+        top: box.top, left: box.left, width: box.width, height: box.height,
+        wordsLeft: Math.round((text.left + parseFloat(style.paddingLeft || '0') + parseFloat(style.borderLeftWidth || '0')) * 10) / 10,
+        middle: Math.round((text.top + text.height / 2) * 10) / 10,
+      };
+    }, id);
+    const sameGeometry = (a, b) => !!a && !!b && ['top', 'left', 'width', 'height'].every((part) => Math.abs(a[part] - b[part]) < 0.5) && Math.abs(a.wordsLeft - b.wordsLeft) < 0.5 && Math.abs(a.middle - b.middle) < 0.6;
+    const fieldFocused = (id) => page.evaluate((thread) => document.activeElement?.getAttribute('data-testid') === `auto-row-title-field-${thread}`, id);
+    check('a thread to rename that is not the open one', !!renamed && renamed !== BREAD, String(renamed));
+    const beforeRename = await rowGeometry(renamed);
+    await page.getByTestId(`auto-row-title-${renamed}`).dblclick();
+    check('a double-click with the mouse turns the row’s title into a field with the caret in it', await until(() => fieldFocused(renamed), 3_000), await focused());
+    check('the field holds the whole title, selected', await page.getByTestId(`auto-row-title-field-${renamed}`).evaluate((field) => field.selectionStart === 0 && field.selectionEnd === field.value.length && field.value.length > 0));
+    const loaded = await until(async () => (await textOf('auto-title')) === renamedTitle && (await box.count()) === 1);
+    await wait(400);
+    check('the thread opened behind it, and the caret stayed in the field while it loaded', loaded && (await fieldFocused(renamed)), await focused());
+    const duringRename = await rowGeometry(renamed);
+    check('the row measures the same with its title as a field: its box, the words’ left edge and their line', sameGeometry(beforeRename, duringRename), `${JSON.stringify(beforeRename)} ${JSON.stringify(duringRename)}`);
+    await shot(95, 'rename-row', null, ['light', 'dark'], false);
+    check('the field kept the caret through the pictures', await fieldFocused(renamed), await focused());
+    await page.keyboard.type('see');
+    check('typed letters are the title’s: nothing snoozed, archived or marked', (await page.getByTestId(`auto-row-title-field-${renamed}`).inputValue()) === 'see' && (await page.getByTestId('auto-snooze-menu').count()) === 0 && !service.thread(renamed)?.snoozed && !service.thread(renamed)?.archived && !service.thread(renamed)?.desk);
+    await key('Enter');
+    check('Enter renames it, the row shows the new title, and the keyboard is on the row', await until(async () => service.thread(renamed)?.title === 'see' && (await textOf(`auto-row-title-${renamed}`)) === 'see' && (await focused()) === renamed), `${service.thread(renamed)?.title} ${await focused()}`);
+    check('the row measures as before the rename', sameGeometry(beforeRename, await rowGeometry(renamed)), JSON.stringify(await rowGeometry(renamed)));
+    await page.getByTestId(`auto-row-title-${renamed}`).dblclick();
+    await until(() => fieldFocused(renamed), 3_000);
+    await page.keyboard.type('nope');
+    await key('Escape');
+    check('Escape leaves the title as it was, posts nothing, and puts the keyboard on the row', await until(async () => (await focused()) === renamed) && (await textOf(`auto-row-title-${renamed}`)) === 'see' && renamePosts().length === renamesBefore + 1, `${await focused()} ${renamePosts().length - renamesBefore}`);
+    await page.getByTestId('auto-title').dblclick();
+    const headerField = page.getByTestId('auto-thread-header').getByRole('textbox', { name: 'Thread title' });
+    check('a double-click on the open thread’s title makes it the field, with no menu open', await until(async () => (await headerField.count()) === 1 && (await focused()) === 'Thread title', 3_000) && (await page.getByRole('menu').count()) === 0, await focused());
+    await wait(500);
+    check('and no menu opens after it either', (await page.getByRole('menu').count()) === 0 && (await headerField.count()) === 1);
+    await shot(96, 'rename-header', null, ['light', 'dark'], false);
+    await page.keyboard.type(renamedTitle);
+    await key('Enter');
+    check('Enter in the header renames it back', await until(async () => service.thread(renamed)?.title === renamedTitle && (await focused()) === 'auto-box'), await focused());
+    await row(renamed).locator('[data-auto-row]').click({ button: 'right' });
+    const firstItem = page.getByRole('menuitem').first();
+    check('Rename is the first item of the row’s menu', ((await firstItem.textContent()) ?? '') === 'Rename', (await firstItem.textContent()) ?? '');
+    await firstItem.click();
+    check('and turns the row’s title into the field, with the caret in it', await until(() => fieldFocused(renamed), 3_000), await focused());
+    await key('Escape');
+    await until(async () => (await focused()) === renamed);
+    check('the stand-in received exactly the renames made', JSON.stringify(renamePosts().slice(renamesBefore)) === JSON.stringify([{ path: `/api/threads/${renamed}/rename`, title: 'see' }, { path: `/api/threads/${renamed}/rename`, title: renamedTitle }]), JSON.stringify(renamePosts().slice(renamesBefore)));
 
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);

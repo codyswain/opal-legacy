@@ -369,9 +369,10 @@
  * `--auto-row-hide` (set on the row) is how far in from the line's end they
  * reach.
  */
-.auto-row:hover .auto-row-line,
+/* A row whose title is a field shows all of it: there are no actions to make room for. */
+.auto-row:not([data-renaming]):hover .auto-row-line,
 .auto-row:has([data-auto-row]:focus-visible) .auto-row-line,
-.auto-row:has([data-state='open']) .auto-row-line {
+.auto-row:not([data-renaming]):has([data-state='open']) .auto-row-line {
   mask-image: linear-gradient(to left, transparent var(--auto-row-hide), black calc(var(--auto-row-hide) + 0.75rem));
 }
 

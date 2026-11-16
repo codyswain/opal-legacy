@@ -348,8 +348,13 @@ not exist.
   conversation in the Claude app: 14/21 px text in `.auto-ink` (#171717 in
   light), 32 px between turns, a folded line ending in a chevron, and one
   rounded box (`components/Box.tsx`, also the digest entry's) with the
-  model at the left of its foot and Stop and Send at the right. The title
-  is a button with a chevron that opens the thread's menu; Snooze and
+  model at the left of its foot and Stop and Send at the right. The title's
+  words are followed by a chevron that opens the thread's menu, Rename
+  first. A thread is renamed by a double-click on its row's title or on the
+  open thread's title, or by Rename at the top of the row's menu: one rename
+  at a time (`renaming` in `threadStore.ts`), the row's field in the title's
+  own place, and keys typed there (`data-rename-field`) never act on a
+  thread; the Digest row, Put away and its page's rows are not renamed. Snooze and
   Archive sit at the header's right, over a hairline (`paneHeader`) that the
   queue and Put away share. `useAutoCommands.ts` puts Auto's
   commands and every thread's title in the palette, archived ones too once

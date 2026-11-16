@@ -25,7 +25,7 @@ import { keepPlace, placeIn, placeOf, threadPlace } from '../model/places';
 import { failure, parseEntry, sentLine, showsNext, stepLines, stepsSummary, turnRuns, turnStart, waitingToGo } from '../model/threadModel';
 import { archiveThread, restoreThread, snoozeThread } from '../store/actions';
 import { modelChoices, useAutoStore } from '../store/autoStore';
-import { draftKey, useThreadStore } from '../store/threadStore';
+import { TITLE_LIMIT, draftKey, useThreadStore } from '../store/threadStore';
 import { BoxFrame, boxField, paneHeader, SendButton, StopButton } from './Box';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
 import { focusRowNow, rowElement } from './focus';
@@ -378,11 +378,13 @@ function Talk({ scroller }: { scroller: React.RefObject<HTMLDivElement> }) {
 }
 
 /**
- * The title. With a menu it is a button ending in a chevron that opens the
- * thread's menu; Rename there turns it into a field. Enter or leaving the
- * field renames, Escape does not.
+ * The title. With a menu, a double-click on its words turns it into a field,
+ * and the chevron beside them opens the thread's menu, Rename first, which
+ * does the same. The words are not the menu's trigger: the menu opens on the
+ * press, so a double-click on them would open it and shut it again. Enter or
+ * leaving the field renames, Escape does not.
  */
-function Title({ title, menu, editing, setEditing }: { title: string; menu: React.ReactNode; editing: boolean; setEditing: (editing: boolean) => void }) {
+function Title({ id, title, menu, editing }: { id: string | null; title: string; menu: React.ReactNode; editing: boolean }) {
   const [typed, setTyped] = React.useState(title);
   const cancelled = React.useRef(false);
   React.useEffect(() => {
@@ -392,19 +394,20 @@ function Title({ title, menu, editing, setEditing }: { title: string; menu: Reac
     }
     // Only when the field opens: the title may change under it.
   }, [editing]);
-  if (!menu) return <h1 data-testid="auto-title" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{title}</h1>;
+  if (!menu || !id) return <h1 data-testid="auto-title" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">{title}</h1>;
   if (editing) {
     return (
       <input
         autoFocus
+        data-rename-field
         aria-label="Thread title"
         value={typed}
-        maxLength={120}
+        maxLength={TITLE_LIMIT}
         onChange={(event) => setTyped(event.target.value)}
         onFocus={(event) => event.currentTarget.select()}
         onBlur={() => {
-          if (!cancelled.current) void useThreadStore.getState().rename(typed);
-          setEditing(false);
+          if (!cancelled.current) void useThreadStore.getState().rename(typed, id);
+          useThreadStore.getState().endRename({ id, at: 'header' });
         }}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== 'Escape') return;
@@ -420,28 +423,36 @@ function Title({ title, menu, editing, setEditing }: { title: string; menu: Reac
       />
     );
   }
+  // The heading is the title alone, so a screen reader reads the thread's name; the chevron beside it is its own button, reached by Tab.
   return (
-    <h1 className="-ml-2 flex min-w-0 flex-1">
+    <div className="-ml-2 flex min-w-0 flex-1 items-center">
+      <h1
+        data-testid="auto-title"
+        className="min-w-0 cursor-default select-none truncate py-1 pl-2 text-ui font-medium text-foreground"
+        onDoubleClick={() => useThreadStore.getState().startRename(id, 'header')}
+      >
+        {title || 'Untitled'}
+      </h1>
       <Menu>
         <MenuTrigger asChild>
           <button
             type="button"
+            aria-label="Thread menu"
             title="Thread menu"
             data-testid="auto-thread-menu"
-            className="flex min-w-0 max-w-full items-center gap-1 rounded-control px-2 py-1 text-ui font-medium text-foreground outline-none transition-hover hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-focus data-[state=open]:bg-surface-active"
+            className="ml-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded-control text-foreground-tertiary outline-none transition-hover hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus data-[state=open]:bg-surface-active"
           >
-            <span data-testid="auto-title" className="min-w-0 truncate">{title || 'Untitled'}</span>
-            <ChevronDown aria-hidden data-testid="auto-title-chevron" className="h-3.5 w-3.5 shrink-0 text-foreground-tertiary" />
+            <ChevronDown aria-hidden data-testid="auto-title-chevron" className="h-3.5 w-3.5 shrink-0" />
           </button>
         </MenuTrigger>
         {menu}
       </Menu>
-    </h1>
+    </div>
   );
 }
 
-/** What the title's chevron opens: the thread's menu, as its row offers it less what the header shows. */
-function ThreadMenu({ thread, onRename }: { thread: AutoThread; onRename: () => void }) {
+/** What the title's chevron opens: the thread's menu, Rename first, as its row offers it less what the header shows. */
+function ThreadMenu({ thread }: { thread: AutoThread }) {
   const marked = thread.desk !== null;
   return (
     <MenuContent
@@ -452,9 +463,10 @@ function ThreadMenu({ thread, onRename }: { thread: AutoThread; onRename: () => 
         if (!(document.activeElement instanceof HTMLInputElement)) useThreadStore.getState().focusBox();
       }}
     >
+      {/* Radix runs onSelect while the menu still holds focus, so the title's field opens once it has closed. */}
+      <MenuItem onSelect={() => window.setTimeout(() => useThreadStore.getState().startRename(thread.id, 'header'), 0)}>Rename</MenuItem>
       {thread.snoozed !== null ? <MenuItem onSelect={() => void snoozeThread(thread, null, { from: 'pane' })}>Bring back</MenuItem> : null}
       <MenuItem onSelect={() => void useAutoStore.getState().desk(thread, !marked)}>{marked ? 'Take off the Mac mark' : 'Mark for the Mac'}</MenuItem>
-      <MenuItem onSelect={() => window.setTimeout(onRename, 0)}>Rename</MenuItem>
     </MenuContent>
   );
 }
@@ -531,18 +543,17 @@ function ModelPicker() {
 
 function ThreadHeader() {
   const openId = useThreadStore((state) => state.openId);
-  const renaming = useThreadStore((state) => state.renaming);
-  const { setRenaming } = useThreadStore.getState();
+  const renaming = useThreadStore((state) => (state.renaming?.at === 'header' ? state.renaming.id : null));
   const { isNew, thread, ghost } = useShownThread();
-  const menu = thread && !ghost && !thread.archived ? <ThreadMenu thread={thread} onRename={() => setRenaming(true)} /> : null;
+  const menu = thread && !ghost && !thread.archived ? <ThreadMenu thread={thread} /> : null;
 
   return (
     <header data-testid="auto-thread-header" className={paneHeader}>
       <div className="auto-column flex h-header items-center gap-1">
         {isNew ? (
-          <Title title="New thread" menu={null} editing={false} setEditing={setRenaming} />
+          <Title id={null} title="New thread" menu={null} editing={false} />
         ) : (
-          <Title key={openId} title={thread?.title ?? ''} menu={menu} editing={renaming && menu !== null} setEditing={setRenaming} />
+          <Title key={openId} id={thread?.id ?? null} title={thread?.title ?? ''} menu={menu} editing={renaming !== null && renaming === thread?.id && menu !== null} />
         )}
         <div className="flex shrink-0 items-center gap-0.5">{thread && !ghost ? <ThreadActions thread={thread} /> : null}</div>
       </div>

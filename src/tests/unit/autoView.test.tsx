@@ -363,7 +363,8 @@ describe('the list', () => {
     const pointer = userEvent.setup();
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('bread')).getAllByRole('button')[0] });
     let menu = within(await screen.findByTestId('auto-row-menu-bread'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Until a reply…', 'Mark for the MacM', 'Rename', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Rename');
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Until a reply…', 'Mark for the MacM', 'ArchiveE']);
     // The keys beside the items are for the eye; an item is still called by its name.
     expect(menu.getByRole('menuitem', { name: 'Mark for the Mac' })).toBeInTheDocument();
     fireEvent.click(menu.getByRole('menuitem', { name: 'Archive' }));
@@ -372,7 +373,8 @@ describe('the list', () => {
 
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('inspect')).getAllByRole('button')[0] });
     menu = within(await screen.findByTestId('auto-row-menu-inspect'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Mark for the MacM', 'Rename', 'DoneD', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Rename');
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the MacM', 'DoneD', 'ArchiveE']);
     fireEvent.click(menu.getByRole('menuitem', { name: 'Done' }));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
   });
@@ -1188,7 +1190,7 @@ describe('the sidebar review, smaller items', () => {
     act(() => useAutoStore.setState({ loaded: true }));
     expect(fold.style.height).toBe('');
   });
-  it('keeps the title field open after Rename is picked from a row’s menu with the pointer', async () => {
+  it('keeps the row’s title field open after Rename is picked from its menu with the pointer', async () => {
     await open();
     await openThread('bread');
     box().focus();
@@ -1196,9 +1198,11 @@ describe('the sidebar review, smaller items', () => {
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('seeds')).getAllByRole('button')[0] });
     const menu = within(await screen.findByTestId('auto-row-menu-seeds'));
     await pointer.click(menu.getByRole('menuitem', { name: 'Rename' }));
-    const field = await screen.findByRole('textbox', { name: 'Thread title' });
+    const field = await within(row('seeds')).findByRole('textbox', { name: 'Thread title' });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.getByRole('textbox', { name: 'Thread title' })).toBe(field);
+    expect(within(row('seeds')).getByRole('textbox', { name: 'Thread title' })).toBe(field);
     expect(document.activeElement).toBe(field);
+    // The rename is on the row, not in the header as well.
+    expect(screen.getAllByRole('textbox', { name: 'Thread title' })).toHaveLength(1);
   });
 });
