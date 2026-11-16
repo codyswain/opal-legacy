@@ -559,30 +559,37 @@ export function ThreadList({ show, inFront }: { show: (pane: string, how?: ShowH
       {/* What is put away, one row that is always in view: its page holds the threads waiting on a reply, the snoozed ones and the archive.
           The count is of what comes back by itself, never of the archive. */}
       <div className="shrink-0 px-sidebar-inset pt-0.5">
-        <button
-          type="button"
-          data-auto-row
-          data-row-id={AWAY}
-          data-testid="auto-away-row"
-          tabIndex={tabStop === AWAY ? 0 : -1}
-          aria-current={awayMarked || undefined}
-          onClick={(event) => {
-            // By a key the keyboard goes onto the page's first row, also when the page already shows.
-            if (byKey()) useAutoStore.getState().requestPageFocus(PAGE_FIRST);
-            show(AWAY, { side: event.altKey });
-          }}
-          className={cn(
-            rowButton,
-            'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui transition-hover',
-            awayMarked ? 'bg-sidebar-selected font-sidebar-active text-foreground' : 'font-sidebar-label text-foreground-tertiary hover:bg-surface-hover hover:text-foreground'
-          )}
-        >
-          <span className="flex w-sidebar-icon shrink-0 justify-center">
-            <Archive aria-hidden className="h-3.5 w-3.5" />
-          </span>
-          <span className="min-w-0 flex-1 truncate">Put away</span>
-          {awayCount > 0 ? <span data-testid="auto-away-count" className="shrink-0 text-metadata tabular-nums text-sidebar-time">{awayCount}</span> : null}
-        </button>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <button
+              type="button"
+              data-auto-row
+              data-row-id={AWAY}
+              data-testid="auto-away-row"
+              tabIndex={tabStop === AWAY ? 0 : -1}
+              aria-current={awayMarked || undefined}
+              onClick={(event) => {
+                // By a key the keyboard goes onto the page's first row, also when the page already shows.
+                if (byKey()) useAutoStore.getState().requestPageFocus(PAGE_FIRST);
+                show(AWAY, { side: event.altKey });
+              }}
+              className={cn(
+                rowButton,
+                'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui transition-hover',
+                awayMarked ? 'bg-sidebar-selected font-sidebar-active text-foreground' : 'font-sidebar-label text-foreground-tertiary hover:bg-surface-hover hover:text-foreground'
+              )}
+            >
+              <span className="flex w-sidebar-icon shrink-0 justify-center">
+                <Archive aria-hidden className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">Put away</span>
+              {awayCount > 0 ? <span data-testid="auto-away-count" className="shrink-0 text-metadata tabular-nums text-sidebar-time">{awayCount}</span> : null}
+            </button>
+          </ContextMenuTrigger>
+          <ContextMenuContent data-testid="auto-away-menu-row" onCloseAutoFocus={(event) => focusRowAfterClose(event, AWAY)}>
+            <ContextMenuItem onSelect={() => show(AWAY, { side: true })}>Open to the side</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
     </nav>
   );
