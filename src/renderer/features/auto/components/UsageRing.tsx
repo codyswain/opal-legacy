@@ -76,7 +76,7 @@ export function UsageRing({ field }: { field: React.RefObject<HTMLTextAreaElemen
       <PopoverContent
         data-testid="auto-usage-popover"
         side="top"
-        align="end"
+        align="start"
         sideOffset={8}
         className="min-w-0 max-w-none p-4"
         style={{ width: 'min(360px, calc(100vw - 16px))' }}

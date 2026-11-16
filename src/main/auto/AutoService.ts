@@ -224,7 +224,9 @@ export class AutoService {
     const answer = await this.send(buildRequest(base, route), base);
     if (!answer.success) return answer;
     const data = shape(route.kind, answer.data);
-    return data ? ok(data) : fail('unreachable', UNREACHABLE);
+    if (data) return ok(data);
+    // The usage is read beside the list and never marks the service out of reach: an answer that does not fit says so.
+    return route.kind === 'usage' ? fail('invalid', "Auto's usage answer did not fit.") : fail('unreachable', UNREACHABLE);
   }
 
   private async send(built: BuiltRequest, base: string): Promise<AutoResult<unknown>> {

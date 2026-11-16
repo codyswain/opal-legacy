@@ -247,14 +247,53 @@ describe('the usage store', () => {
     expect(useAutoStore.getState().problem).toBeNull();
   });
 
-  it('holds nothing when the read fails, and says nothing of it', async () => {
+  /** The next reads of the usage answer this way, or throw; every other route answers as before. */
+  const usageAnswers = (answer: (() => never) | { success: false; error: { kind: string; message: string; status?: number } }) => {
+    const original = auto.api.request;
+    auto.api.request = (async (route: { kind: string }) => {
+      if (route.kind !== 'usage') return original(route as never);
+      if (typeof answer === 'function') return answer();
+      return answer;
+    }) as typeof original;
+    return () => {
+      auto.api.request = original;
+    };
+  };
+
+  it('keeps the last numbers when a read does not reach the service, and says nothing of it', async () => {
     auto = installAutoApi({ usage: USAGE });
     await connect();
     expect(useUsageStore.getState().usage).toEqual(USAGE);
-    auto.state.usage = null;
-    const original = auto.api.request;
-    auto.api.request = (async (route: { kind: string }) =>
-      route.kind === 'usage' ? { success: false, error: { kind: 'unreachable', message: "Can't reach Auto." } } : original(route as never)) as typeof original;
+    usageAnswers({ success: false, error: { kind: 'unreachable', message: 'Auto did not answer in time.' } });
+    await useUsageStore.getState().read();
+    expect(useUsageStore.getState().usage).toEqual(USAGE);
+    expect(useAutoStore.getState().reachable).toBe(true);
+    expect(useAutoStore.getState().problem).toBeNull();
+  });
+
+  it('keeps the last numbers when the read throws', async () => {
+    auto = installAutoApi({ usage: USAGE });
+    await connect();
+    usageAnswers(() => {
+      throw new Error('the bridge went away');
+    });
+    await useUsageStore.getState().read();
+    expect(useUsageStore.getState().usage).toEqual(USAGE);
+    expect(useAutoStore.getState().reachable).toBe(true);
+    expect(useAutoStore.getState().problem).toBeNull();
+  });
+
+  it('clears the numbers for an answer that does not fit, and for any refusal, and says nothing of it', async () => {
+    auto = installAutoApi({ usage: USAGE });
+    await connect();
+    const restore = usageAnswers({ success: false, error: { kind: 'invalid', message: "Auto's usage answer did not fit." } });
+    await useUsageStore.getState().read();
+    expect(useUsageStore.getState().usage).toBeNull();
+
+    restore();
+    await useUsageStore.getState().read();
+    expect(useUsageStore.getState().usage).toEqual(USAGE);
+    usageAnswers({ success: false, error: { kind: 'refused', message: 'The service broke.', status: 500 } });
     await useUsageStore.getState().read();
     expect(useUsageStore.getState().usage).toBeNull();
     expect(useAutoStore.getState().reachable).toBe(true);

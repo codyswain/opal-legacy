@@ -2103,7 +2103,7 @@ async function tour() {
     service.setUsage({ limits: [{ key: 'seven_day', label: 'Weekly, all models', used: 0.45 }, { key: 'seven_day_large', label: 'Weekly, Large', used: 0.73 }] });
     await until(async () => (await fillOf(threadRing)) === '0.73');
 
-    // Opened by a click: 360 wide, its right edge on the ring button's, two rows.
+    // Opened by a click: 360 wide, its left edge on the ring button's, two rows.
     const draftBefore = await box.inputValue();
     const listBefore = (await rowIds()).join();
     await threadRing.click();
@@ -2111,9 +2111,9 @@ async function tour() {
     const geometry = await page.evaluate(() => {
       const ring = document.querySelector('[data-testid="auto-thread"] [data-testid="auto-usage-ring"]').getBoundingClientRect();
       const pop = document.querySelector('[data-testid="auto-usage-popover"]').getBoundingClientRect();
-      return { width: pop.width, rightGap: Math.abs(pop.right - ring.right), above: pop.bottom <= ring.top };
+      return { width: pop.width, leftGap: Math.abs(pop.left - ring.left), above: pop.bottom <= ring.top, inside: pop.left >= 0 && pop.right <= window.innerWidth };
     });
-    check('a click opens the popover above the ring, 360 wide, its right edge on the ring’s', Math.abs(geometry.width - 360) < 0.6 && geometry.rightGap <= 2 && geometry.above, JSON.stringify(geometry));
+    check('a click opens the popover above the ring, 360 wide, its left edge on the ring’s and inside the window', Math.abs(geometry.width - 360) < 0.6 && geometry.leftGap <= 2 && geometry.above && geometry.inside, JSON.stringify(geometry));
     const rowsText = () => ringPopover.getByTestId('auto-usage-row').evaluateAll((rows) => rows.map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()));
     check('the popover heads with the plan and has a row per limit, in the order sent', ((await ringPopover.textContent()) ?? '').startsWith('Plan usage limits · Pro') && (await rowsText()).length === 2 && /^Weekly · all models\s?Resets .+45%$/.test((await rowsText())[0]) && /^Weekly · Large\s?Resets .+73%$/.test((await rowsText())[1]), (await rowsText()).join(' | '));
     check('opening it moves nothing and sends nothing', (await box.inputValue()) === draftBefore && (await rowIds()).join() === listBefore && !service.requests.slice(-5).some((request) => request.method === 'POST'));

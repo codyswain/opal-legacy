@@ -6,14 +6,14 @@ import { autoApi, useAutoStore } from './autoStore';
  * How much of the plan the service's agent has used, for the ring by the
  * message box. It follows the list as the digest does: read again whenever
  * the list is, and when the service says on the list stream that the numbers
- * changed. A read that fails leaves nothing behind: it never marks the
- * service out of reach, sets a problem or shows an error, and the ring simply
- * does not show. A service without the route answers 404 and is treated the
- * same way.
+ * changed. A failed read never marks the service out of reach, sets a
+ * problem or shows an error. A refusal (a service without the route answers
+ * 404) or an answer that does not fit clears the numbers, and the ring does
+ * not show; a read that did not reach the service keeps the last ones.
  */
 
 export interface UsageStore {
-  /** Null with no address, out of reach, an answer that does not fit, or a refusal. */
+  /** Null with no address, out of reach, an answer that does not fit, or a refusal. A read that did not reach the service keeps it. */
   usage: AutoUsage | null;
   /** Reads the numbers again. One read at a time; asked during one, it reads once more after it. */
   read: () => Promise<void>;
@@ -39,7 +39,10 @@ export const useUsageStore = create<UsageStore>((set, get) => {
       set({ usage: null });
       return;
     }
-    set({ usage: result?.success ? result.data : null });
+    // A read that did not reach the service, such as one slow answer, keeps the last numbers: the list's own watch
+    // clears them when the service is really out of reach. A refusal or an answer that does not fit clears them.
+    if (!result || (!result.success && result.error.kind === 'unreachable')) return;
+    set({ usage: result.success ? result.data : null });
   };
 
   return {
