@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutoAnswer, AutoQuestion, AutoThread } from '@/types/auto';
 import { afterLeaving, closedRow, entryName, homeLine, queueOrder, queueSections, withState } from '@/renderer/features/auto/model/digestModel';
-import { SNOOZE_TIME, attentionCount, moveBy, nextAfter, putBack, shownOrder, snoozeDate, snoozeDateRange } from '@/renderer/features/auto/model/listModel';
+import { SNOOZE_TIME, attentionCount, groupOf, listView, moveBy, nextAfter, putBack, shownOrder, snoozeDate, snoozeDateRange } from '@/renderer/features/auto/model/listModel';
 import { END_SLACK, LIST_PLACE, forgetPlaces, keepPlace, placeIn, placeOf, queuePlace, threadPlace } from '@/renderer/features/auto/model/places';
 import { answerDeny, answerNo, answerTyped, keyOptions, mayAnswer } from '@/renderer/features/auto/model/questionModel';
 import { unconfirmed } from '@/renderer/features/auto/model/unconfirmed';
@@ -39,13 +39,28 @@ describe('the rows in the order they show', () => {
     autoThread('f'),
   ];
 
-  it('is each group in turn, then the snoozed ones when their line is open', () => {
-    expect(shownOrder(threads, { waiting: false, snoozed: false })).toEqual(['c', 'b', 'a', 'f']);
-    expect(shownOrder(threads, { waiting: false, snoozed: true })).toEqual(['c', 'b', 'a', 'f', 'e', 'd']);
+  it('is each group in turn; what is put away is on its own page', () => {
+    expect(shownOrder(threads)).toEqual(['c', 'b', 'a', 'f']);
+  });
+
+  it('keeps the open thread in the group it was in when he opened it, until it lets go', () => {
+    const unread = [autoThread('a'), autoThread('b', { unread: true }), autoThread('c')];
+    expect(shownOrder(unread)).toEqual(['b', 'a', 'c']);
+    expect(groupOf(unread, 'b')).toBe('fresh');
+    // Read while open: it stays where it was under the pointer.
+    const read = unread.map((each) => ({ ...each, unread: false }));
+    expect(shownOrder(read, { id: 'b', group: 'fresh' })).toEqual(['b', 'a', 'c']);
+    // Let go, it goes to its place in his order.
+    expect(shownOrder(read)).toEqual(['a', 'b', 'c']);
+    // A mark for the Mac is his doing: it moves the thread still.
+    const marked = read.map((each) => (each.id === 'b' ? { ...each, desk: { at: 1, by: 'mac' } } : each));
+    expect(shownOrder(marked, { id: 'b', group: 'fresh' })).toEqual(['b', 'a', 'c']);
+    expect(listView(marked, { id: 'b', group: 'fresh' }).groups[0].key).toBe('desk');
+    expect(groupOf(read, 'missing')).toBeNull();
   });
 
   it('gives a leaving row’s place to the one below, else the one above, else nobody', () => {
-    const order = shownOrder(threads, { waiting: false, snoozed: false });
+    const order = shownOrder(threads);
     expect(nextAfter(order, 'c')).toBe('b');
     expect(nextAfter(order, 'a')).toBe('f');
     expect(nextAfter(order, 'f')).toBe('a');

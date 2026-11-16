@@ -11,7 +11,7 @@ import { useShellStore } from "../store/shellStore";
 import { DailyItem } from "./DailyItem";
 import { FileTree } from "./FileTree";
 import { FrameControls, SearchButton, TrafficLightInset } from "./FrameControls";
-import { PinnedSection } from "./PinnedSection";
+import { PinnedSection, usePinnedShown } from "./PinnedSection";
 import { SidebarFold } from "./SidebarFold";
 import { SidebarItem } from "./SidebarItem";
 import { SidebarSection } from "./SidebarSection";
@@ -49,6 +49,7 @@ export function WorkspaceSidebar({
   onToggleSidebar,
 }: WorkspaceSidebarProps) {
   const libraryOpen = useShellStore((state) => state.libraryOpen);
+  const pins = usePinnedShown();
 
   const openSettings = () => {
     onNavigate?.();
@@ -83,6 +84,12 @@ export function WorkspaceSidebar({
           fold="library"
           label="Library"
           className={cn("pt-2", libraryOpen ? "flex-1" : "shrink-0")}
+          // Open, Library keeps room for its heading, every pin it shows and two rows of the tree: Threads gives way first.
+          style={
+            libraryOpen
+              ? { minHeight: `calc(0.5rem + ${pins + 3} * var(--row-height-compact) + ${pins + 2} * 0.125rem${pins > 0 ? " + 0.5rem" : ""})` }
+              : undefined
+          }
           bodyClassName="flex-1"
         >
           <PinnedSection onNavigate={onNavigate} />

@@ -5,9 +5,9 @@ import { clockTime, startOfDay } from './clock';
 /*
  * The list: the threads he marked for the Mac first, then the ones that wait
  * on him, then what is new to him (a reply he has not read, a thread back
- * from snooze), then the rest in the order he keeps. What is put away sits
- * behind lines at the bottom: the threads waiting on a reply, the snoozed
- * ones, and the archive. Put away wins over every group.
+ * from snooze), then the rest in the order he keeps. What is put away (the
+ * threads waiting on a reply, the snoozed ones, and the archive) is on the
+ * Put away page, behind one row at the foot. Put away wins over every group.
  */
 
 export interface ListGroup {
@@ -67,14 +67,35 @@ export interface ListView {
   needs: number;
 }
 
-export function listView(threads: readonly AutoThread[]): ListView {
+/**
+ * The open thread keeps the group it was in when he opened it, so reading it
+ * does not move its row from under the pointer. A mark for the Mac moves it
+ * still: that is his doing.
+ */
+export interface Hold {
+  id: string;
+  group: string;
+}
+
+/** The key of the group a thread shows in, or null when it is put away. */
+export function groupOf(threads: readonly AutoThread[], id: string): string | null {
+  const thread = threads.find((candidate) => candidate.id === id);
+  if (!thread || thread.archived || thread.snoozed !== null) return null;
+  return GROUPS.find((rule) => rule.takes(thread))?.key ?? null;
+}
+
+export function listView(threads: readonly AutoThread[], hold: Hold | null = null): ListView {
   const shown = threads.filter((thread) => !thread.archived && thread.snoozed === null);
   const away = threads
     .filter((thread) => !thread.archived && thread.snoozed !== null)
     .sort((left, right) => (left.snoozed ?? 0) - (right.snoozed ?? 0));
   const groups = GROUPS.map((rule): ListGroup => ({ key: rule.key, heading: rule.heading, movable: rule.movable, threads: [] }));
   for (const thread of shown) {
-    const at = GROUPS.findIndex((rule) => rule.takes(thread));
+    let at = GROUPS.findIndex((rule) => rule.takes(thread));
+    if (hold && thread.id === hold.id && at !== -1 && GROUPS[at].key !== 'desk' && hold.group !== 'desk') {
+      const held = GROUPS.findIndex((rule) => rule.key === hold.group);
+      if (held !== -1) at = held;
+    }
     if (at !== -1) groups[at].threads.push(thread);
   }
   GROUPS.forEach((rule, at) => {
@@ -127,10 +148,9 @@ export function listSummary(threads: readonly AutoThread[]): string {
   ].filter(Boolean).join(', ');
 }
 
-/** The threads' ids in the order the list shows them: each group in turn, then what is put away, where its line is open. */
-export function shownOrder(threads: readonly AutoThread[], open: { waiting: boolean; snoozed: boolean }): string[] {
-  const view = listView(threads);
-  return [...view.groups.flatMap((group) => group.threads), ...(open.waiting ? view.waiting : []), ...(open.snoozed ? view.snoozed : [])].map((thread) => thread.id);
+/** The threads' ids in the order the list shows them: each group in turn. What is put away is on its own page. */
+export function shownOrder(threads: readonly AutoThread[], hold: Hold | null = null): string[] {
+  return listView(threads, hold).groups.flatMap((group) => group.threads).map((thread) => thread.id);
 }
 
 /** What takes a row's place when it leaves: the one below it, else the one above, else nothing. */

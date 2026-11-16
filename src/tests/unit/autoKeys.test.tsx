@@ -147,7 +147,7 @@ describe('the list under the keyboard', () => {
     // The open thread's row; the new thread that shows with none is the heading's button, outside the run.
     expect(stops[0]).toBe(rowButton(':digest'));
     // The run of rows the arrows walk.
-    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual([':digest', 'beds', 'bread', 'seeds', 'trellis', 'inspect', ':snoozed', ':archived']);
+    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual([':digest', 'beds', 'bread', 'seeds', 'trellis', 'inspect', ':away']);
   });
 
   it('moves with the arrows, Home and End, and J and K', async () => {
@@ -156,12 +156,11 @@ describe('the list under the keyboard', () => {
     key('j');
     expect(focusedRow()).toBe('beds');
     key('End');
-    expect(focusedRow()).toBe(':archived');
+    expect(focusedRow()).toBe(':away');
     key('ArrowDown');
-    expect(focusedRow()).toBe(':archived');
+    expect(focusedRow()).toBe(':away');
     key('k');
-    expect(focusedRow()).toBe(':snoozed');
-    key('k');
+    expect(focusedRow()).toBe('inspect');
     key('ArrowUp');
     expect(focusedRow()).toBe('trellis');
     key('Home');
@@ -534,8 +533,8 @@ describe('undo', () => {
     // A Wednesday morning: Next week is its own choice on any day but a Sunday.
     vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 10, 11, 10, 0).getTime());
     await open();
-    fireEvent.click(screen.getByTestId('auto-snoozed-line'));
-    await userEvent.setup().click(screen.getByTestId('auto-snooze-labels'));
+    fireEvent.click(screen.getByTestId('auto-away-row'));
+    await userEvent.setup().click(await screen.findByTestId('auto-snooze-labels'));
     const menu = within(await screen.findByTestId('auto-snooze-menu'));
     // A snoozed thread's clock also brings it back, so a key reaches that.
     expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Bring back');
@@ -549,14 +548,15 @@ describe('undo', () => {
     fireEvent.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: /^Tomorrow/ }));
     expect(said()).toBe('Snoozed until tomorrow 9:00 am.Undo');
     const until = last('snooze')?.until;
-    fireEvent.click(within(row('labels')).getByRole('button', { name: 'Bring back' }));
+    const before = document.activeElement;
+    await userEvent.setup().click(within(row('labels')).getByRole('button', { name: 'Bring back' }));
     // One line about the thread: the snooze's gives way to the bring back's.
     expect(said()).toBe('Back in the list.Undo');
     expect(useSaidStore.getState().stack).toHaveLength(1);
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until: null }));
-    // Brought back, it is a row of the list again, and the keyboard goes with it.
-    await waitFor(() => expect(focusedRow()).toBe('labels'));
+    // Brought back by a click, it is a row of the list again, and the keyboard stays where it was.
     expect(rowIds()).toContain('labels');
+    expect(document.activeElement).toBe(before);
     // Undo puts it away again as it was, to the time it had.
     key('z', { metaKey: true });
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until }));
@@ -723,10 +723,83 @@ describe('the open thread’s own actions', () => {
 
   it('offers a snoozed row another time beside Bring back', async () => {
     await open();
-    fireEvent.click(screen.getByTestId('auto-snoozed-line'));
-    const snoozed = within(row('labels'));
+    fireEvent.click(screen.getByTestId('auto-away-row'));
+    const snoozed = within(await screen.findByTestId('auto-row-labels'));
     expect(snoozed.getByRole('button', { name: 'Bring back' })).toBeInTheDocument();
     expect(snoozed.getByRole('button', { name: 'Snooze' })).toBeInTheDocument();
+  });
+});
+
+describe('a click never moves the keyboard onto a row', () => {
+  /** A page's text with the caret in it, as the editor's is. */
+  const pageText = () => {
+    const text = document.createElement('div');
+    text.contentEditable = 'true';
+    document.body.appendChild(text);
+    text.focus();
+    return text;
+  };
+
+  it('leaves the caret in a page after a click on a row’s Archive icon, and E on a row still moves the keyboard on', async () => {
+    await open();
+    const text = pageText();
+    expect(document.activeElement).toBe(text);
+    await userEvent.setup().click(screen.getByTestId('auto-archive-bread'));
+    await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'bread', archived: true }));
+    // The keyboard is where it was: the letters he types next are the page's, not a row's.
+    expect(document.activeElement).toBe(text);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.activeElement).toBe(text);
+    // An action taken with a key moves the keyboard to the next row, as before.
+    rowButton('seeds').focus();
+    key('e');
+    await waitFor(() => expect(focusedRow()).toBe('trellis'));
+    text.remove();
+  });
+
+  it('leaves the caret in a page after a snooze picked from a row’s menu with the pointer', async () => {
+    await open();
+    const text = pageText();
+    const user = userEvent.setup();
+    await user.pointer({ keys: '[MouseRight]', target: rowButton('bread') });
+    const menu = within(await screen.findByTestId('auto-row-menu-bread'));
+    await user.click(menu.getByRole('menuitem', { name: /^Tomorrow/ }));
+    await waitFor(() => expect(last('snooze')?.id).toBe('bread'));
+    await waitFor(() => expect(screen.queryByTestId('auto-row-menu-bread')).toBeNull());
+    expect(document.activeElement).toBe(text);
+    text.remove();
+  });
+
+  it('leaves the keyboard where it was after a click on the clock’s time, and a key pick moves it to the next row', async () => {
+    await open();
+    const text = pageText();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('auto-snooze-bread'));
+    await user.click(within(await screen.findByTestId('auto-snooze-menu')).getByRole('menuitem', { name: /^Tomorrow/ }));
+    await waitFor(() => expect(last('snooze')?.id).toBe('bread'));
+    await waitFor(() => expect(screen.queryByTestId('auto-snooze-menu')).toBeNull());
+    expect(document.activeElement).toBe(text);
+    // S and Enter on a row: the keyboard goes on to the row below.
+    rowButton('seeds').focus();
+    key('s');
+    const menu = await screen.findByTestId('auto-snooze-menu');
+    await waitFor(() => expect(menu.contains(document.activeElement)).toBe(true));
+    key('Enter');
+    fireEvent.click(document.activeElement as HTMLElement);
+    await waitFor(() => expect(last('snooze')?.id).toBe('seeds'));
+    await waitFor(() => expect(focusedRow()).toBe('trellis'));
+    text.remove();
+  });
+
+  it('leaves the caret in a page after a click on a queue entry’s Resolve', async () => {
+    await open();
+    await openQueue();
+    const text = pageText();
+    await userEvent.setup().click(within(screen.getByTestId('auto-entry-item-1')).getByRole('button', { name: 'Resolve' }));
+    await waitFor(() => expect(last('digest-resolve')).toMatchObject({ ids: ['item-1'], resolved: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.activeElement).toBe(text);
+    text.remove();
   });
 });
 

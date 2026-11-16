@@ -335,17 +335,6 @@
   width: var(--sidebar-inset);
 }
 
-.auto-threads-scroll[data-fade-y='bottom'] {
-  mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent);
-}
-
-.auto-threads-scroll[data-fade-y='top'] {
-  mask-image: linear-gradient(to top, black calc(100% - 1.5rem), transparent);
-}
-
-.auto-threads-scroll[data-fade-y='both'] {
-  mask-image: linear-gradient(to bottom, transparent, black 1.5rem, black calc(100% - 1.5rem), transparent);
-}
 
 /*
  * A row's actions show over its time, or over the end of its title when the

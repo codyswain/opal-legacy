@@ -14,7 +14,8 @@ import {
   type Failed,
   type OutboxEntry,
 } from '../model/outbox';
-import { DIGEST_QUEUE, paneThread } from '../model/pane';
+import { AWAY, DIGEST_QUEUE, paneThread } from '../model/pane';
+import { groupOf, type Hold } from '../model/listModel';
 import { forgetPlaces } from '../model/places';
 import { answerNo, answerPicks, answerTyped, isSingle, mayAnswer, picksReady, type Picks } from '../model/questionModel';
 import { applyEvent, fromSnapshot, unconfirmed, type PendingMessage, type ThreadView } from '../model/threadModel';
@@ -96,12 +97,18 @@ export interface ThreadStore {
   cardProblem: string | null;
   /** The model a new thread starts with. */
   newModel: string;
+  /** What shows was opened from the Put away page: the sidebar's Put away row stays marked, and it leads back there. */
+  fromAway: boolean;
+  /** The open thread keeps the group it was in when it was opened, until another opens or he leaves the tab. */
+  hold: Hold | null;
+  releaseHold: () => void;
 
   /**
    * Opens a pane. The box takes the focus unless `focus` is false, as when
    * the next thread opens after a row's key archived the one before.
+   * `fromAway` says it was opened from the Put away page.
    */
-  open: (id: string | null, options?: { focus?: boolean }) => void;
+  open: (id: string | null, options?: { focus?: boolean; fromAway?: boolean }) => void;
   load: () => Promise<void>;
   /** Reads the open thread again if its last read failed or never happened. */
   recover: () => void;
@@ -226,9 +233,17 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     picks: {},
     cardProblem: null,
     newModel: '',
+    fromAway: false,
+    hold: null,
+
+    releaseHold: () => {
+      if (get().hold) set({ hold: null });
+    },
 
     open: (id, options = {}) => {
       const focus = options.focus !== false;
+      const fromAway = options.fromAway === true || id === AWAY;
+      if (fromAway !== get().fromAway) set({ fromAway });
       if (id === get().openId) {
         // A click on the row of a thread that could not be read tries again.
         get().recover();
@@ -251,6 +266,10 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         problem: null,
         stale: false,
         openedUnread: entry?.unread === true,
+        hold: thread ? (() => {
+          const group = groupOf(useAutoStore.getState().threads, thread);
+          return group ? { id: thread, group } : null;
+        })() : null,
         pending: [],
         picks: {},
         cardProblem: null,

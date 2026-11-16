@@ -320,6 +320,23 @@
     scrollbar-gutter: var(--tree-scrollbar-gutter);
   }
 
+  /*
+   * A cut edge of a sidebar scroll area fades over 1.5rem, so a cut row does
+   * not read as the last one: Threads, the pinned pages past eight, and the
+   * tree. `data-fade-y` says which edges are cut.
+   */
+  .sidebar-fade[data-fade-y='bottom'] {
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent);
+  }
+
+  .sidebar-fade[data-fade-y='top'] {
+    mask-image: linear-gradient(to top, black calc(100% - 1.5rem), transparent);
+  }
+
+  .sidebar-fade[data-fade-y='both'] {
+    mask-image: linear-gradient(to bottom, transparent, black 1.5rem, black calc(100% - 1.5rem), transparent);
+  }
+
   /* An icon in a frame button (IconButton variant="frame"). */
   .frame-icon {
     width: var(--frame-icon-size);

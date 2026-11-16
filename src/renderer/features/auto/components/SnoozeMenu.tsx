@@ -25,7 +25,7 @@ import { SNOOZE_TIME, snoozeChoices, snoozeDate, snoozeDateRange } from '../mode
 import { snoozeThread, type From } from '../store/actions';
 import { useAutoStore } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
-import { focusRowAfterClose } from './focus';
+import { focusPageAfterClose, focusRowAfterClose, keepFocus } from './focus';
 
 interface SnoozeItemsProps {
   /** Which menu the items sit in: the row's right-click menu or the clock's dropdown. */
@@ -80,7 +80,7 @@ export function SnoozeButton({ thread, from, open, onOpenChange, tabIndex }: Sno
       }}
     >
       <MenuTrigger asChild>
-        <IconButton label="Snooze" shortcut={from === 'row' ? 'S' : undefined} tabIndex={tabIndex} data-testid={`auto-snooze-${from === 'row' ? thread.id : 'open'}`}>
+        <IconButton label="Snooze" shortcut={from === 'pane' ? undefined : 'S'} tabIndex={tabIndex} data-testid={`auto-snooze-${from === 'pane' ? 'open' : thread.id}`} onMouseDown={keepFocus}>
           <Clock aria-hidden className="h-3.5 w-3.5" />
         </IconButton>
       </MenuTrigger>
@@ -89,6 +89,7 @@ export function SnoozeButton({ thread, from, open, onOpenChange, tabIndex }: Sno
         data-testid="auto-snooze-menu"
         onCloseAutoFocus={(event) => {
           if (from === 'row') focusRowAfterClose(event, thread.id);
+          else if (from === 'page') focusPageAfterClose(event, thread.id);
           else {
             event.preventDefault();
             useThreadStore.getState().focusBox();
@@ -305,6 +306,7 @@ export function SnoozeDateDialog() {
         onCloseAutoFocus={(event) => {
           const from = last.current;
           if (from?.from === 'row') focusRowAfterClose(event, from.thread.id);
+          else if (from?.from === 'page') focusPageAfterClose(event, from.thread.id);
           else {
             event.preventDefault();
             useThreadStore.getState().focusBox();

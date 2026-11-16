@@ -19,15 +19,15 @@ import {
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
 import { archivedWord, awayDetail, heardLine, isWaitingOnReply, returnsLine, waitLine, waitUrl } from '../model/awayModel';
-import { clockTime, fromDigest } from '../model/listModel';
-import { NEW_THREAD, paneThread } from '../model/pane';
+import { clockTime, fromDigest, listView } from '../model/listModel';
+import { AWAY, NEW_THREAD, paneThread } from '../model/pane';
 import { keepPlace, placeIn, placeOf, threadPlace } from '../model/places';
 import { failure, parseEntry, sentLine, showsNext, stepLines, stepsSummary, turnRuns, turnStart, waitingToGo } from '../model/threadModel';
 import { archiveThread, restoreThread, snoozeThread } from '../store/actions';
 import { modelChoices, useAutoStore } from '../store/autoStore';
 import { draftKey, useThreadStore } from '../store/threadStore';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
-import { focusRowNow } from './focus';
+import { focusRowNow, rowElement } from './focus';
 import { SnoozeButton } from './SnoozeMenu';
 
 const quiet = 'text-control text-foreground-tertiary';
@@ -164,6 +164,8 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
   const problem = useThreadStore((state) => state.problem);
   const openedUnread = useThreadStore((state) => state.openedUnread);
   const loading = useThreadStore((state) => state.loading);
+  const onEmpty = useThreadStore((state) => paneThread(state.openId) === null);
+  const listEmpty = useAutoStore((state) => state.loaded && listView(state.threads).groups.length === 0) && onEmpty;
   const stuck = React.useRef(true);
   const placed = React.useRef<string | null>(null);
   // A thread with a reply he has not read is placed again once its fresh snapshot, which holds that reply, is drawn.
@@ -238,6 +240,8 @@ function Talk({ scroller, onScrolled }: { scroller: React.RefObject<HTMLDivEleme
     else if (slow) rows.push({ key: 'loading', quiet: false, node: <p role="status" className="text-ui text-foreground-tertiary">Loading…</p> });
     // A new thread shows his words at once, on their way, before the service has made the thread.
     for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, node: <Bubble text={message.text} faded /> });
+    // The empty thread, with every thread done or put away: it says so, as the list does.
+    if (!problem && !slow && pending.length === 0 && listEmpty) rows.push({ key: 'nothing', quiet: false, node: <p data-testid="auto-nothing-left" className="text-ui text-foreground-tertiary">Nothing left.</p> });
   } else {
     const title = view.thread.title;
     const failed = failure(view);
@@ -636,9 +640,11 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
       event.preventDefault();
       submit();
     } else if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
-      // Out of the box, onto the open thread's row in the sidebar. A turn is never stopped this way.
+      // Out of the box, onto the open thread's row in the sidebar, or the Put away row for one opened from there.
+      // A turn is never stopped this way.
       event.preventDefault();
-      focusRowNow(openId ?? NEW_THREAD);
+      const fromAway = useThreadStore.getState().fromAway;
+      focusRowNow(fromAway && !(openId && rowElement(openId)) ? AWAY : openId ?? NEW_THREAD);
     } else if (event.key === 'PageUp' || event.key === 'PageDown') {
       const element = talk.current;
       if (!element) return;

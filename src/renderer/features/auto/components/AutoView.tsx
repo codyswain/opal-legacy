@@ -1,16 +1,14 @@
 import * as React from 'react';
-import { recordOpened } from '@/renderer/features/disk-explorer/activity/recordActivity';
-import { filesLocationKey, focusFile } from '@/renderer/features/disk-explorer/navigation/filesLocation';
-import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
-import { canonical, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
-import { useShell } from '@/renderer/features/shell/context/ShellContext';
+import { useShellStore } from '@/renderer/features/shell/store/shellStore';
 import { Button } from '@/renderer/shared/ui';
-import { MarkdownLinksContext, type MarkdownLinks } from '../markdown/Markdown';
-import { DIGEST_QUEUE } from '../model/pane';
-import { autoApi, signInProblem, useAutoStore } from '../store/autoStore';
-import { useSaidStore } from '../store/saidStore';
+import { MarkdownLinksContext } from '../markdown/Markdown';
+import { AWAY, DIGEST_QUEUE } from '../model/pane';
+import { signInProblem, useAutoStore } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
+import { useVaultLinks } from '../useVaultLinks';
+import { AwayPane } from './AwayPane';
 import { QueuePane } from './QueuePane';
+import { SaidBar } from './SaidBar';
 import { SnoozeDateHost } from './SnoozeMenu';
 import { ThreadPane } from './ThreadPane';
 
@@ -29,40 +27,6 @@ function useWatching(): void {
       useThreadStore.getState().setWatching(false);
     };
   }, []);
-}
-
-/**
- * How links in replies are followed. A vault path is looked up by the main
- * process inside the opened folders, and the file opens in a tab of its
- * own, or in the tab that already shows it, so the thread stays where it is.
- */
-function useLinks(): MarkdownLinks {
-  const { navigateFiles } = useShell();
-  const roots = useDiskStore((state) => state.roots);
-  const listings = useDiskStore((state) => state.listings);
-  const tops = React.useMemo(
-    () => new Set(roots.flatMap((root) => listings[root] ?? []).map((entry) => entry.name)),
-    [roots, listings]
-  );
-  const openVault = React.useCallback(
-    (path: string) => {
-      void autoApi()?.resolvePage(path).then((result) => {
-        if (!result.success) {
-          useSaidStore.getState().refuse(result.error.message);
-          return;
-        }
-        recordOpened(result.data.path);
-        const intent = focusFile(result.data.path);
-        const key = filesLocationKey(canonical(intent.location));
-        const tabs = useTabsStore.getState();
-        const shown = tabs.tabs.find((tab) => filesLocationKey(tabLocation(tab)) === key);
-        if (shown) tabs.activate(shown.id);
-        else navigateFiles(intent, { newTab: true });
-      });
-    },
-    [navigateFiles]
-  );
-  return React.useMemo(() => ({ context: { roots, tops }, openVault }), [roots, tops, openVault]);
 }
 
 const field =
@@ -172,7 +136,7 @@ function Notice() {
 /**
  * The Auto tab: a screen for a service that runs on another machine. It
  * shows one thing, picked in the sidebar's Threads: the open thread, the
- * digest's queue, a new thread, or the address form. Opal holds no sign-in
+ * digest's queue, a new thread, the Put away page, or the address form. Opal holds no sign-in
  * and starts no run itself; it asks the service.
  */
 export function AutoView() {
@@ -181,7 +145,8 @@ export function AutoView() {
   const editing = useAutoStore((state) => state.editing);
   const loaded = useAutoStore((state) => state.loaded);
   const openId = useThreadStore((state) => state.openId);
-  const links = useLinks();
+  const sidebarShown = useShellStore((state) => (state.narrowLayout ? state.narrowSidebarOpen : state.sidebarOpen));
+  const links = useVaultLinks();
   useWatching();
 
   let body: React.ReactNode = null;
@@ -192,9 +157,17 @@ export function AutoView() {
       <MarkdownLinksContext.Provider value={links}>
         <Notice />
         <div className="flex min-h-0 flex-1">
-          {/* One pane: a thread, a new thread, or the digest's queue. */}
-          {openId === DIGEST_QUEUE ? <QueuePane /> : <ThreadPane />}
+          {/* One pane: a thread, a new thread, the digest's queue, or what is put away. */}
+          {openId === DIGEST_QUEUE ? <QueuePane /> : openId === AWAY ? <AwayPane /> : <ThreadPane />}
         </div>
+        {/* With the sidebar not shown, what the last action did, and its Undo, show here instead. */}
+        {sidebarShown ? null : (
+          <div className="auto-beside-talk shrink-0 pb-3">
+            <div className="auto-column">
+              <SaidBar />
+            </div>
+          </div>
+        )}
         <SnoozeDateHost />
       </MarkdownLinksContext.Provider>
     );

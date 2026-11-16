@@ -39,7 +39,7 @@ import {
   ContextMenuTrigger,
 } from '@/renderer/shared/ui';
 import { useRootLength } from '@/renderer/shared/hooks/useRootLength';
-import { cn } from '@/renderer/shared/utils';
+import { cn, fadeOf, markFade } from '@/renderer/shared/utils';
 import {
   flattenFileTree,
   type FileTreeNode,
@@ -684,6 +684,15 @@ export function FileTree({ onNavigate }: FileTreeProps) {
     return () => outer.removeEventListener('scroll', follow);
   }, [hasRows]);
 
+  // A cut edge of the tree fades, as Threads' does. The top fades only while no folder row is stuck there:
+  // the stuck rows already say what is above, and stay readable.
+  React.useLayoutEffect(() => {
+    const outer = listOuterRef.current;
+    if (!outer) return;
+    const fade = fadeOf(outer);
+    markFade(outer, stuck.length > 0 ? (fade === 'both' ? 'bottom' : fade === 'top' ? null : fade) : fade);
+  });
+
   // A stuck row scrolls the tree to the folder's own row, just below its
   // parents' stuck rows, and focuses it there, as VS Code does.
   const showStuckFolder = React.useCallback(
@@ -813,7 +822,7 @@ export function FileTree({ onNavigate }: FileTreeProps) {
                   height={listHeight}
                   width="100%"
                   // The scroll area's gutter (--tree-scrollbar-gutter in index.css).
-                  className="sidebar-tree-scroll"
+                  className="sidebar-tree-scroll sidebar-fade"
                   itemCount={nodes.length}
                   itemData={itemData}
                   itemKey={itemKey}

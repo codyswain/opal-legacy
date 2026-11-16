@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { byKey, giveBack } from '../components/focus';
 import type { AutoDigest, AutoDigestEntry, AutoStreamMessage } from '@/types/auto';
 import { afterLeaving, allEntries, entryName, queueOrder, queueSections, stepDay, withState, wordsKey, type QueueFilter } from '../model/digestModel';
 import { cidFor, type Failed } from '../model/outbox';
@@ -152,7 +153,9 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     const { opened, filter } = get();
     if (filter !== 'left') return;
     if (opened && ids.includes(opened)) set({ opened: null });
-    set({ focusEntry: afterLeaving(queueOrder(queueSections(day, filter)), ids) ?? QUEUE_TOP });
+    // By a key, the keyboard moves on to the next entry; after the pointer it goes back to where it was.
+    if (byKey()) set({ focusEntry: afterLeaving(queueOrder(queueSections(day, filter)), ids) ?? QUEUE_TOP });
+    else giveBack();
   };
   const said = () => useSaidStore.getState();
   /** The archived days as the service last listed them. */
@@ -356,7 +359,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
           undo: () => {
             undone = true;
             end = keep(date, ids, unresolved);
-            if (shown()) set({ focusEntry: ids[0] });
+            if (shown() && byKey()) set({ focusEntry: ids[0] });
             // The resolve goes first, then its undoing.
             void post.then((result) => {
               if (!result?.success) {
@@ -424,7 +427,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
         undo: () => {
           undone = true;
           end = keep(date, [id], () => 'open');
-          if (selectDay(get())?.date === date) set({ focusEntry: id });
+          if (selectDay(get())?.date === date && byKey()) set({ focusEntry: id });
           void post.then((result) => {
             if (!result?.success) {
               end();

@@ -6,6 +6,7 @@ import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import { SidebarFold } from '@/renderer/features/shell/components/SidebarFold';
 import { useShellStore } from '@/renderer/features/shell/store/shellStore';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, IconButton } from '@/renderer/shared/ui';
+import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import { cn } from '@/renderer/shared/utils';
 import { attentionCount } from '../model/listModel';
 import { NEW_THREAD } from '../model/pane';
@@ -16,6 +17,8 @@ import { SnoozeDateHost } from './SnoozeMenu';
 import { ThreadList } from './ThreadList';
 
 const UNREACHABLE = "Can't reach Auto.";
+/** Threads' height when the app last closed, in px: a number, never the list. */
+const THREADS_HEIGHT = 'auto.threadsHeight';
 
 /** Out of reach: one line and Retry, above the last list read. */
 function OutOfReach() {
@@ -67,6 +70,26 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
   const inFront = useTabsStore((state) => isAutoLocation(selectCurrentLocation(state)));
   const onNew = useThreadStore((state) => inFront && (state.openId === NEW_THREAD || state.openId === null));
   const libraryOpen = useShellStore((state) => state.libraryOpen);
+  const threadsOpen = useShellStore((state) => state.threadsOpen);
+  const problem = useAutoStore((state) => state.problem);
+  const section = React.useRef<HTMLDivElement>(null);
+  // While the list is first read, Threads keeps the height it had when the app last closed, so Library does not move.
+  const [kept] = React.useState(() => readPref<number | null>(THREADS_HEIGHT, null));
+  const holding = threadsOpen && !!address && !loaded && !problem && typeof kept === 'number' && kept > 0;
+  React.useEffect(() => {
+    const element = section.current?.closest<HTMLElement>('[data-testid="sidebar-threads"]');
+    if (!element || !loaded || !threadsOpen || typeof ResizeObserver === 'undefined') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new ResizeObserver(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => writePref(THREADS_HEIGHT, Math.round(element.getBoundingClientRect().height)), 500);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [loaded, threadsOpen]);
 
   const show = React.useCallback(
     (pane: string) => {
@@ -84,7 +107,8 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
   const trailing = address ? (
     <>
       {needs > 0 ? (
-        <span data-testid="auto-count" aria-label={`${needs} need you`} className="shrink-0 px-1 text-metadata tabular-nums text-foreground-tertiary">
+        // Folded, the count is the only sign of what needs him: it is drawn in the text's own colour.
+        <span data-testid="auto-count" aria-label={`${needs} need you`} className={cn('shrink-0 px-1 text-metadata tabular-nums', threadsOpen ? 'text-foreground-tertiary' : 'text-foreground')}>
           {needs}
         </span>
       ) : null}
@@ -95,6 +119,14 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
         aria-pressed={onNew || undefined}
         variant="frame"
         onClick={() => show(NEW_THREAD)}
+        onKeyDown={(event) => {
+          // Down, or j, goes on into the list, to its first row.
+          if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || (event.key !== 'ArrowDown' && event.key !== 'j')) return;
+          const first = document.querySelector<HTMLElement>('[data-testid="auto-list"] [data-auto-row]');
+          if (!first) return;
+          event.preventDefault();
+          first.focus();
+        }}
         className={cn('h-6 w-6', onNew && 'bg-sidebar-selected text-foreground')}
       >
         <SquarePen aria-hidden className="h-3.5 w-3.5" />
@@ -112,6 +144,7 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
         // With Library open, Threads takes the height its rows need, up to 70% of the room the two sections share,
         // and Library the rest; with Library folded, all of it.
         className={cn('shrink pt-2', libraryOpen && 'max-h-[70%]')}
+        style={holding ? { height: kept as number } : undefined}
         wrapHeading={(heading) =>
           address ? (
             <ContextMenu>
@@ -145,10 +178,11 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
             </button>
           </div>
         ) : (
-          <>
-            {!reachable || !loaded ? <OutOfReach /> : null}
+          <div ref={section} className="flex min-h-0 flex-col">
             {loaded ? <ThreadList show={show} inFront={inFront} /> : null}
-          </>
+            {/* Said once: with the Auto tab in front its own notice says it. Under the rows, so it does not move them. */}
+            {(!reachable || !loaded) && !inFront ? <OutOfReach /> : null}
+          </div>
         )}
       </SidebarFold>
       {/* Outside the section, so a snooze picked from the Auto tab has its dialog while Threads is folded. */}

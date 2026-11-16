@@ -33,21 +33,20 @@ export interface AutoStore {
   listToken: number | null;
   /** When the list was last read, in ms. */
   refreshedAt: number;
-  snoozedOpen: boolean;
-  /** The line over the threads put away until someone replies is open. */
-  waitingOpen: boolean;
-  /** The threads he archived. They are read when their line is first opened, a first few and then all. */
+  /** The threads he archived. They are read each time the Put away page opens, a first few and then all. */
   archive: Archive;
   /**
    * The row that takes the keyboard focus once the list has drawn it: a
    * thread's id, or a pane's name for New thread and Digest.
    */
   focusRow: string | null;
+  /** The row of the Put away page that takes the keyboard once the page has drawn it, or PAGE_FIRST for its Tab stop. */
+  pageFocus: string | null;
   /**
    * The thread whose snooze is being given a day and a time of his own, or,
    * with `reply`, put away until someone replies; and where the action came from.
    */
-  picking: { thread: AutoThread; from: 'row' | 'pane'; reply?: boolean } | null;
+  picking: { thread: AutoThread; from: 'row' | 'pane' | 'page'; reply?: boolean } | null;
   /** Answers picked on a row and held a few seconds before they are posted, by thread. The row shows the pick. */
   held: Record<string, string>;
 
@@ -60,14 +59,13 @@ export interface AutoStore {
   refresh: () => Promise<boolean>;
   setTabOpen: (open: boolean) => void;
   requestFocus: (row: string | null) => void;
+  requestPageFocus: (row: string | null) => void;
   pickSnooze: (picking: AutoStore['picking']) => void;
   /** A message of the list stream. */
   handle: (message: AutoStreamMessage) => void;
   upsert: (thread: AutoThread) => void;
-  toggleSnoozed: () => void;
-  toggleWaiting: () => void;
-  /** Opens or closes the Archived line. Opening it reads the archive. */
-  toggleArchive: () => void;
+  /** The Put away page opened: the archive is read again, as many as were last asked for. */
+  openAway: () => void;
   /** Reads the archive: its newest few, or all of it. */
   loadArchive: (all?: boolean) => Promise<void>;
   /** A thread was archived or brought back here: the archive, once read, follows without asking again. */
@@ -80,7 +78,6 @@ export interface AutoStore {
 }
 
 export interface Archive {
-  open: boolean;
   /** Read at least once. Until then nothing is known of it, not even how many there are. */
   loaded: boolean;
   loading: boolean;
@@ -97,7 +94,7 @@ export interface Archive {
 /** How many archived threads are read before he asks for all of them. */
 export const ARCHIVE_FIRST = 10;
 
-const NO_ARCHIVE: Archive = { open: false, loaded: false, loading: false, all: false, threads: [], total: 0, problem: null };
+const NO_ARCHIVE: Archive = { loaded: false, loading: false, all: false, threads: [], total: 0, problem: null };
 
 export const autoApi = (): AutoAPI | undefined => (typeof window !== 'undefined' ? window.autoAPI : undefined);
 
@@ -212,10 +209,9 @@ export const useAutoStore = create<AutoStore>((set, get) => {
     tabOpen: false,
     listToken: null,
     refreshedAt: 0,
-    snoozedOpen: false,
-    waitingOpen: false,
     archive: NO_ARCHIVE,
     focusRow: null,
+    pageFocus: null,
     picking: null,
     held: {},
 
@@ -265,6 +261,8 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       set({ focusRow: row });
     },
 
+    requestPageFocus: (row) => set({ pageFocus: row }),
+
     pickSnooze: (picking) => set({ picking }),
 
     handle: (message) => {
@@ -291,16 +289,8 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       get().archiveChanged(laid(thread));
     },
 
-    toggleSnoozed: () => set({ snoozedOpen: !get().snoozedOpen }),
-
-    toggleWaiting: () => set({ waitingOpen: !get().waitingOpen }),
-
-    toggleArchive: () => {
-      const archive = get().archive;
-      set({ archive: { ...archive, open: !archive.open } });
-      // Read on every opening: threads archived on another device are not on the list's stream.
-      if (!archive.open) void get().loadArchive(archive.all);
-    },
+    // Read on every opening: threads archived on another device are not on the list's stream.
+    openAway: () => void get().loadArchive(get().archive.all),
 
     loadArchive: async (all = false) => {
       const api = autoApi();

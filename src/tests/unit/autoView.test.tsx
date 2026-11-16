@@ -227,13 +227,15 @@ describe('the list', () => {
     expect(within(row('trellis')).getByRole('img', { name: 'Back from snooze' })).toBeInTheDocument();
     expect(within(row('bread')).queryByRole('img')).toBeNull();
     expect(row('trellis').textContent).toMatch(/Back \d/);
-    // The rows that are his carry a heavier title: a question, something new, a thread nobody has started.
+    // Only the rows the heading's count takes in carry a heavier title: a question, something new. A thread nobody
+    // has started keeps its second line and a normal title.
     const weight = (id: string) => (within(row(id)).getByText(new RegExp(`^${useAutoStore.getState().threads.find((thread) => thread.id === id)?.title}$`)).className.match(/font-(semibold|sidebar-label)/) ?? [])[1];
-    expect(['beds', 'seeds', 'trellis', 'inspect', 'bread'].map(weight)).toEqual(['semibold', 'semibold', 'semibold', 'semibold', 'sidebar-label']);
+    expect(['beds', 'seeds', 'trellis', 'inspect', 'bread'].map(weight)).toEqual(['semibold', 'semibold', 'semibold', 'sidebar-label', 'sidebar-label']);
+    expect(screen.getByTestId('auto-count').textContent).toBe(String(['beds', 'seeds', 'trellis'].length));
     // A row is one line, two when the thread needs him: the first words of a reply are left out of the sidebar.
     expect(row('inspect').textContent).not.toContain('The committee walks the plots.');
     expect(row('bread').textContent).not.toContain('Start the starter at 8.');
-    expect(screen.getByTestId('auto-snoozed-line').textContent).toBe('Snoozed1');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
     expect(screen.queryByTestId('auto-row-labels')).toBeNull();
   });
 
@@ -292,24 +294,27 @@ describe('the list', () => {
     expect(auto.asked('answer')).toEqual([]);
   });
 
-  it('opens the snoozed threads from their line, and brings one back', async () => {
+  it('opens the snoozed threads from the Put away row, and brings one back', async () => {
     await open();
-    fireEvent.click(screen.getByTestId('auto-snoozed-line'));
-    const snoozed = within(screen.getByTestId('auto-snoozed'));
+    fireEvent.click(screen.getByTestId('auto-away-row'));
+    const snoozed = within(await screen.findByTestId('auto-snoozed'));
     fireEvent.click(snoozed.getByRole('button', { name: 'Bring back' }));
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until: null }));
-    await waitFor(() => expect(screen.queryByTestId('auto-snoozed-line')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('auto-snoozed')).toBeNull());
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away');
     expect(row('labels')).toBeInTheDocument();
   });
 
-  it('says Nothing left when every thread is snoozed, and the Snoozed line still shows them', async () => {
+  it('says Nothing left when every thread is snoozed, and the Put away page still shows them', async () => {
     await open({ threads: [LABELS, autoThread('herbs', { title: 'Herb spiral', snoozed: 4_000_100_000 })] });
     expect(screen.getByTestId('auto-empty').textContent).toMatch(/^Nothing left\. The next snoozed one returns .+ at \d/);
-    // How many are snoozed is said once, on the Snoozed line.
+    // How many are snoozed is said once, on the Put away row.
     expect(screen.getByTestId('auto-empty').textContent).not.toMatch(/2 snoozed/);
-    expect(screen.getByTestId('auto-snoozed-line').textContent).toBe('Snoozed2');
-    fireEvent.click(screen.getByTestId('auto-snoozed-line'));
-    expect([...screen.getByTestId('auto-snoozed').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'))).toEqual(['labels', 'herbs']);
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away2');
+    // The empty new thread says so too.
+    expect(screen.getByTestId('auto-nothing-left').textContent).toBe('Nothing left.');
+    fireEvent.click(screen.getByTestId('auto-away-row'));
+    expect([...(await screen.findByTestId('auto-snoozed')).querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'))).toEqual(['labels', 'herbs']);
   });
 
   it('says Nothing left with no thread at all', async () => {
