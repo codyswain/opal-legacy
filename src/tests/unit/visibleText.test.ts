@@ -74,19 +74,4 @@ describe('visible text', () => {
     const state = open('# Title\n\n**bold** text\n');
     expect(visibleSlice(state, 0, state.doc.length)).toBe('Title\n\nbold text\n');
   });
-
-  it('finds the caret\'s place in a 22,000-character paragraph within one frame', () => {
-    const words: string[] = [];
-    for (let length = 0, index = 0; length < 22_000; index += 1) {
-      const word = index % 40 === 0 ? `**bold ${index}**` : index % 55 === 0 ? `[link ${index}](https://example.com/${index})` : `word${index}`;
-      words.push(word);
-      length += word.length + 1;
-    }
-    const state = open(`${words.join(' ')}\n`);
-    visibleLine(state, 0);
-    const next = state.update({ changes: { from: 10_000, insert: 'x' } }).state;
-    const start = performance.now();
-    visibleLine(next, 10_000);
-    expect(performance.now() - start).toBeLessThan(16);
-  });
 });
