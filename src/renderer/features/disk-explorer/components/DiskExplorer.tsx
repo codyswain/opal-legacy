@@ -10,7 +10,7 @@ import { FileViewer } from './FileViewer';
 import { MarkdownEditor } from './editor/MarkdownEditor';
 import { StackView } from './stack/StackView';
 import { useTabScroll } from '../hooks/useTabScroll';
-import { filesLocationKey, isAutoLocation } from '../navigation/filesLocation';
+import { filesLocationKey, isAutoLocation, isDigestLocation } from '../navigation/filesLocation';
 import { tabFile, tabLocation } from '../store/tabsStore';
 import { usePaneTab } from '../panes/PaneContext';
 import { EditorSlot } from '../panes/EditorSlot';
@@ -138,9 +138,9 @@ export const DiskExplorer: React.FC = () => {
             </div>
           )}
         </div>
-      ) : isAutoLocation(location) ? (
+      ) : isAutoLocation(location) || isDigestLocation(location) ? (
         <div data-testid="files-auto" className="min-h-0 flex-1">
-          <AutoView />
+          <AutoView digest={isDigestLocation(location)} />
         </div>
       ) : (
         <div data-testid="files-recent" className="min-h-0 flex-1 overflow-auto">

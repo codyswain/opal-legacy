@@ -111,6 +111,11 @@ describe('list keys in the page editor', () => {
     expect(press('Plain|', 'Enter')).toBe('Plain\n|');
   });
 
+  it('ends an empty checkbox list beyond the initial Markdown parse', () => {
+    const paragraphs = 'A paragraph.\n\n'.repeat(250);
+    expect(press(paragraphs + '- [ ] one\n- [ ] |', 'Enter')).toBe(paragraphs + '- [ ] one\n\n|');
+  });
+
   it('takes a marker off with Backspace, leaving no spaces on a top-level line', () => {
     expect(press('- a\n  - |', 'Backspace')).toBe('- a\n  |');
     expect(press('- [ ] a\n- [ ] |', 'Backspace')).toBe('- [ ] a\n|');

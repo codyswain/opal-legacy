@@ -1,39 +1,42 @@
-import { browseAuto, isAutoLocation, type FilesNavigationIntent } from '@/renderer/features/disk-explorer/navigation/filesLocation';
-import { allTabs, paneOfTab, tabLocation, useTabsStore, type OpenOptions } from '@/renderer/features/disk-explorer/store/tabsStore';
+import { browseAuto, browseDigest, filesLocationKey, isAutoLocation, type FilesNavigationIntent } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { allTabs, selectCurrentLocation, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
+import type { OpenHow } from '@/renderer/features/disk-explorer/navigation/openHow';
 import { AWAY, DIGEST_QUEUE } from './model/pane';
 import { useThreadStore } from './store/threadStore';
 
-type NavigateFiles = (intent: FilesNavigationIntent, options?: Pick<OpenOptions, 'newTab' | 'side'>) => void;
+type NavigateFiles = (intent: FilesNavigationIntent, options?: OpenHow) => void;
+type ShowOptions = OpenHow & { focus?: boolean; fromAway?: boolean };
 
-/**
- * There is one Auto tab: this goes to the one already open, in either pane,
- * or opens one beside the page. With `side` it goes to the other pane.
- */
-export function openAutoTab(navigateFiles: NavigateFiles, options: Pick<OpenOptions, 'side'> = {}): void {
-  if (options.side) {
-    navigateFiles(browseAuto(), { side: true });
+/** Threads share a tab. The digest has a separate tab which can stay open beside it. */
+function openPlace(navigate: NavigateFiles, intent: FilesNavigationIntent, how: OpenHow): void {
+  if (how.side) {
+    navigate(intent, { side: true });
     return;
   }
   const tabs = useTabsStore.getState();
-  const open = allTabs(tabs).find((tab) => isAutoLocation(tabLocation(tab)));
+  const key = filesLocationKey(intent.location);
+  const open = allTabs(tabs).find((tab) => filesLocationKey(tabLocation(tab)) === key);
   if (open) tabs.activate(open.id);
-  else navigateFiles(browseAuto(), { newTab: true });
+  else navigate(intent, { newTab: true });
 }
 
-/**
- * Shows a thread, the digest's queue or a new thread in the Auto tab, from
- * the sidebar or the palette. The page he was on stays in its own tab. The
- * pane with the Auto tab becomes the active one, and a thread or a new one
- * opens with the caret in its box, as with one pane.
- */
-export function showInAuto(navigateFiles: NavigateFiles, pane: string, options: Pick<OpenOptions, 'side'> = {}): void {
+export function openAutoTab(navigateFiles: NavigateFiles, options: OpenHow = {}): void {
+  openPlace(navigateFiles, browseAuto(), options);
+}
+
+export function showInAuto(navigateFiles: NavigateFiles, pane: string, options: ShowOptions = {}): void {
+  if (pane === DIGEST_QUEUE) {
+    openPlace(navigateFiles, browseDigest(), options);
+    return;
+  }
   openAutoTab(navigateFiles, options);
-  const tabs = useTabsStore.getState();
-  const auto = allTabs(tabs).find((tab) => isAutoLocation(tabLocation(tab)));
-  const autoPane = auto ? paneOfTab(tabs, auto.id) : null;
-  if (autoPane) tabs.focusPane(autoPane.id);
-  useThreadStore.getState().open(pane);
-  if (autoPane && pane !== DIGEST_QUEUE && pane !== AWAY) focusBoxWhenUp(autoPane.id);
+  useThreadStore.getState().open(pane, options);
+  if (options.focus !== false && pane !== AWAY) focusBoxWhenUp(useTabsStore.getState().activePaneId);
+}
+
+/** Actions within the workspace, including a completed digest reply, can bring the appropriate tab forward. */
+export function showAutoPane(pane: string, options: ShowOptions = {}): void {
+  showInAuto((intent, how) => useTabsStore.getState().open(intent.location, how), pane, options);
 }
 
 /**
@@ -44,7 +47,8 @@ export function showInAuto(navigateFiles: NavigateFiles, pane: string, options: 
 function focusBoxWhenUp(paneId: string, frames = 60): void {
   if (typeof window === 'undefined') return;
   window.requestAnimationFrame(() => {
-    if (useTabsStore.getState().activePaneId !== paneId || useThreadStore.getState().renaming) return;
+    const tabs = useTabsStore.getState();
+    if (tabs.activePaneId !== paneId || !isAutoLocation(selectCurrentLocation(tabs)) || useThreadStore.getState().renaming) return;
     const column = document.querySelector<HTMLElement>(`[data-pane-column="${CSS.escape(paneId)}"]`);
     const box = column?.querySelector<HTMLTextAreaElement>('[data-testid="auto-box"]');
     if (box) {

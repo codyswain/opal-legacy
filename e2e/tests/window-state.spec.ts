@@ -28,18 +28,18 @@ test.describe('window state', () => {
     expect(bounds.height).toBeGreaterThanOrEqual(480);
 
     // Resize, then confirm the debounced writer persisted it.
-    await electronApp.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0].setBounds({ x: 60, y: 60, width: 1024, height: 768 });
+    const resized = await electronApp.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      win.setBounds({ x: 60, y: 60, width: 1024, height: 768 });
+      // macOS can constrain the requested size to the available display.
+      return win.getNormalBounds();
     });
-    await page.waitForTimeout(900);
+    expect([resized.width, resized.height]).not.toEqual([bounds.width, bounds.height]);
 
-    // Read from the test process: the main process's evaluate context has no
-    // require(), and the store writes to the same filesystem either way.
-    const raw = await readFile(path.join(userDataDir, 'window-state.json'), 'utf-8');
-
-    const saved = JSON.parse(raw);
-    expect(saved.version).toBe(1);
-    expect(saved.bounds.width).toBe(1024);
-    expect(saved.bounds.height).toBe(768);
+    const stateFile = path.join(userDataDir, 'window-state.json');
+    await expect(async () => {
+      const saved = JSON.parse(await readFile(stateFile, 'utf8'));
+      expect(saved).toMatchObject({ version: 1, bounds: resized });
+    }).toPass({ timeout: 5000 });
   });
 });

@@ -120,6 +120,14 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
   const followed: FakeAuto['followed'] = { list: null, thread: null };
   let tokens = 0;
   const entry = (id: string) => state.threads.find((thread) => thread.id === id) ?? state.archived.find((thread) => thread.id === id) ?? autoThread(id);
+  function updateThread(thread: AutoThread) {
+    const update = (each: AutoThread) => each.id === thread.id ? thread : each;
+    state.threads = state.threads.map(update);
+    state.archived = state.archived.map(update);
+    const snapshot = state.snapshots[thread.id];
+    if (snapshot) state.snapshots[thread.id] = { ...snapshot, thread };
+    return ok({ thread });
+  }
   const days = () => Object.keys(state.digests).sort().reverse();
   /** Changes entries of a day and answers the day as it is after, counted again. */
   const change = (date: string, ids: string[], fields: (found: AutoDigestEntry) => Partial<AutoDigestEntry>): AutoResult<unknown> => {
@@ -193,7 +201,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
       case 'rename':
         return ok({ thread: { ...entry(route.id), title: route.title } });
       case 'model':
-        return ok({ thread: { ...entry(route.id), model: route.model } });
+        return updateThread({ ...entry(route.id), model: route.model });
       case 'start':
         return ok({ thread: { ...entry(route.id), waits: false, status: 'working' } });
       case 'desk':
@@ -221,7 +229,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         if (!found) return NO_DIGEST;
         const id = `from-${route.id}`.slice(0, 40);
         const waits = route.words === null;
-        const thread = autoThread(id, { title: found.title || found.md.slice(0, 40), digest: { date: route.date, id: route.id }, waits, status: waits ? 'idle' : 'working', last: found.md.slice(0, 80) });
+        const thread = autoThread(id, { title: found.title || found.md.slice(0, 40), digest: { date: route.date, id: route.id }, model: route.model ?? '', waits, status: waits ? 'idle' : 'working', last: found.md.slice(0, 80) });
         state.threads = [thread, ...state.threads.filter((each) => each.id !== id)];
         state.snapshots[id] = autoSnapshot(thread, waits ? { seed: found.md } : { live: { items: [{ role: 'user', text: route.words ?? '', cid: route.cid }], activity: '', state: 'working', question: null } });
         change(route.date, [route.id], () => ({ state: 'thread', thread: id }));
@@ -235,10 +243,9 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
           return { success: false, error: { kind: 'refused', message: 'That entry no longer matches the thread.', code: 'no_match', status: 409 } };
         }
         // The entry goes in as one message, and a snoozed thread comes back.
-        const thread: AutoThread = { ...into, snoozed: null, status: 'working', last: route.words ?? found.md.slice(0, 80) };
-        state.threads = state.threads.map((each) => (each.id === thread.id ? thread : each));
+        const thread: AutoThread = { ...into, model: route.model ?? into.model, snoozed: null, status: 'working', last: route.words ?? found.md.slice(0, 80) };
         change(route.date, [route.id], () => ({ state: 'thread', thread: thread.id, continues: null }));
-        return ok({ thread });
+        return updateThread(thread);
       }
     }
   });

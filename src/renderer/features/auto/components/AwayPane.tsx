@@ -11,7 +11,7 @@ import { keepPlace, placeIn, placeOf } from '../model/places';
 import { restoreThread, snoozeThread } from '../store/actions';
 import { useAutoStore } from '../store/autoStore';
 import { useDigestStore } from '../store/digestStore';
-import { useThreadStore } from '../store/threadStore';
+import { showAutoPane } from '../openAutoTab';
 import { PAGE_FIRST, PAGE_TOP, byKey, focusPageAfterClose, focusRowNow, keepFocus, pageNext, pageRowElement, rovingTarget, setPageOrder } from './focus';
 import { paneHeader } from './Box';
 import { SnoozeButton } from './SnoozeMenu';
@@ -28,7 +28,7 @@ const digestRow = (date: string): string => `:digest:${date}`;
 const quiet = 'text-control text-foreground-tertiary';
 
 /** Opens a thread or a digest from the page; the sidebar's Put away row stays marked and leads back here. */
-const openFromPage = (pane: string): void => useThreadStore.getState().open(pane, { fromAway: true });
+const openFromPage = (pane: string): void => showAutoPane(pane, { fromAway: true });
 
 interface RowProps {
   id: string;

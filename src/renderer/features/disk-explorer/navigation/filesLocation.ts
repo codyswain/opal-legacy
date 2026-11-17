@@ -10,19 +10,24 @@ import type { StackKind } from '@/types/stack';
 export const FILES_ROUTE_PATH = '/files';
 
 /**
- * What a tab can show that is no file: Recent, and Auto, the screen for the
- * agent service. Folders browse in the sidebar tree.
+ * The built-in views a tab can show. Folders browse in the sidebar tree.
  */
 export interface FilesCollection {
-  kind: 'recent' | 'auto';
+  kind: 'recent' | 'auto' | 'digest';
 }
 
 export const RECENT_COLLECTION: FilesCollection = { kind: 'recent' };
 export const AUTO_COLLECTION: FilesCollection = { kind: 'auto' };
+export const DIGEST_COLLECTION: FilesCollection = { kind: 'digest' };
 
 /** The collection of a stored or written kind, or null for one Opal does not know. */
 export function collectionOf(kind: unknown): FilesCollection | null {
-  return kind === 'recent' ? RECENT_COLLECTION : kind === 'auto' ? AUTO_COLLECTION : null;
+  switch (kind) {
+    case 'recent': return RECENT_COLLECTION;
+    case 'auto': return AUTO_COLLECTION;
+    case 'digest': return DIGEST_COLLECTION;
+    default: return null;
+  }
 }
 
 export interface FilesBrowseLocation {
@@ -52,7 +57,7 @@ export interface FilesNavigationIntent {
   location: FilesLocation;
 }
 
-/** The file a place shows: a stack's head, or null for Recent and Auto. */
+/** The file a place shows, or null for a built-in view. */
 export function locationPath(location: FilesLocation): string | null {
   return location.mode === 'browse' ? null : location.file;
 }
@@ -130,6 +135,14 @@ export function browseAuto(): FilesNavigationIntent {
 
 export function isAutoLocation(location: FilesLocation | null): boolean {
   return location?.mode === 'browse' && location.collection.kind === 'auto';
+}
+
+export function browseDigest(): FilesNavigationIntent {
+  return { location: { mode: 'browse', collection: DIGEST_COLLECTION } };
+}
+
+export function isDigestLocation(location: FilesLocation | null): boolean {
+  return location?.mode === 'browse' && location.collection.kind === 'digest';
 }
 
 /** A file shown in a tab. */

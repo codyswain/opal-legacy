@@ -1253,6 +1253,19 @@ describe('Auto in the palette', () => {
     await screen.findByTestId('auto-queue-pane');
   });
 
+  it('keeps thread actions out of the palette and shortcuts while the digest is active', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [], state: 'working', activity: '' }));
+    await openQueue();
+    expect(useThreadStore.getState().openId).toBe('bread');
+    expect(key('.', { metaKey: true })).toBe(true);
+    expect(auto.asked('stop')).toHaveLength(0);
+    const palette = await show('>thread');
+    expect(palette.queryByTestId('palette-command-auto.archiveThread')).toBeNull();
+    expect(palette.queryByTestId('palette-command-auto.renameThread')).toBeNull();
+  });
+
   it('archives, snoozes and marks the open thread, and has none of these with no thread open', async () => {
     await open();
     let palette = await show('>thread');

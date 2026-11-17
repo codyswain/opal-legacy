@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
@@ -12,6 +12,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/tests/setup.ts'],
     include: ['src/tests/**/*.{test,spec}.{ts,tsx}'],
+    exclude: [...configDefaults.exclude, 'src/tests/browser/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
@@ -23,4 +24,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     },
   },
-}); 
+});

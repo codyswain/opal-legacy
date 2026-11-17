@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { validModel } from '@/common/autoModel';
+import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import type { AutoAnswer, AutoQuestion, AutoStreamMessage } from '@/types/auto';
 import {
   NEW_THREAD,
@@ -164,15 +166,28 @@ function remember(view: ThreadView): void {
   }
 }
 
-/** Drops every kept view: they belong to the service they were read from. */
+// Finish model changes in click order for each thread. A reply waits only for its own thread.
+const modelChanges = new Map<string, Promise<boolean>>();
+
+/** Drops every kept view and model change: they belong to the service they were read from. */
 export function forgetViews(): void {
   kept.clear();
+  modelChanges.clear();
 }
 
 /** The key a thread's draft is kept under. */
 export const draftKey = (openId: string | null): string => openId ?? NEW_THREAD;
 
+const MODEL_PREF = 'auto.reply-model';
+
+/** The next new thread or digest reply starts with the last model picked on this Mac. */
+export function rememberReplyModel(model: string): void {
+  writePref(MODEL_PREF, model);
+  useThreadStore.setState({ newModel: model });
+}
+
 export const useThreadStore = create<ThreadStore>((set, get) => {
+  const preferredModel = readPref<unknown>(MODEL_PREF, '');
   const keep = (box: BoxState) => {
     writeBox(box);
     set({ box });
@@ -215,7 +230,14 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     const api = autoApi();
     if (!api || onTheirWay.has(entry.cid)) return null;
     onTheirWay.add(entry.cid);
-    const result = entry.thread
+    const change = entry.thread && modelChanges.get(entry.thread);
+    const address = useAutoStore.getState().address;
+    const ready = !change || ((await change) && useAutoStore.getState().address === address);
+    if (entry.awaitingModel && ready) {
+      // Once confirmed, this message may be replayed normally if Opal closes during the post.
+      keep(put(get().box, { ...entry, awaitingModel: false }));
+    }
+    const result = !ready ? null : entry.thread
       ? await api.request({ kind: 'message', id: entry.thread, text: entry.text, cid: entry.cid }).catch((): null => null)
       : await api.request({ kind: 'create', text: entry.text, model: entry.model, cid: entry.cid }).catch((): null => null);
     onTheirWay.delete(entry.cid);
@@ -235,7 +257,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     set({
       pending: get().pending.filter((message) => message.cid !== entry.cid),
       failed: { thread: entry.thread, text: entry.text, cid: entry.cid },
-      notSent: { thread, text: result?.error.kind === 'refused' ? `Not sent: ${result.error.message}` : 'Not sent' },
+      notSent: { thread, text: !ready ? 'Choose a reply model again before sending.' : result?.error.kind === 'refused' ? `Not sent: ${result.error.message}` : 'Not sent' },
     });
     return null;
   };
@@ -260,7 +282,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     failed: null,
     picks: {},
     cardProblem: null,
-    newModel: '',
+    newModel: validModel(preferredModel) ? preferredModel : '',
     fromAway: false,
     hold: null,
 
@@ -456,7 +478,10 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         return false;
       }
       const thread = key === NEW_THREAD ? null : key;
-      const entry: OutboxEntry = { cid: cidFor(get().failed, thread, words), thread, text: words, model: thread ? '' : get().newModel, at: Date.now() };
+      const entry: OutboxEntry = {
+        cid: cidFor(get().failed, thread, words), thread, text: words, model: thread ? '' : get().newModel, at: Date.now(),
+        ...(thread && modelChanges.has(thread) ? { awaitingModel: true } : {}),
+      };
       keep(typed ? setDraft(put(get().box, entry), key, '') : put(get().box, entry));
       const view = get().view;
       set({
@@ -515,6 +540,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     handOver: async () => {
       const id = paneThread(get().openId);
       if (!id) return;
+      const change = modelChanges.get(id);
+      if (change && !(await change)) return;
       const result = await autoApi()?.request({ kind: 'start', id }).catch((): null => null);
       if (result?.success) useAutoStore.getState().upsert(result.data.thread);
       else set({ cardProblem: result?.error.message ?? "Can't reach Auto." });
@@ -536,11 +563,26 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     setModel: async (model) => {
       const id = paneThread(get().openId);
       if (!id) {
-        set({ newModel: model });
+        rememberReplyModel(model);
         return;
       }
-      const result = await autoApi()?.request({ kind: 'model', id, model }).catch((): null => null);
-      if (result?.success) useAutoStore.getState().upsert(result.data.thread);
+      const address = useAutoStore.getState().address;
+      const previous = modelChanges.get(id);
+      const change = (async () => {
+        if (previous) await previous;
+        if (useAutoStore.getState().address !== address) return false;
+        const result = await autoApi()?.request({ kind: 'model', id, model }).catch((): null => null);
+        if (useAutoStore.getState().address !== address) return false;
+        if (!result?.success) {
+          useSaidStore.getState().refuse(result?.error.message ?? "Couldn't change the reply model.");
+          return false;
+        }
+        useAutoStore.getState().upsert(result.data.thread);
+        return true;
+      })();
+      modelChanges.set(id, change);
+      // Keep a failed choice until he picks again. Replies never silently use the previous model.
+      if (await change && modelChanges.get(id) === change) modelChanges.delete(id);
     },
 
     flush: () => {

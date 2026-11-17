@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AUTO_COLLECTION,
   browseAuto,
+  browseDigest,
   browseRecent,
   collectionOf,
   filesLocationKey,
   isAutoLocation,
+  isDigestLocation,
   locationPath,
   normalizeFilesLocation,
   parseFilesLocation,
@@ -18,6 +20,7 @@ import { localDate } from '@/common/vaultModel';
 
 const ROOTS = ['/Vault'];
 const AUTO = browseAuto().location;
+const DIGEST = browseDigest().location;
 
 describe('Auto as a place a tab can show', () => {
   it('is a browse location with no file', () => {
@@ -54,6 +57,16 @@ describe('Auto as a place a tab can show', () => {
       { name: 'Auto', hint: null, title: 'Notes/Auto.md' },
     ]);
   });
+
+  it('keeps the digest distinct from a thread in the URL, tab strip and window title', () => {
+    expect(isDigestLocation(DIGEST)).toBe(true);
+    expect(isAutoLocation(DIGEST)).toBe(false);
+    expect(isDigestLocation(AUTO)).toBe(false);
+    expect(parseFilesLocation(serializeFilesLocation(DIGEST), ROOTS)).toEqual(DIGEST);
+    expect(filesLocationKey(DIGEST)).not.toBe(filesLocationKey(AUTO));
+    expect(locationName(DIGEST, undefined, 'Roof check')).toBe('Digest');
+    expect(tabLabels([DIGEST, AUTO], ROOTS, 'Roof check').map((tab) => tab.name)).toEqual(['Digest', 'Roof check']);
+  });
 });
 
 describe('an Auto tab across a relaunch', () => {
@@ -70,12 +83,23 @@ describe('an Auto tab across a relaunch', () => {
         active: 0,
         tabs: [
           { history: [{ location: { mode: 'browse', collection: { kind: 'auto' } } }], index: 0 },
+          { history: [{ location: DIGEST }], index: 0 },
           { history: [{ location: { mode: 'browse', collection: { kind: 'other' } } }], index: 0 },
           { history: [{ location: { mode: 'browse', collection: { kind: 'recent' } } }], index: 0 },
         ],
       },
     }));
     const { useTabsStore, tabLocation } = await import('@/renderer/features/disk-explorer/store/tabsStore');
-    expect(useTabsStore.getState().tabs.map(tabLocation)).toEqual([AUTO, browseRecent().location]);
+    expect(useTabsStore.getState().tabs.map(tabLocation)).toEqual([AUTO, DIGEST, browseRecent().location]);
+  });
+
+  it('preserves both the thread and the digest when a page opens from the digest', async () => {
+    const { useTabsStore, tabLocation } = await import('@/renderer/features/disk-explorer/store/tabsStore');
+    const { open } = useTabsStore.getState();
+    open(AUTO);
+    open(DIGEST);
+    const file = { mode: 'focus', file: '/Vault/Read.md' } as const;
+    open(file);
+    expect(useTabsStore.getState().tabs.map(tabLocation)).toEqual([AUTO, DIGEST, file]);
   });
 });

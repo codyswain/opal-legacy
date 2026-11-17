@@ -102,17 +102,24 @@ const joinedCode = StateField.define<DecorationSet>({
   update(value, tr) {
     if (tr.docChanged) {
       let next = value.map(tr.changes);
+      const { doc } = tr.state;
+      const ranges: { from: number; to: number }[] = [];
       tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
-        // The paragraph around a change, as far as a blank line either side.
-        const { doc } = tr.state;
+        // Replace All can change the same multiline paragraph hundreds of times.
+        const previous = ranges[ranges.length - 1];
+        if (previous && toB <= previous.to) return;
         let first = doc.lineAt(fromB).number;
         let last = doc.lineAt(toB).number;
         while (first > 1 && doc.line(first - 1).text.trim()) first -= 1;
         while (last < doc.lines && doc.line(last + 1).text.trim()) last += 1;
         const from = doc.line(first).from;
         const to = doc.line(last).to;
-        next = next.update({ filterFrom: from, filterTo: to, filter: () => false, add: lineBreaks(tr.state, from, to), sort: true });
+        if (previous && from <= previous.to) previous.to = to;
+        else ranges.push({ from, to });
       });
+      for (const { from, to } of ranges) {
+        next = next.update({ filterFrom: from, filterTo: to, filter: () => false, add: lineBreaks(tr.state, from, to), sort: true });
+      }
       return next;
     }
     return syntaxTree(tr.startState) !== syntaxTree(tr.state) ? Decoration.set(lineBreaks(tr.state, 0, tr.state.doc.length), true) : value;

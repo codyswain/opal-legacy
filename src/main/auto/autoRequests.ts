@@ -163,6 +163,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, '/api/digest/thread', {
         date: route.date,
         id: route.id,
+        model: route.model,
         ...(route.words !== null ? { words: route.words, ...(route.cid ? { cid: route.cid } : {}) } : { start: false }),
       });
     case 'digest-continue':
@@ -170,6 +171,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, '/api/digest/continue', {
         date: route.date,
         id: route.id,
+        model: route.model,
         thread: route.thread,
         ...(route.words !== null ? { words: route.words } : {}),
         ...(route.cid !== null ? { cid: route.cid } : {}),
@@ -316,14 +318,19 @@ function validDigestRoute(route: Fields): AutoRoute | null {
       ? { kind: 'digest-note', date, id, text: route.text.trim() }
       : null;
   }
+  const choice: { model?: string } = {};
+  if (route.model !== undefined) {
+    if (!validModel(route.model)) return null;
+    choice.model = route.model;
+  }
   if (route.kind === 'digest-continue') {
     // The thread it goes into is the one the entry was shown to match; words and the client's id are each optional.
     if (!validThreadId(route.thread)) return null;
     if (!(route.words === null || words(route.words)) || !(route.cid === null || validCid(route.cid))) return null;
-    return { kind: 'digest-continue', date, id, thread: route.thread, words: route.words as string | null, cid: route.cid as string | null };
+    return { kind: 'digest-continue', date, id, ...choice, thread: route.thread, words: route.words as string | null, cid: route.cid as string | null };
   }
-  if (route.words === null) return route.cid === null ? { kind: 'digest-thread', date, id, words: null, cid: null } : null;
-  return words(route.words) && validCid(route.cid) ? { kind: 'digest-thread', date, id, words: route.words, cid: route.cid } : null;
+  if (route.words === null) return route.cid === null ? { kind: 'digest-thread', date, id, ...choice, words: null, cid: null } : null;
+  return words(route.words) && validCid(route.cid) ? { kind: 'digest-thread', date, id, ...choice, words: route.words, cid: route.cid } : null;
 }
 
 /** A stream to follow as the page must name it, or null. */

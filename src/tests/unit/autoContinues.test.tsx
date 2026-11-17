@@ -137,6 +137,22 @@ afterEach(() => {
 });
 
 describe('an entry that matches a thread', () => {
+  it('shows the target model, remembers a digest choice across entries, and sends it with the matched reply', async () => {
+    await openQueue({ threads: [BEDS, BREAD, { ...SEEDS, model: 'small' }, INSPECTION, { ...LABELS, model: 'large' }] });
+    openEntry('text-b');
+    const picker = () => within(entry('text-b')).getByTestId('auto-model');
+    expect(picker()).toHaveAccessibleName('Model: Small');
+    await userEvent.setup().click(picker());
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Default' }));
+    openEntry('text-c');
+    expect(within(entry('text-c')).getByTestId('auto-model')).toHaveAccessibleName('Model: Large');
+    openEntry('text-b');
+    expect(picker()).toHaveAccessibleName('Model: Default');
+    fireEvent.keyDown(within(entry('text-b')).getByTestId('auto-entry-box'), { key: 'Enter' });
+    await waitFor(() => expect(last('digest-continue')).toMatchObject({ thread: 'seeds', model: '' }));
+    expect(auto.asked('model')).toHaveLength(0);
+  });
+
   it('says which thread on its row, under its words and above his note, and only on the matching rows', async () => {
     await openQueue();
     expect(within(entry('text-b')).getByTestId('auto-entry-continues').textContent).toBe('Continues: Seed order');

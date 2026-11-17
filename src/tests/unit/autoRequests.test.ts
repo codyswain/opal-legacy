@@ -245,7 +245,7 @@ describe('what the page may ask for', () => {
     expect(validRoute({ kind: 'digest-note', date: DAY, id: 'item-1', text: '   ' })).toEqual({ kind: 'digest-note', date: DAY, id: 'item-1', text: '' });
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1', words: null, cid: null })).toEqual({ kind: 'digest-thread', date: DAY, id: 'item-1', words: null, cid: null });
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask for Saturday', cid: 'a1', model: 'large', start: true })).toEqual({
-      kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask for Saturday', cid: 'a1',
+      kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask for Saturday', cid: 'a1', model: 'large',
     });
 
     for (const date of ['', '2026-11-13?x=1', '2026-11-13/../x', '13-11-2026', '2026-1-3', 20261113, undefined]) {
@@ -280,11 +280,23 @@ describe('what the page may ask for', () => {
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1' })).toBeNull();
   });
 
+  it.each(['digest-thread', 'digest-continue'])('carries the optional reply model through %s', (kind) => {
+    const entry: Record<string, unknown> = { kind, date: '2026-11-13', id: 'item-1', thread: ID, words: null, cid: null };
+    for (const model of ['', 'codex-gpt-6--2-sol']) {
+      const route = validRoute({ ...entry, model });
+      expect(route).toMatchObject({ model });
+      expect(JSON.parse(buildRequest(BASE, route as AutoRoute).body ?? '{}')).toMatchObject({ model });
+    }
+    for (const model of [null, 3, {}, 'not a model', 'a'.repeat(33)]) {
+      expect(validRoute({ ...entry, model })).toBeNull();
+    }
+  });
+
   it('adds an entry to the thread it matches with only the named fields, each checked', () => {
     const DAY = '2026-11-13';
-    // Nothing else the page sent rides along: no send mark, no model, no start.
+    // Extra fields such as send marks and start are dropped.
     expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: 'Bring the stone', cid: 'a1', sends: true, model: 'large', start: true })).toEqual({
-      kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: 'Bring the stone', cid: 'a1',
+      kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: 'Bring the stone', cid: 'a1', model: 'large',
     });
     expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: null })).toEqual({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: null });
     expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: 'a1' })).toEqual({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: 'a1' });

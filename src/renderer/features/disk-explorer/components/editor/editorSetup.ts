@@ -1,12 +1,12 @@
 import { history, historyKeymap, defaultKeymap, indentWithTab, isolateHistory } from '@codemirror/commands';
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from '@codemirror/lang-markdown';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { ensureSyntaxTree, HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { diff } from '@codemirror/merge';
 import { search, searchKeymap } from '@codemirror/search';
 import { ChangeSet, EditorSelection, EditorState, Transaction, type ChangeSpec, type Extension, type Line, type StateCommand } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
-import { GFM } from '@lezer/markdown';
+import { GFM, type MarkdownConfig } from '@lezer/markdown';
 import { isDocFile } from '@/common/fileKind';
 import { isDailyLog, isLogPage, readOnlyActivityLog, readOnlyLogPage } from './activityLog';
 import { blockGuards } from './blockGuards';
@@ -185,6 +185,16 @@ export const insertNewlineInList: StateCommand = ({ state, dispatch }) => {
   const { main } = state.selection;
   const line = state.doc.lineAt(main.head);
   if (state.selection.ranges.length === 1 && main.empty && main.head === line.to && LONE_NUMBER.test(line.text)) return false;
+  // The Markdown command reads the tree attached to its state. Publish the
+  // parse through the last caret before it decides whether Enter is in a list.
+  const last = state.selection.ranges[state.selection.ranges.length - 1];
+  const upto = Math.min(state.doc.length, last.to + 1);
+  if (syntaxTree(state).length < upto) {
+    if (!ensureSyntaxTree(state, upto, 50)) return false;
+    const parsed = state.update({});
+    dispatch(parsed);
+    state = parsed.state;
+  }
   let unchanged = false;
   const handled = continueMarkup({
     state,
@@ -267,6 +277,26 @@ export function editingSetup(path: string): EditingSetup {
   return isLogPage(path) || isDailyLog(path) ? 'plain' : 'note';
 }
 
+function isAsciiLetterOrDigit(code: number): boolean {
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+// After the Markdown parsers have declined the start of a word, the rest of
+// its ASCII letters and digits are plain text. GFM autolinks cannot begin
+// inside a word. Leave punctuation, spaces and non-ASCII characters to the parsers.
+const wordText: MarkdownConfig = {
+  parseInline: [{
+    name: 'WordText',
+    after: 'Autolink',
+    parse(context, next, pos) {
+      if (!isAsciiLetterOrDigit(next)) return -1;
+      let end = pos + 1;
+      while (end < context.end && isAsciiLetterOrDigit(context.char(end))) end++;
+      return end;
+    },
+  }],
+};
+
 /**
  * The page editor's setup. The document is the Markdown body exactly as read:
  * only "\n" splits lines, so a stray "\r" stays a character and `toString()`
@@ -280,7 +310,7 @@ export function markdownEditorExtensions(path: string, openNote: OpenNote = () =
     EditorView.clipboardInputFilter.of((text) => text.replace(/\r\n?/g, '\n')),
     pageContext.of({ path, openNote }),
     history(),
-    markdown({ extensions: [GFM, wikiLinkSyntax, linkMarkStyle, mathSyntax], completeHTMLTags: false, addKeymap: false }),
+    markdown({ extensions: [GFM, wikiLinkSyntax, linkMarkStyle, mathSyntax, wordText], completeHTMLTags: false, addKeymap: false }),
     syntaxHighlighting(highlight),
     wikiLinks,
     fileInserts,

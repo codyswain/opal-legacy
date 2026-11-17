@@ -320,9 +320,9 @@ export type AutoRoute =
    * Makes an entry a thread. With `words` it starts with the entry and his
    * words; without, it waits on top of the list until he says something.
    */
-  | { kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null }
+  | { kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null; model?: string }
   /** Adds an open entry to the thread it matches, with his words if any. Only his click sends it. */
-  | { kind: 'digest-continue'; date: string; id: string; thread: string; words: string | null; cid: string | null }
+  | { kind: 'digest-continue'; date: string; id: string; thread: string; words: string | null; cid: string | null; model?: string }
   /** How much of the plan the service's agent has used. Read only. */
   | { kind: 'usage' };
 

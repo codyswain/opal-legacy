@@ -12,7 +12,7 @@ import { HOLD_MS, hold } from '@/renderer/features/auto/store/actions';
 import { useSaidStore } from '@/renderer/features/auto/store/saidStore';
 import { useShellStore } from '@/renderer/features/shell/store/shellStore';
 import { forgetViews, useThreadStore } from '@/renderer/features/auto/store/threadStore';
-import { browseAuto, focusFile, isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { browseAuto, focusFile, isAutoLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
 import { tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { ShellProvider, WorkspaceSidebar } from '@/renderer/features/shell';
@@ -1094,17 +1094,45 @@ describe('the sidebar row', () => {
     expect(useTabsStore.getState().activeId).toBe(autoTabs()[0].id);
     expect(useThreadStore.getState().openId).toBe('seeds');
     expect(tabPaths()).toEqual(['/Vault/Recipes/Bread.md', null]);
-    // The heading's button opens a new thread there, the Digest row the queue.
+    const digestRow = screen.getByTestId('auto-digest-row');
+    fireEvent.contextMenu(digestRow);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Open in new tab' }));
+    const digest = useTabsStore.getState().tabs.find((tab) => isDigestLocation(tabLocation(tab)));
+    expect(digest?.id).toBe(useTabsStore.getState().activeId);
+    expect(digestRow).toHaveAttribute('aria-current', 'true');
+    expect(within(row('seeds')).getAllByRole('button')[0]).not.toHaveAttribute('aria-current');
+    expect(useThreadStore.getState().openId).toBe('seeds');
+    expect(autoTabs()).toHaveLength(1);
+    // Returning to the conversation leaves Digest available in its own tab.
+    act(() => useTabsStore.getState().activate(autoTabs()[0].id));
+    expect(within(row('seeds')).getAllByRole('button')[0]).toHaveAttribute('aria-current', 'true');
+    expect(digestRow).not.toHaveAttribute('aria-current');
     fireEvent.click(screen.getByTestId('auto-new-thread'));
     expect(useThreadStore.getState().openId).toBe(':new');
-    fireEvent.click(screen.getByTestId('auto-digest-row'));
-    expect(useThreadStore.getState().openId).toBe(':digest');
-    expect(autoTabs()).toHaveLength(1);
-    // Closing the tab keeps the list's stream, for the sidebar's count.
+    // Closing either one leaves the list live until the last Auto surface closes.
     act(() => useTabsStore.getState().close(autoTabs()[0].id));
-    expect(autoTabs()).toHaveLength(0);
+    expect(useAutoStore.getState().tabOpen).toBe(true);
+    act(() => useTabsStore.getState().close(digest.id));
     expect(auto.followed.list).not.toBeNull();
     expect(useAutoStore.getState().tabOpen).toBe(false);
+  });
+
+  it('keeps a visible thread subscribed with its draft when Digest opens and closes in the other pane', async () => {
+    await open();
+    await openThread('bread');
+    const followed = auto.followed.thread;
+    fireEvent.change(box(), { target: { value: 'Keep the starter cold' } });
+    fireEvent.click(screen.getByTestId('auto-digest-row'), { altKey: true });
+    expect(await screen.findByTestId('auto-queue-pane')).toBeTruthy();
+    expect(useTabsStore.getState().panes).toHaveLength(2);
+    expect(box().value).toBe('Keep the starter cold');
+    expect(auto.followed.thread).toEqual(followed);
+
+    const digestTab = useTabsStore.getState().activeId!;
+    act(() => useTabsStore.getState().close(digestTab));
+    expect(screen.queryByTestId('auto-queue-pane')).toBeNull();
+    expect(box().value).toBe('Keep the starter cold');
+    expect(auto.followed.thread).toEqual(followed);
   });
 
   it('keeps the Auto tab when a page is opened from the sidebar while it is in front', async () => {

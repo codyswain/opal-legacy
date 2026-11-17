@@ -234,8 +234,8 @@ not exist.
   acceptance runs use `src/tests/fixtures/agent/fake-agent.mjs`; under the
   test profile `OPAL_TEST_AGENT_HOME` and `OPAL_TEST_AGENT_PATH` keep the
   lookup away from a real install
-- **Auto:** the sidebar's Threads section and one Auto tab, a screen for a
-  service on another machine that runs agent threads. The sidebar is
+- **Auto:** the sidebar’s Threads section opens a thread tab and a separate Digest tab.
+  Both connect to the agent service on the Mini. The sidebar is
   Daily, then two sections that fold (`SidebarFold.tsx`, kept in
   `shell.layout` as `threadsOpen` and `libraryOpen`): Threads
   (`ThreadsSection.tsx`: the heading with the count and New thread, the
@@ -292,9 +292,8 @@ not exist.
   reduced from its snapshot and events), `outbox.ts` (a message is kept
   until the service has it; a failed one returns to the box), `digestModel.ts`
   and `digestStore.ts` (the queue: Left and All, the day shown, and every
-  write answered with the day as it is now), `pane.ts` (the one piece of
-  state for what the Auto tab shows: a thread, a new thread, the queue
-  or nothing), and `markdown/` (replies and digest entries parsed with
+  write answered with the day as it is now), `pane.ts` (the selected thread,
+  new thread or Put away page), and `markdown/` (replies and digest entries parsed with
   `@lezer/markdown` and drawn as elements, never as HTML). The service ends
   the Mac mark and says when a digest changed; Opal only follows. It never
   calls the service's tick or inbox routes. What is put away is one quiet
@@ -318,7 +317,9 @@ not exist.
   a page keeps its caret. The open thread keeps its place in the list
   until another opens (`hold` in `threadStore.ts`). A thread from a digest entry starts with his words: "Thread" and
   T open the entry with the caret in its box, and nothing is made until he
-  sends them or picks "Make it without words". `store/actions.ts` holds what he
+  sends them or picks "Make it without words". New digest replies remember the
+  last model picked for a new conversation on this Mac. A reply to a matched
+  thread uses its saved model until another is picked. `store/actions.ts` holds what he
   does to a thread (archive, done, snooze, bring back): the row leaves at once, the
   next thread takes its place, and the row returns with the service's
   sentence if the post fails. A put-away says what it did in the phone's
@@ -428,6 +429,7 @@ e2e/                   # Playwright Electron suite and acceptance scripts
 |---|---|---|
 | Unit (vitest) | Anything not requiring a live Electron process | pre-commit + CI |
 | Contract (vitest) | Cross-process agreements no single unit can verify | pre-commit + CI |
+| Browser (Vitest + Chromium) | Editor DOM timing budgets | macOS and Linux CI |
 | E2E (Playwright) | Only what is impossible to verify any other way | CI + on demand |
 
 Only five things genuinely require a real Electron process: the app boots,
@@ -444,8 +446,9 @@ font-dependent; its false failures destroy trust in the suite.
 ### Commands
 
 - `npm test` — unit + contract (vitest).
+- `npm run test:browser` measures editor timing in headless Chromium. Install its browser once with `npx playwright install --with-deps --only-shell chromium`.
 - `npm run test:e2e` — builds the three Vite bundles, then Playwright.
-- `npm run test:all` — both.
+- `npm run test:all` runs unit, contract, browser and E2E tests.
 - `node e2e/acceptance/<name>-acceptance.mjs` — disposable acceptance runs against
   the built app; see `e2e/acceptance/README.md`.
 

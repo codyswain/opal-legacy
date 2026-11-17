@@ -11,7 +11,7 @@ vi.mock('@/main/logger', () => ({
   },
 }));
 
-import { SystemHandlers } from '@/main/services/system/SystemHandlers';
+import { SystemHandlers } from '@/main/services/system/systemHandlers';
 
 type Listener = (event: unknown, payload: unknown) => void;
 

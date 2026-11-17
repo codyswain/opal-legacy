@@ -11,16 +11,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest]
-        node-version: [18.x]
+        # The pinned Playwright build provides Chromium for Ubuntu 24.04.
+        os: [macos-latest, ubuntu-24.04]
     
     steps:
       - uses: actions/checkout@v3
       
-      - name: Use Node.js ${{ matrix.node-version }}
+      - name: Use the project's Node.js version
         uses: actions/setup-node@v3
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version-file: .nvmrc
           cache: 'npm'
       
       - name: Install dependencies
@@ -29,8 +29,20 @@ jobs:
       - name: Lint
         run: npm run lint
       
-      - name: Run tests
-        run: npm test
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps --only-shell chromium
+
+      - name: Measure editor timing in Chromium
+        run: npm run test:browser
+
+      - name: Measure file search and visible text timing
+        run: npm test -- --no-file-parallelism src/tests/perf/
+        env:
+          SKIP_BUILD_TESTS: true
+
+      - name: Run remaining tests
+        # Keep DOM and filesystem integration tests from competing for the same runner.
+        run: npm test -- --no-file-parallelism --exclude 'src/tests/perf/**'
         env:
           SKIP_BUILD_TESTS: true
 
@@ -43,10 +55,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Use Node.js 18.x
+      - name: Use the project's Node.js version
         uses: actions/setup-node@v3
         with:
-          node-version: 18.x
+          node-version-file: .nvmrc
           cache: 'npm'
 
       - name: Install dependencies
