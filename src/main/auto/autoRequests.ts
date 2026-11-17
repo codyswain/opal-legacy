@@ -1,3 +1,4 @@
+import { imageFields, toAutoImage, validImageId, validImageIds } from '@/common/autoImages';
 import {
   NOTE_LIMIT,
   RESOLVE_LIMIT,
@@ -112,10 +113,14 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return get(base, route.limit === null ? '/api/threads?archived=1' : `/api/threads?archived=1&limit=${route.limit}`);
     case 'thread':
       return get(base, `/api/threads/${route.id}`);
+    case 'upload-image':
+      return post(base, '/api/images', { mime: route.mime, data: route.data });
+    case 'image':
+      return get(base, `/api/images/${route.id}`);
     case 'create':
-      return post(base, '/api/threads', { text: route.text, model: route.model, cid: route.cid });
+      return post(base, '/api/threads', { text: route.text, model: route.model, cid: route.cid, ...imageFields(route.images) });
     case 'message':
-      return post(base, `/api/threads/${route.id}/messages`, { text: route.text, cid: route.cid });
+      return post(base, `/api/threads/${route.id}/messages`, { text: route.text, cid: route.cid, ...imageFields(route.images) });
     case 'stop':
       return post(base, `/api/threads/${route.id}/stop`, {});
     case 'answer':
@@ -164,7 +169,10 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
         date: route.date,
         id: route.id,
         model: route.model,
-        ...(route.words !== null ? { words: route.words, ...(route.cid ? { cid: route.cid } : {}) } : { start: false }),
+        ...imageFields(route.images),
+        ...(route.words !== null ? { words: route.words } : {}),
+        ...(route.cid ? { cid: route.cid } : {}),
+        ...(route.words === null && !route.images?.length ? { start: false } : {}),
       });
     case 'digest-continue':
       // Into the thread the entry matches, as one message with his note and his words. Nothing in it is a send.
@@ -173,6 +181,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
         id: route.id,
         model: route.model,
         thread: route.thread,
+        ...imageFields(route.images),
         ...(route.words !== null ? { words: route.words } : {}),
         ...(route.cid !== null ? { cid: route.cid } : {}),
       });
@@ -194,6 +203,11 @@ type Fields = Record<string, unknown>;
 
 const words = (value: unknown, limit = TEXT_LIMIT): value is string =>
   typeof value === 'string' && value.trim() !== '' && value.length <= limit && !value.includes('\0');
+
+function validMessage(text: unknown, images: unknown): text is string {
+  if (images !== undefined && !validImageIds(images)) return false;
+  return words(text) || (text === '' && Array.isArray(images) && images.length > 0);
+}
 
 function validAnswer(value: unknown): AutoAnswer | null {
   if (!value || typeof value !== 'object') return null;
@@ -233,9 +247,15 @@ export function validRoute(value: unknown): AutoRoute | null {
     case 'check-status':
     case 'threads':
       return { kind: route.kind };
+    case 'upload-image': {
+      const image = toAutoImage(route.mime, route.data);
+      return image ? { kind: 'upload-image', ...image } : null;
+    }
+    case 'image':
+      return validImageId(route.id) ? { kind: 'image', id: route.id } : null;
     case 'create':
-      return words(route.text) && validModel(route.model) && validCid(route.cid)
-        ? { kind: 'create', text: route.text, model: route.model, cid: route.cid }
+      return validMessage(route.text, route.images) && validModel(route.model) && validCid(route.cid)
+        ? { kind: 'create', text: route.text, model: route.model, cid: route.cid, ...imageFields(route.images) }
         : null;
     case 'archived':
       return route.limit === null || (Number.isInteger(route.limit) && (route.limit as number) > 0 && (route.limit as number) <= ARCHIVED_LIMIT)
@@ -264,7 +284,7 @@ export function validRoute(value: unknown): AutoRoute | null {
     case 'start':
       return { kind: route.kind, id };
     case 'message':
-      return words(route.text) && validCid(route.cid) ? { kind: 'message', id, text: route.text, cid: route.cid } : null;
+      return validMessage(route.text, route.images) && validCid(route.cid) ? { kind: 'message', id, text: route.text, cid: route.cid, ...imageFields(route.images) } : null;
     case 'answer': {
       const answer = validAnswer(route.answer);
       return answer ? { kind: 'answer', id, answer } : null;
@@ -323,14 +343,19 @@ function validDigestRoute(route: Fields): AutoRoute | null {
     if (!validModel(route.model)) return null;
     choice.model = route.model;
   }
+  if (route.images !== undefined && !validImageIds(route.images)) return null;
+  const attachments = imageFields(route.images);
+  if (attachments.images && !validCid(route.cid)) return null;
+  const { words: caption, cid } = route;
+  if (caption !== null && !validMessage(caption, route.images)) return null;
+  if (cid !== null && !validCid(cid)) return null;
+  const common = { date, id, ...choice, ...attachments, words: caption as string | null, cid: cid as string | null };
   if (route.kind === 'digest-continue') {
-    // The thread it goes into is the one the entry was shown to match; words and the client's id are each optional.
-    if (!validThreadId(route.thread)) return null;
-    if (!(route.words === null || words(route.words)) || !(route.cid === null || validCid(route.cid))) return null;
-    return { kind: 'digest-continue', date, id, ...choice, thread: route.thread, words: route.words as string | null, cid: route.cid as string | null };
+    return validThreadId(route.thread) ? { kind: 'digest-continue', thread: route.thread, ...common } : null;
   }
-  if (route.words === null) return route.cid === null ? { kind: 'digest-thread', date, id, ...choice, words: null, cid: null } : null;
-  return words(route.words) && validCid(route.cid) ? { kind: 'digest-thread', date, id, ...choice, words: route.words, cid: route.cid } : null;
+  // A waiting thread has no message or client ID. Starting a turn requires both.
+  const starts = caption !== null || !!attachments.images;
+  return starts === (cid !== null) ? { kind: 'digest-thread', ...common } : null;
 }
 
 /** A stream to follow as the page must name it, or null. */

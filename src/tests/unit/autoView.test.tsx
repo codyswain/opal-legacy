@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoAnswer, AutoItem, AutoQuestion, AutoRoute } from '@/types/auto';
+import { MAX_AUTO_IMAGE_BYTES } from '@/common/autoImages';
 import { useAutoStore, useAutoSync } from '@/renderer/features/auto';
 import { AutoScreen } from '@/tests/helpers/autoHarness';
 import { LIST_PLACE, forgetPlaces, keepPlace, placeOf } from '@/renderer/features/auto/model/places';
@@ -21,6 +22,7 @@ import { TooltipProvider } from '@/renderer/shared/ui';
 import { installActivityApi } from '@/tests/helpers/activityApi';
 import { AUTO_STATUS, autoSnapshot, autoThread, installAutoApi, type FakeAuto } from '@/tests/helpers/autoApi';
 import { installCollectionsApi } from '@/tests/helpers/collectionsApi';
+import { pasteFiles, PNG_DATA, PNG_ID, screenshot } from '@/tests/helpers/imagePaste';
 import { entry, installDiskApi } from '@/tests/helpers/diskApi';
 import { openTabs, resetTabs, tabPaths } from '@/tests/helpers/tabs';
 
@@ -848,6 +850,81 @@ describe('a thread', () => {
 });
 
 describe('the box', () => {
+  it('lets the default paste handle text, including copied text with a screenshot representation', async () => {
+    await open();
+    await openThread('bread');
+    expect(pasteFiles(box(), [], 'Ingredients').defaultPrevented).toBe(false);
+    expect(pasteFiles(box(), [screenshot()], 'Ingredients').defaultPrevented).toBe(false);
+    expect(auto.asked('upload-image')).toHaveLength(0);
+    expect(auto.asked('message')).toHaveLength(0);
+  });
+
+  it('can remove a pasted image, then send an image in a new thread without typing', async () => {
+    await open();
+    fireEvent.click(screen.getByTestId('auto-new-thread'));
+    expect(pasteFiles(box(), [screenshot()]).defaultPrevented).toBe(true);
+    await waitFor(() => expect(screen.getByTestId('auto-send')).toBeEnabled());
+    expect(last('upload-image')).toEqual({ kind: 'upload-image', mime: 'image/png', data: PNG_DATA });
+    expect(auto.asked('create')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove image 1' }));
+    expect(screen.getByTestId('auto-send')).toBeDisabled();
+    expect(within(screen.getByTestId('auto-box-frame')).queryByRole('img')).toBeNull();
+
+    pasteFiles(box(), [screenshot()]);
+    await waitFor(() => expect(screen.getByTestId('auto-send')).toBeEnabled());
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    await waitFor(() => expect(last('create')).toMatchObject({ text: '', images: [PNG_ID] }));
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('created1'));
+    expect(await within(screen.getByTestId('auto-talk')).findByRole('img', { name: /image/i })).toHaveAttribute('src', `data:image/png;base64,${PNG_DATA}`);
+  });
+
+  it('keeps the typed draft when the image cannot upload and explains what happened', async () => {
+    await open();
+    await openThread('bread');
+    fireEvent.change(box(), { target: { value: 'Look at the top row.' } });
+    const oversized = screenshot();
+    Object.defineProperty(oversized, 'size', { value: MAX_AUTO_IMAGE_BYTES + 1 });
+    pasteFiles(box(), [oversized]);
+    const frame = within(screen.getByTestId('auto-box-frame'));
+    expect(await frame.findByRole('alert')).toHaveTextContent(/5 MB/i);
+    expect(auto.asked('upload-image')).toHaveLength(0);
+    auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
+    pasteFiles(box(), [screenshot()]);
+    await waitFor(() => expect(frame.getByRole('alert')).not.toHaveTextContent(/5 MB/i));
+    expect(auto.asked('upload-image')).toHaveLength(1);
+    expect(box()).toHaveValue('Look at the top row.');
+    expect(auto.asked('message')).toHaveLength(0);
+  });
+
+  it('keeps the image with its original thread when an upload finishes after a switch, and on a failed send', async () => {
+    await open();
+    await openThread('bread');
+    let release!: () => void;
+    auto.state.gate = new Promise<void>((resolve) => { release = resolve; });
+    pasteFiles(box(), [screenshot()]);
+    await waitFor(() => expect(auto.asked('upload-image')).toHaveLength(1));
+    fireEvent.change(box(), { target: { value: 'What does this show?' } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    expect(auto.asked('message')).toHaveLength(0);
+    await openThread('inspect');
+    await act(async () => { release(); await auto.state.gate; });
+    expect(screen.getByTestId('auto-send')).toBeDisabled();
+    expect(within(screen.getByTestId('auto-box-frame')).queryByRole('img')).toBeNull();
+    await openThread('bread');
+    await waitFor(() => expect(screen.getByTestId('auto-send')).toBeEnabled());
+    expect(box()).toHaveValue('What does this show?');
+    auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    await screen.findByTestId('auto-not-sent');
+    const first = last('message');
+    expect(first).toMatchObject({ id: 'bread', text: 'What does this show?', images: [PNG_ID] });
+    expect(within(screen.getByTestId('auto-box-frame')).getByRole('button', { name: 'Remove image 1' })).toBeEnabled();
+    auto.state.failWrites = null;
+    fireEvent.click(within(screen.getByTestId('auto-not-sent')).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(auto.asked('message')).toEqual([first, first]));
+    expect(auto.asked('upload-image')).toHaveLength(1);
+  });
+
   it('sends on Enter, adds a line on Shift+Enter, and never marks a message as a send', async () => {
     await open();
     await openThread('bread');

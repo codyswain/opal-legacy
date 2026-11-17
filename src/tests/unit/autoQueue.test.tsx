@@ -19,6 +19,7 @@ import { TooltipProvider } from '@/renderer/shared/ui';
 import { installActivityApi } from '@/tests/helpers/activityApi';
 import { autoDigest, autoSnapshot, autoThread, digestEntry, installAutoApi, type FakeAuto } from '@/tests/helpers/autoApi';
 import { installCollectionsApi } from '@/tests/helpers/collectionsApi';
+import { pasteFiles, PNG_ID, screenshot } from '@/tests/helpers/imagePaste';
 import { entry as diskEntry, installDiskApi } from '@/tests/helpers/diskApi';
 import { openTabs, tabPaths } from '@/tests/helpers/tabs';
 
@@ -533,6 +534,19 @@ describe('an entry opened in place', () => {
     fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Default' }));
     fireEvent.click(within(entry('meeting-committee')).getByTestId('auto-entry-wordless'));
     await waitFor(() => expect(last('digest-thread')).toMatchObject({ id: 'meeting-committee', words: null, model: '' }));
+  });
+
+  it('starts a thread from a digest entry with a pasted image', async () => {
+    await openQueue();
+    openEntry('item-1');
+    const form = within(entry('item-1'));
+    const box = form.getByTestId('auto-entry-box');
+    pasteFiles(box, [screenshot()]);
+    await waitFor(() => expect(form.getByTestId('auto-send')).toBeEnabled());
+    expect(auto.asked('digest-thread')).toHaveLength(0);
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(last('digest-thread')).toMatchObject({ date: DAY, id: 'item-1', images: [PNG_ID] }));
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('from-item-1'));
   });
 
   it('starts a thread with his words on Enter and opens it', async () => {

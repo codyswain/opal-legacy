@@ -45,6 +45,7 @@ import { ThreadLine } from './ThreadLine';
 import { UsageRing } from './UsageRing';
 import { ReplyModelPicker } from './ReplyModelPicker';
 import { useGrow } from './ThreadPane';
+import { Attachments, noImages, PasteStatus, useImagePaste } from './PastedImages';
 
 const quiet = 'text-control text-foreground-tertiary';
 const field =
@@ -214,6 +215,15 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   const notSent = useDigestStore((state) => state.notSent === key);
   const wanted = useDigestStore((state) => state.boxWanted === entry.id);
   const [sending, setSending] = React.useState(false);
+  const images = useDigestStore((state) => state.images[key] ?? noImages);
+  const readImages = () => useDigestStore.getState().images[key] ?? noImages;
+  const addImage = (id: string) => {
+    const ids = readImages();
+    if (!ids.includes(id)) useDigestStore.getState().setImages(date, entry.id, [...ids, id]);
+  };
+  const pasted = useImagePaste(key, readImages, addImage);
+  const content = !!(words.trim() || images.length);
+  const blocked = sending || pasted.pending > 0;
   const area = React.useRef<HTMLTextAreaElement>(null);
   useGrow(area, words, 0.3);
   // "Thread" on the entry, or T on its row, puts the caret here.
@@ -228,20 +238,20 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   const matchedModel = useAutoStore((state) => state.threads.find((thread) => thread.id === match?.id)?.model);
   const preferredModel = useThreadStore((state) => state.newModel);
   const submit = () => {
-    if (sending) return;
+    if (sending || !pasted.canSubmit()) return;
     if (match) {
       setSending(true);
       void useDigestStore.getState().continueThread(entry.id, words).then(() => setSending(false));
       return;
     }
-    if (!words.trim()) return;
+    if (!content) return;
     setSending(true);
     void useDigestStore.getState().say(entry.id, words).then(() => setSending(false));
   };
   /** A new thread of the entry after all: with the box's words, or waiting in the list without any. */
   const newThread = () => {
-    if (sending) return;
-    if (!words.trim()) {
+    if (sending || !pasted.canSubmit()) return;
+    if (!content) {
       void useDigestStore.getState().makeThread(entry.id);
       return;
     }
@@ -256,15 +266,16 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
     <div>
       {/* Enter was taken: his words leave the box and show on their way, until the thread opens. */}
       <ContinuesLine entry={entry} whole />
-      {sending && words.trim() ? (
+      {sending && content ? (
         <div data-testid="auto-entry-pending" className="mb-2 ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-2xl bg-surface-active px-3.5 py-2 text-reply text-foreground opacity-60">
+          <Attachments ids={images} />
           {words.trim()}
         </div>
       ) : null}
       {notSent ? (
         <p role="status" data-testid="auto-entry-not-sent" className="mb-1 flex items-center gap-1 text-control font-medium text-foreground">
           Not sent
-          <Button size="compact" variant="ghost" className="text-control" disabled={(!match && !words.trim()) || sending} onClick={submit}>
+          <Button size="compact" variant="ghost" className="text-control" disabled={(!match && !content) || blocked} onClick={submit}>
             Retry
           </Button>
         </p>
@@ -282,10 +293,12 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
             />
             <UsageRing field={area} />
             <div className="flex-1" />
-            <SendButton label={match ? 'Add to it' : 'Start a thread with it'} ready={match !== null || words.trim() !== ''} disabled={sending} />
+            <SendButton label={match ? 'Add to it' : 'Start a thread with it'} ready={match !== null || content} disabled={blocked} />
           </>
         }
       >
+        {!sending && <Attachments ids={images} remove={(id) => useDigestStore.getState().setImages(date, entry.id, readImages().filter((other) => other !== id))} />}
+        <PasteStatus pending={pasted.pending} error={pasted.error} />
         <textarea
           ref={area}
           rows={1}
@@ -295,6 +308,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           value={sending ? '' : words}
           readOnly={sending}
           onChange={(event) => useDigestStore.getState().setWords(entry.id, event.target.value)}
+          onPaste={pasted.onPaste}
           onKeyDown={(event) => {
             if (backToRow(event, entry.id)) return;
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -302,16 +316,16 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
               submit();
             }
           }}
-          className={boxField}
+          className={cn(boxField, !sending && images.length > 0 && 'mt-2')}
         />
       </BoxFrame>
       {/* With a match, a new thread stays one click away, with his words or without. */}
-      {match && !sending ? (
+      {match && !blocked ? (
         <Button
           size="compact"
           variant="ghost"
           data-testid="auto-entry-new-thread"
-          title={words.trim() ? 'Starts a new thread with your words' : 'Puts a new thread in the list, not started'}
+          title={content ? 'Starts a new thread with your words' : 'Puts a new thread in the list, not started'}
           className="-ml-2 mt-1 font-normal text-foreground-tertiary"
           onClick={newThread}
         >
@@ -319,7 +333,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
         </Button>
       ) : null}
       {/* The one-step thread, one step further in. It leaves once he has words. */}
-      {!match && !words.trim() && !sending ? (
+      {!match && !content && !blocked ? (
         <Button
           size="compact"
           variant="ghost"

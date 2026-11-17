@@ -1,3 +1,4 @@
+import { toAutoImage, validImageId } from '@/common/autoImages';
 import type * as fsPromises from 'fs/promises';
 import path from 'path';
 import {
@@ -144,6 +145,10 @@ function shape(kind: AutoRoute['kind'], data: unknown): unknown {
       return toArchived(body);
     case 'thread':
       return toSnapshot(body);
+    case 'upload-image':
+      return validImageId(body.id) ? { id: body.id } : null;
+    case 'image':
+      return toAutoImage(body.mime, body.data);
     case 'message':
       return { queued: body.queued === true };
     case 'stop':

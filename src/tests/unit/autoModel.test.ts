@@ -136,6 +136,10 @@ describe("reading the service's answers", () => {
   });
 
   it('reads items of every role and leaves out roles it does not know', () => {
+    const image = 'ab'.repeat(32);
+    const photo = { role: 'user', text: '', cid: 'a1', images: [image] };
+    expect(toItem(photo)).toEqual(photo);
+    expect(toItem({ ...photo, images: ['unknown'] })).toEqual({ role: 'user', text: '', cid: 'a1' });
     expect(toItem({ role: 'user', text: 'Count to 10', cid: 'a1b2c3d4e5' })).toEqual({ role: 'user', text: 'Count to 10', cid: 'a1b2c3d4e5' });
     expect(toItem({ role: 'user', text: 'Count to 10' })).toEqual({ role: 'user', text: 'Count to 10', cid: null });
     expect(toItem({ role: 'assistant', text: 'The plan has', open: true })).toEqual({ role: 'assistant', text: 'The plan has', open: true });
