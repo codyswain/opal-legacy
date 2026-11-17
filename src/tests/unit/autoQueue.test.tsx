@@ -514,6 +514,10 @@ describe('an entry opened in place', () => {
     const picker = () => within(entry('item-1')).getByTestId('auto-model');
     await userEvent.setup().click(picker());
     fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Large' }));
+    await userEvent.setup().click(within(entry('item-1')).getByRole('button', { name: 'Effort: Default effort' }));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Ultra' }));
+    await userEvent.setup().click(within(entry('item-1')).getByRole('button', { name: 'Speed: Standard' }));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Fast' }));
     openEntry('meeting-committee');
     expect(within(entry('meeting-committee')).getByTestId('auto-model')).toHaveAccessibleName('Model: Large');
     await userEvent.setup().click(within(entry('meeting-committee')).getByTestId('auto-model'));
@@ -523,10 +527,12 @@ describe('an entry opened in place', () => {
     const box = within(entry('item-1')).getByTestId('auto-entry-box');
     fireEvent.change(box, { target: { value: 'Plan the collection' } });
     fireEvent.keyDown(box, { key: 'Enter' });
-    await waitFor(() => expect(last('digest-thread')).toMatchObject({ model: 'large', words: 'Plan the collection' }));
+    await waitFor(() => expect(last('digest-thread')).toMatchObject({ model: 'large', effort: 'ultra', speed: 'priority', words: 'Plan the collection' }));
     await waitFor(() => expect(auto.followed.thread?.id).toBe('from-item-1'));
     expect(screen.getByTestId('auto-model')).toHaveAccessibleName('Model: Large');
-    expect(useThreadStore.getState().newModel).toBe('small');
+    expect(screen.getByRole('button', { name: 'Effort: Ultra' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Speed: Fast' })).toBeVisible();
+    expect(useThreadStore.getState().newModel).toEqual({ model: 'small' });
     fireEvent.click(digestRow());
     openEntry('meeting-committee');
     await userEvent.setup().click(within(entry('meeting-committee')).getByTestId('auto-model'));

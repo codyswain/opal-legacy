@@ -51,8 +51,19 @@ export interface AutoWait {
   reply: string;
 }
 
+export interface AutoModelChoice {
+  model: string;
+  effort?: string;
+  speed?: string;
+}
+
+export interface AutoModelOptions {
+  efforts: string[];
+  speeds: Record<string, string>;
+}
+
 /** A thread's list entry. */
-export interface AutoThread {
+export interface AutoThread extends AutoModelChoice {
   id: string;
   title: string;
   status: AutoThreadStatus;
@@ -62,7 +73,7 @@ export interface AutoThread {
   activity: string;
   ask: AutoAsk | null;
   unread: boolean;
-  model: string;
+  lastModel?: string;
   /** Unix seconds. */
   created: number;
   updated: number;
@@ -253,6 +264,7 @@ export interface AutoStatus {
   limit: number;
   /** Model keys and their labels. */
   models: Record<string, string>;
+  modelOptions?: Record<string, AutoModelOptions>;
 }
 
 /** One of the plan's limits, as the service last saw it. */
@@ -290,11 +302,11 @@ export type AutoRoute =
   /** The threads he archived, newest archived first; the first `limit` of them, or all with null. */
   | { kind: 'archived'; limit: number | null }
   | { kind: 'thread'; id: string }
-  | { kind: 'create'; text: string; model: string; cid: string }
+  | ({ kind: 'create'; text: string; cid: string } & AutoModelChoice)
   | { kind: 'message'; id: string; text: string; cid: string }
   | { kind: 'stop'; id: string }
   | { kind: 'answer'; id: string; answer: AutoAnswer }
-  | { kind: 'model'; id: string; model: string }
+  | ({ kind: 'model'; id: string } & AutoModelChoice)
   | { kind: 'rename'; id: string; title: string }
   | { kind: 'archive'; id: string; archived: boolean; done?: boolean }
   | { kind: 'move'; id: string; before: string | null }
@@ -320,9 +332,9 @@ export type AutoRoute =
    * Makes an entry a thread. With `words` it starts with the entry and his
    * words; without, it waits on top of the list until he says something.
    */
-  | { kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null; model?: string }
+  | ({ kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null } & Partial<AutoModelChoice>)
   /** Adds an open entry to the thread it matches, with his words if any. Only his click sends it. */
-  | { kind: 'digest-continue'; date: string; id: string; thread: string; words: string | null; cid: string | null; model?: string }
+  | ({ kind: 'digest-continue'; date: string; id: string; thread: string; words: string | null; cid: string | null } & Partial<AutoModelChoice>)
   /** How much of the plan the service's agent has used. Read only. */
   | { kind: 'usage' };
 

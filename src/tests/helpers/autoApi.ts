@@ -1,3 +1,4 @@
+import { replyChoice } from '@/common/autoReplyModel';
 import { vi } from 'vitest';
 import type {
   AutoAPI,
@@ -52,6 +53,7 @@ export const AUTO_STATUS: AutoStatus = {
   waiting: 0,
   limit: 3,
   models: { '': 'Default', small: 'Small', large: 'Large' },
+  modelOptions: { large: { efforts: ['high', 'ultra'], speeds: { priority: 'Fast' } } },
 };
 
 const ok = <T>(data: T): AutoResult<T> => ({ success: true, data }) as AutoResult<T>;
@@ -169,7 +171,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
           : { success: false, error: { kind: 'refused', message: 'No such thread.', code: 'not_found', status: 404 } };
       }
       case 'create': {
-        const thread = autoThread('created1', { title: route.text.slice(0, 40), status: 'working', model: route.model });
+        const thread = autoThread('created1', { title: route.text.slice(0, 40), status: 'working', ...replyChoice(route) });
         state.threads = [thread, ...state.threads];
         state.snapshots[thread.id] = autoSnapshot(thread, { live: { items: [{ role: 'user', text: route.text, cid: route.cid }], activity: '', state: 'working', question: null } });
         return ok({ thread });
@@ -201,7 +203,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
       case 'rename':
         return ok({ thread: { ...entry(route.id), title: route.title } });
       case 'model':
-        return updateThread({ ...entry(route.id), model: route.model });
+        return updateThread({ ...entry(route.id), ...replyChoice(route) });
       case 'start':
         return ok({ thread: { ...entry(route.id), waits: false, status: 'working' } });
       case 'desk':
@@ -229,7 +231,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         if (!found) return NO_DIGEST;
         const id = `from-${route.id}`.slice(0, 40);
         const waits = route.words === null;
-        const thread = autoThread(id, { title: found.title || found.md.slice(0, 40), digest: { date: route.date, id: route.id }, model: route.model ?? '', waits, status: waits ? 'idle' : 'working', last: found.md.slice(0, 80) });
+        const thread = autoThread(id, { title: found.title || found.md.slice(0, 40), digest: { date: route.date, id: route.id }, model: '', ...replyChoice(route), waits, status: waits ? 'idle' : 'working', last: found.md.slice(0, 80) });
         state.threads = [thread, ...state.threads.filter((each) => each.id !== id)];
         state.snapshots[id] = autoSnapshot(thread, waits ? { seed: found.md } : { live: { items: [{ role: 'user', text: route.words ?? '', cid: route.cid }], activity: '', state: 'working', question: null } });
         change(route.date, [route.id], () => ({ state: 'thread', thread: id }));

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { validModel } from '@/common/autoModel';
+import { replyChoice, visibleModel } from '@/common/autoReplyModel';
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
-import type { AutoAnswer, AutoQuestion, AutoStreamMessage } from '@/types/auto';
+import type { AutoAnswer, AutoModelChoice, AutoQuestion, AutoStreamMessage } from '@/types/auto';
 import {
   NEW_THREAD,
   cidFor,
@@ -110,7 +110,7 @@ export interface ThreadStore {
   /** What the service said to an answer it did not take. */
   cardProblem: string | null;
   /** The model a new thread starts with. */
-  newModel: string;
+  newModel: AutoModelChoice;
   /** What shows was opened from the Put away page: the sidebar's Put away row stays marked, and it leads back there. */
   fromAway: boolean;
   /** The open thread keeps the group it was in when it was opened, until another opens or he leaves the tab. */
@@ -149,7 +149,7 @@ export interface ThreadStore {
   handOver: () => Promise<void>;
   /** Posts a new title for a thread, the open one unless `id` names another. An empty or unchanged title posts nothing. */
   rename: (title: string, id?: string) => Promise<void>;
-  setModel: (model: string) => Promise<void>;
+  setModel: (model: AutoModelChoice) => Promise<void>;
   /** Sends again what a closed app left on its way, and gives the rest back to its box. */
   flush: () => void;
 }
@@ -181,13 +181,14 @@ export const draftKey = (openId: string | null): string => openId ?? NEW_THREAD;
 const MODEL_PREF = 'auto.reply-model';
 
 /** The next new thread or digest reply starts with the last model picked on this Mac. */
-export function rememberReplyModel(model: string): void {
+export function rememberReplyModel(model: AutoModelChoice): void {
   writePref(MODEL_PREF, model);
   useThreadStore.setState({ newModel: model });
 }
 
 export const useThreadStore = create<ThreadStore>((set, get) => {
-  const preferredModel = readPref<unknown>(MODEL_PREF, '');
+  const saved = readPref<string | AutoModelChoice | null>(MODEL_PREF, '');
+  const preferred = replyChoice(typeof saved === 'string' ? { model: saved } : saved ?? {});
   const keep = (box: BoxState) => {
     writeBox(box);
     set({ box });
@@ -239,7 +240,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     }
     const result = !ready ? null : entry.thread
       ? await api.request({ kind: 'message', id: entry.thread, text: entry.text, cid: entry.cid }).catch((): null => null)
-      : await api.request({ kind: 'create', text: entry.text, model: entry.model, cid: entry.cid }).catch((): null => null);
+      : await api.request({ kind: 'create', text: entry.text, model: entry.model, effort: entry.effort, speed: entry.speed, cid: entry.cid }).catch((): null => null);
     onTheirWay.delete(entry.cid);
     if (result?.success) {
       keep(drop(get().box, entry.cid));
@@ -282,7 +283,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     failed: null,
     picks: {},
     cardProblem: null,
-    newModel: validModel(preferredModel) ? preferredModel : '',
+    newModel: preferred && visibleModel(preferred.model) ? preferred : { model: '' },
     fromAway: false,
     hold: null,
 
@@ -479,7 +480,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       }
       const thread = key === NEW_THREAD ? null : key;
       const entry: OutboxEntry = {
-        cid: cidFor(get().failed, thread, words), thread, text: words, model: thread ? '' : get().newModel, at: Date.now(),
+        cid: cidFor(get().failed, thread, words), thread, text: words, ...(thread ? { model: '' } : get().newModel), at: Date.now(),
         ...(thread && modelChanges.has(thread) ? { awaitingModel: true } : {}),
       };
       keep(typed ? setDraft(put(get().box, entry), key, '') : put(get().box, entry));
@@ -571,7 +572,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const change = (async () => {
         if (previous) await previous;
         if (useAutoStore.getState().address !== address) return false;
-        const result = await autoApi()?.request({ kind: 'model', id, model }).catch((): null => null);
+        const result = await autoApi()?.request({ kind: 'model', id, ...model }).catch((): null => null);
         if (useAutoStore.getState().address !== address) return false;
         if (!result?.success) {
           useSaidStore.getState().refuse(result?.error.message ?? "Couldn't change the reply model.");

@@ -1,3 +1,4 @@
+import { replyChoice } from '@/common/autoReplyModel';
 import {
   NOTE_LIMIT,
   RESOLVE_LIMIT,
@@ -7,7 +8,6 @@ import {
   validCursor,
   validDate,
   validEntryId,
-  validModel,
   validThreadId,
 } from '@/common/autoModel';
 import type { AutoAnswer, AutoRoute, AutoStreamTarget } from '@/types/auto';
@@ -113,7 +113,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
     case 'thread':
       return get(base, `/api/threads/${route.id}`);
     case 'create':
-      return post(base, '/api/threads', { text: route.text, model: route.model, cid: route.cid });
+      return post(base, '/api/threads', { text: route.text, ...replyChoice(route), cid: route.cid });
     case 'message':
       return post(base, `/api/threads/${route.id}/messages`, { text: route.text, cid: route.cid });
     case 'stop':
@@ -121,7 +121,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
     case 'answer':
       return post(base, `/api/threads/${route.id}/answer`, answerBody(route.answer));
     case 'model':
-      return post(base, `/api/threads/${route.id}/model`, { model: route.model });
+      return post(base, `/api/threads/${route.id}/model`, { ...replyChoice(route) });
     case 'rename':
       return post(base, `/api/threads/${route.id}/rename`, { title: route.title });
     case 'archive':
@@ -163,7 +163,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, '/api/digest/thread', {
         date: route.date,
         id: route.id,
-        model: route.model,
+        ...replyChoice(route),
         ...(route.words !== null ? { words: route.words, ...(route.cid ? { cid: route.cid } : {}) } : { start: false }),
       });
     case 'digest-continue':
@@ -171,7 +171,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, '/api/digest/continue', {
         date: route.date,
         id: route.id,
-        model: route.model,
+        ...replyChoice(route),
         thread: route.thread,
         ...(route.words !== null ? { words: route.words } : {}),
         ...(route.cid !== null ? { cid: route.cid } : {}),
@@ -233,10 +233,12 @@ export function validRoute(value: unknown): AutoRoute | null {
     case 'check-status':
     case 'threads':
       return { kind: route.kind };
-    case 'create':
-      return words(route.text) && validModel(route.model) && validCid(route.cid)
-        ? { kind: 'create', text: route.text, model: route.model, cid: route.cid }
+    case 'create': {
+      const choice = replyChoice(route);
+      return words(route.text) && choice && validCid(route.cid)
+        ? { kind: 'create', text: route.text, ...choice, cid: route.cid }
         : null;
+    }
     case 'archived':
       return route.limit === null || (Number.isInteger(route.limit) && (route.limit as number) > 0 && (route.limit as number) <= ARCHIVED_LIMIT)
         ? { kind: 'archived', limit: route.limit as number | null }
@@ -269,8 +271,10 @@ export function validRoute(value: unknown): AutoRoute | null {
       const answer = validAnswer(route.answer);
       return answer ? { kind: 'answer', id, answer } : null;
     }
-    case 'model':
-      return validModel(route.model) ? { kind: 'model', id, model: route.model } : null;
+    case 'model': {
+      const choice = replyChoice(route);
+      return choice ? { kind: 'model', id, ...choice } : null;
+    }
     case 'rename':
       return words(route.title, 300) ? { kind: 'rename', id, title: route.title.trim() } : null;
     case 'archive':
@@ -318,11 +322,8 @@ function validDigestRoute(route: Fields): AutoRoute | null {
       ? { kind: 'digest-note', date, id, text: route.text.trim() }
       : null;
   }
-  const choice: { model?: string } = {};
-  if (route.model !== undefined) {
-    if (!validModel(route.model)) return null;
-    choice.model = route.model;
-  }
+  const choice = route.model === undefined && route.effort === undefined && route.speed === undefined ? {} : replyChoice(route);
+  if (!choice) return null;
   if (route.kind === 'digest-continue') {
     // The thread it goes into is the one the entry was shown to match; words and the client's id are each optional.
     if (!validThreadId(route.thread)) return null;
