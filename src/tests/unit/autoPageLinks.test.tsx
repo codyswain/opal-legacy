@@ -286,8 +286,9 @@ describe('following a link to a page in the app', () => {
     expect(auto.api.updateFolders).toHaveBeenCalledWith();
     expect(vi.mocked(auto.api.resolvePage).mock.calls.slice(looks).filter(([path]) => path === 'Library/notes/new.md').length).toBeGreaterThanOrEqual(2);
     expect(refusals()).toBeNull();
-    // After an update the heading is read again, and the link shows it.
-    await waitFor(() => expect(pageLink('Library/notes/new.md').textContent).toBe('A new page'));
+    // The file is now in front. Return to the thread to see its updated heading.
+    fireEvent.click(within(screen.getByTestId('auto-row-notes')).getAllByRole('button')[0]);
+    await waitFor(() => expect(pageLink('Library/notes/new.md')?.textContent).toBe('A new page'));
   });
 
   it('for a page still missing after the update, says so at the link and not at the foot of the sidebar', async () => {
