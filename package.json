@@ -19,8 +19,9 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:unit": "vitest run src/tests/unit/",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:e2e": "npx vite build --config vite.main.config.ts && npx vite build --config vite.preload.config.ts && npx vite build --config vite.renderer.config.ts && npx playwright test --config e2e/playwright.config.ts",
-    "test:all": "npm test && npm run test:e2e",
+    "test:all": "npm test && npm run test:browser && npm run test:e2e",
     "test:coverage": "vitest run --coverage",
     "prepare": "husky install"
   },
@@ -78,6 +79,7 @@
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/browser": "3.1.1",
     "@vitest/ui": "^3.1.1",
     "autoprefixer": "^10.4.20",
     "electron": "31.3.1",

@@ -13,10 +13,7 @@ import { installMarkdownApi } from '@/tests/helpers/markdownApi';
  * renders), a 1,627-line JSON fence and a 22,000-character paragraph. The
  * time is the median of a key's whole dispatch, decorations included, at
  * each spot where the page's cost grows with what is near the caret.
- * If it fails while the machine is busy, run it alone once before treating
- * it as real. The budget is never raised to pass.
- *
- *   npx vitest run src/tests/perf/editorKeystroke.test.ts
+ * Run in Chromium so the timings include the editor's real DOM updates.
  */
 
 const PAGE = '/Vault/Notes/Heavy.mdo';
@@ -48,6 +45,7 @@ beforeAll(() => {
   installDiskApi({ listRoots: vi.fn(async () => ({ success: true as const, data: ['/Vault'] })) });
   installMarkdownApi({ [PAGE]: '' });
   view = new EditorView({ parent: document.body, state: EditorState.create({ doc: heavyPage(), extensions: markdownEditorExtensions(PAGE) }) });
+  view.dom.style.height = '80vh';
   ensureSyntaxTree(view.state, view.state.doc.length, 30_000);
   view.dispatch({});
 });
@@ -81,8 +79,20 @@ describe('keystroke budget in the editor', () => {
     ['inside the 1,627-line JSON fence, edited in place', spot((text) => text.indexOf('"key800"') + 4)],
   ];
 
-  it.each(spots)('types at %s within one frame', (_name, place) => {
-    const elapsed = keystroke(place());
+  it.each(spots)('types at %s within one frame', async (_name, place) => {
+    const at = place();
+    view.dispatch({ selection: { anchor: at }, effects: EditorView.scrollIntoView(at, { y: 'center' }) });
+    // Wait for CodeMirror to render and scroll to this line before measuring a key on it.
+    await vi.waitFor(() => {
+      const caret = view.coordsAtPos(at);
+      const scroller = view.scrollDOM.getBoundingClientRect();
+      expect(view.visibleRanges.some(({ from, to }) => from <= at && at <= to)).toBe(true);
+      expect(caret?.top).toBeGreaterThanOrEqual(scroller.top);
+      expect(caret?.bottom).toBeLessThanOrEqual(scroller.bottom);
+      expect(caret?.left).toBeGreaterThanOrEqual(scroller.left);
+      expect(caret?.right).toBeLessThanOrEqual(scroller.right);
+    });
+    const elapsed = keystroke(at);
     console.info(`[keystroke] ${_name}: median ${elapsed.toFixed(2)} ms over ${SAMPLES} keys`);
     expect(elapsed).toBeLessThan(BUDGETS.keystrokeMs);
   });
