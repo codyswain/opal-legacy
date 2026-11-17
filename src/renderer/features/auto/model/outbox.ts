@@ -1,3 +1,5 @@
+import type { AutoModelChoice } from '@/types/auto';
+import { replyChoice } from '@/common/autoReplyModel';
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import { NEW_THREAD } from './pane';
 
@@ -11,14 +13,12 @@ export { NEW_THREAD };
  * Drafts, the words typed and not yet sent, are kept per thread beside it.
  */
 
-export interface OutboxEntry {
+export interface OutboxEntry extends AutoModelChoice {
   /** The client's id for this message; the service drops a second copy with the same one. */
   cid: string;
   /** The thread it goes to, or null for a message that starts a new one. */
   thread: string | null;
   text: string;
-  /** The model picked for a new thread. */
-  model: string;
   /** The Mini has not yet confirmed the model selected for this reply. */
   awaitingModel?: boolean;
   /** When Enter was pressed, in ms. */
@@ -44,7 +44,7 @@ const isEntry = (value: unknown): value is OutboxEntry => {
     typeof entry.cid === 'string' && /^[A-Za-z0-9]{1,40}$/.test(entry.cid) &&
     (entry.thread === null || typeof entry.thread === 'string') &&
     typeof entry.text === 'string' && entry.text !== '' &&
-    typeof entry.model === 'string' &&
+    replyChoice(entry) !== null &&
     typeof entry.at === 'number'
   );
 };

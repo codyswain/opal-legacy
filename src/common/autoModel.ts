@@ -1,3 +1,4 @@
+import { readModelOptions, replyChoice, validModel, visibleModel } from './autoReplyModel';
 import type {
   AutoAsk,
   AutoContinues,
@@ -54,7 +55,6 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const CURSOR = /^[A-Za-z0-9._-]{1,80}$/;
 /** A client's id for one message. */
 const CID = /^[A-Za-z0-9]{1,40}$/;
-const MODEL = /^[a-z0-9-]{0,32}$/;
 /** A digest's day. */
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** A digest entry's id: the service makes it from lower-case letters, digits and hyphens. */
@@ -68,7 +68,7 @@ export const RESOLVE_LIMIT = 200;
 export const validThreadId = (value: unknown): value is string => typeof value === 'string' && ID.test(value);
 export const validCursor = (value: unknown): value is string => typeof value === 'string' && CURSOR.test(value);
 export const validCid = (value: unknown): value is string => typeof value === 'string' && CID.test(value);
-export const validModel = (value: unknown): value is string => typeof value === 'string' && MODEL.test(value);
+export { validModel } from './autoReplyModel';
 export const validDate = (value: unknown): value is string => typeof value === 'string' && DATE.test(value);
 export const validEntryId = (value: unknown): value is string => typeof value === 'string' && ENTRY_ID.test(value);
 
@@ -163,7 +163,8 @@ export function toThread(value: unknown): AutoThread | null {
     activity: text(thread.activity, LINE_LIMIT),
     ask: toAsk(thread.ask),
     unread: thread.unread === true,
-    model: validModel(thread.model) ? thread.model : '',
+    ...(replyChoice(thread) ?? { model: validModel(thread.model) ? thread.model : '' }),
+    ...(typeof thread.lastModel === 'string' && thread.lastModel ? { lastModel: text(thread.lastModel, 100) } : {}),
     created: time(thread.created) ?? 0,
     updated: time(thread.updated) ?? 0,
     error: optional(thread.error, LINE_LIMIT),
@@ -369,7 +370,7 @@ export function toStatus(value: unknown): AutoStatus | null {
   if (!status || !auth) return null;
   const models: Record<string, string> = {};
   for (const [key, label] of Object.entries(fields(status.models) ?? {}).slice(0, OPTIONS_LIMIT)) {
-    if (validModel(key) && typeof label === 'string' && label !== '') models[key] = label.slice(0, 80);
+    if (validModel(key) && visibleModel(key) && typeof label === 'string' && label !== '') models[key] = label.slice(0, 80);
   }
   return {
     auth: {
@@ -382,6 +383,8 @@ export function toStatus(value: unknown): AutoStatus | null {
     waiting: count(status.waiting),
     limit: count(status.limit),
     models,
+    ...(fields(status.modelOptions) ? { modelOptions: Object.fromEntries(Object.keys(models)
+      .map((key) => [key, readModelOptions(fields(status.modelOptions)?.[key])])) } : {}),
   };
 }
 

@@ -706,8 +706,9 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
             <>
               {(thread || !paneThread(openId)) && (
                 <ReplyModelPicker
-                  model={thread?.model ?? preferredModel}
-                  onChange={(model) => void useThreadStore.getState().setModel(model)}
+                  choice={thread ?? preferredModel}
+                  lastModel={thread?.lastModel}
+                  onChange={(model) => useThreadStore.getState().setModel(model)}
                   field={box}
                 />
               )}

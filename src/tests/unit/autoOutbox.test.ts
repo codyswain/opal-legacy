@@ -106,7 +106,7 @@ describe('the box’s store', () => {
     const store = useThreadStore.getState();
     let land: () => void = () => undefined;
     auto.state.gate = new Promise<void>((resolve) => { land = resolve; });
-    const picking = store.setModel('small');
+    const picking = store.setModel({ model: 'small' });
     const sending = store.send('Bread reply');
     expect(auto.asked('message')).toEqual([]);
     expect(stored().outbox[0].awaitingModel).toBe(true);
@@ -123,7 +123,7 @@ describe('the box’s store', () => {
     const auto = start();
     const store = useThreadStore.getState();
     auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
-    const picking = store.setModel('small');
+    const picking = store.setModel({ model: 'small' });
     const sending = store.send('Bread reply');
     store.setDraft('Additional words');
     await picking;
@@ -133,7 +133,7 @@ describe('the box’s store', () => {
     auto.state.failWrites = null;
     expect(await store.send(stored().drafts.bread)).toBe(false);
     expect(auto.asked('message')).toEqual([]);
-    await store.setModel('small');
+    await store.setModel({ model: 'small' });
     expect(await store.send(stored().drafts.bread)).toBe(true);
   });
 
