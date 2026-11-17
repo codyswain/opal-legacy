@@ -1,0 +1,7 @@
+/* The plan usage ring by the message box and its popover's bars: the one
+   colour besides the touched list's (asked for on 2026-11-16 as "a colored circle").
+   The same blue in light and dark. blackAndWhite.test.ts exempts this file
+   by name, and nothing else takes this colour. */
+:root {
+  --usage: #407bd9;
+}

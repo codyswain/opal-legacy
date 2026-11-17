@@ -360,8 +360,13 @@ not exist.
   conversation in the Claude app: 14/21 px text in `.auto-ink` (#171717 in
   light), 32 px between turns, a folded line ending in a chevron, and one
   rounded box (`components/Box.tsx`, also the digest entry's) with the
-  model at the left of its foot and Stop and Send at the right. The title
-  is a button with a chevron that opens the thread's menu; Snooze and
+  model at the left of its foot and Stop and Send at the right. The title's
+  words are followed by a chevron that opens the thread's menu, Rename
+  first. A thread is renamed by a double-click on its row's title or on the
+  open thread's title, or by Rename at the top of the row's menu: one rename
+  at a time (`renaming` in `threadStore.ts`), the row's field in the title's
+  own place, and keys typed there (`data-rename-field`) never act on a
+  thread; the Digest row, Put away and its page's rows are not renamed. Snooze and
   Archive sit at the header's right, over a hairline (`paneHeader`) that the
   queue and Put away share. `useAutoCommands.ts` puts Auto's
   commands and every thread's title in the palette, archived ones too once
@@ -369,7 +374,13 @@ not exist.
   a reply or an entry is looked up by `autoPages.ts` through `RootRegistry`
   and opens as a page in its own tab; a page opened while the Auto tab is
   in front goes to the tab that shows it or to a new one (`tabsStore.ts`),
-  never into the Auto tab. Tests and `auto-acceptance.mjs` talk only
+  never into the Auto tab. A small ring by the message box, right after the
+  model in a thread's box and at the left of a digest entry's box, shows how
+  much of the plan is used (`UsageRing.tsx`, `usageStore.ts`, `usageModel.ts`,
+  read only from `GET /api/usage` and its `usage` event; nothing shows on a
+  404 or out of reach, and a failed read sets no problem); its popover has a
+  row and bar per limit, a limit past its reset time is left out (no ring
+  when none is left), and the email is never read. Tests and `auto-acceptance.mjs` talk only
   to the stand-in service in `src/tests/fixtures/auto`, on 127.0.0.1
 - **Path alias:** `@/*` maps to `src/*`
 

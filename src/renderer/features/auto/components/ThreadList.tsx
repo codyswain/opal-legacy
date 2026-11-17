@@ -11,6 +11,7 @@ import {
   ContextMenuTrigger,
   IconButton,
 } from '@/renderer/shared/ui';
+import { useNow } from '@/renderer/shared/hooks/useNow';
 import { cn } from '@/renderer/shared/utils';
 import { emptyList, fromDigest, isMarked, isYours, listView, moveBy, moveTarget, needsLine, rowTime, type ListGroup } from '../model/listModel';
 import { leftWord } from '../model/digestModel';
@@ -19,23 +20,13 @@ import { LIST_PLACE, keepPlace, placeIn, placeOf } from '../model/places';
 import { archiveThread, snoozeThread, type From } from '../store/actions';
 import { useAutoStore } from '../store/autoStore';
 import { useDigestStore } from '../store/digestStore';
-import { useThreadStore } from '../store/threadStore';
+import { TITLE_LIMIT, useThreadStore } from '../store/threadStore';
 import { useVaultLinks } from '../useVaultLinks';
 import { PAGE_FIRST, byKey, focusRowAfterClose, giveBack, keepFocus, rovingTarget, rowElement } from './focus';
 import { fadeOf, revealIn, type Fade } from './listScroll';
 import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
 
 const DRAG_TYPE = 'application/x-opal-auto-thread';
-
-/** Re-renders so times and day names move on. */
-export function useNow(intervalMs = 30_000): number {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return now;
-}
 
 /** Option+click and "Open to the side" show it in the other pane. */
 export type ShowHow = { side?: boolean };
@@ -91,6 +82,53 @@ function NeedsLine({ thread }: { thread: AutoThread }) {
   );
 }
 
+/** Stops a pointer event at the field, so the row under it neither opens the thread, nor drags, nor opens its menu. */
+const stayInField = (event: React.SyntheticEvent): void => event.stopPropagation();
+
+/**
+ * A row's title as a field, in the title's own place: the same left edge and
+ * baseline, and the row no taller. Enter saves, Escape leaves the title as it
+ * was; both put the keyboard back on the row. Leaving the field saves, as the
+ * header's field does. Letters typed here are text, never a row's keys.
+ */
+function RowTitleField({ thread, className }: { thread: AutoThread; className: string }) {
+  const [typed, setTyped] = React.useState(thread.title);
+  const cancelled = React.useRef(false);
+  const renaming = { id: thread.id, at: 'row' as const };
+  return (
+    <input
+      autoFocus
+      data-rename-field
+      data-testid={`auto-row-title-field-${thread.id}`}
+      aria-label="Thread title"
+      value={typed}
+      maxLength={TITLE_LIMIT}
+      onChange={(event) => setTyped(event.target.value)}
+      onFocus={(event) => event.currentTarget.select()}
+      onBlur={() => {
+        if (!cancelled.current) void useThreadStore.getState().rename(typed, thread.id);
+        useThreadStore.getState().endRename(renaming);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        cancelled.current = event.key === 'Escape';
+        event.currentTarget.blur();
+        // Done with the keyboard: it goes back to the row, so the arrows and the row's keys work at once.
+        useAutoStore.getState().requestFocus(thread.id);
+      }}
+      onPointerDown={stayInField}
+      onMouseDown={stayInField}
+      onClick={stayInField}
+      onDoubleClick={stayInField}
+      onContextMenu={stayInField}
+      // The negative margins give the ring room round the words without moving them.
+      className={cn('-mx-1 -my-px min-w-0 flex-1 rounded-sm bg-transparent px-1 py-px text-ui outline-none ring-1 ring-focus', className)}
+    />
+  );
+}
+
 function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging = false, drag }: RowProps) {
   const [snoozing, setSnoozing] = React.useState(false);
   const container = React.useRef<HTMLDivElement>(null);
@@ -104,6 +142,8 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
   const heavy = dot || thread.status === 'waiting' || isYours(thread);
   const title = thread.title || 'Untitled';
   const marked = thread.desk !== null;
+  const renaming = useThreadStore((state) => state.renaming?.at === 'row' && state.renaming.id === thread.id);
+  const titleClass = heavy ? 'font-semibold text-foreground' : current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label';
 
   const mark = () => {
     // The row moves to another group; the keyboard goes with it, when a key did it.
@@ -147,43 +187,63 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
             data-status={thread.status}
             style={{ '--auto-row-hide': `${icons * 1.75 - 0.5}rem` } as React.CSSProperties}
             data-drop={drop ?? undefined}
-            draggable={drag ? true : undefined}
-            onDragStart={drag ? (event) => drag.onStart(event, thread.id) : undefined}
+            data-renaming={renaming || undefined}
+            // While its title is a field the row does not drag: a press in the field selects text.
+            draggable={drag && !renaming ? true : undefined}
+            onDragStart={drag && !renaming ? (event) => drag.onStart(event, thread.id) : undefined}
             onDragOver={drag ? (event) => drag.onOver(event, thread.id) : undefined}
             onDragEnd={drag?.onEnd}
             className={cn('auto-row group relative rounded-sidebar-row transition-hover', rowFill(current), dragging && 'opacity-50')}
           >
-            <button
-              type="button"
-              data-auto-row
-              data-row-id={thread.id}
-              tabIndex={tabStop ? 0 : -1}
-              aria-current={current || undefined}
-              aria-keyshortcuts={`E S M${digestEntry ? ' D' : ''}`}
-              title={title}
-              onClick={(event) => show(thread.id, { side: event.altKey })}
-              onKeyDown={onKeyDown}
-              className={cn(rowButton, 'flex min-h-thread-row w-full min-w-0 flex-col justify-center px-2 py-1')}
-            >
-              <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
-                <span className="flex w-sidebar-icon shrink-0 justify-center">
-                  {dot ? <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 rounded-full bg-foreground" /> : null}
+            {renaming ? (
+              // The same box as the row's button, so nothing on the row moves; it is not a row the keys or the arrows reach.
+              <div className={cn(rowButton, 'flex min-h-thread-row w-full min-w-0 flex-col justify-center px-2 py-1')}>
+                <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
+                  <span className="flex w-sidebar-icon shrink-0 justify-center" />
+                  <RowTitleField thread={thread} className={titleClass} />
+                  <span className="shrink-0 text-right text-metadata tabular-nums text-sidebar-time">{time}</span>
                 </span>
-                <span data-heavy={heavy || undefined} className={cn('min-w-0 flex-1 truncate text-ui', heavy ? 'font-semibold text-foreground' : current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label')}>
-                  {title}
-                </span>
-                <span className={cn('shrink-0 text-right text-metadata tabular-nums text-sidebar-time', timeHides)}>{time}</span>
-              </span>
-              <NeedsLine thread={thread} />
-            </button>
-            {/* The row's actions take the time's place while the pointer is on the row, the keyboard is, or their menu is open.
-                A press on one leaves the keyboard where it is. */}
-            <div className={rowActions}>
-              <SnoozeButton thread={thread} from="row" open={snoozing} onOpenChange={setSnoozing} tabIndex={-1} />
-              <IconButton label="Archive" shortcut="E" tabIndex={-1} data-testid={`auto-archive-${thread.id}`} onMouseDown={keepFocus} onClick={() => void archiveThread(thread)}>
-                <Archive aria-hidden className="h-3.5 w-3.5" />
-              </IconButton>
-            </div>
+                <NeedsLine thread={thread} />
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  data-auto-row
+                  data-row-id={thread.id}
+                  tabIndex={tabStop ? 0 : -1}
+                  aria-current={current || undefined}
+                  aria-keyshortcuts={`E S M${digestEntry ? ' D' : ''}`}
+                  title={title}
+                  // The first click of a double-click opens the thread; the second leaves it as it is.
+                  onClick={(event) => {
+                    if (event.detail < 2) show(thread.id, { side: event.altKey });
+                  }}
+                  onDoubleClick={() => useThreadStore.getState().startRename(thread.id, 'row')}
+                  onKeyDown={onKeyDown}
+                  className={cn(rowButton, 'flex min-h-thread-row w-full min-w-0 flex-col justify-center px-2 py-1')}
+                >
+                  <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
+                    <span className="flex w-sidebar-icon shrink-0 justify-center">
+                      {dot ? <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 rounded-full bg-foreground" /> : null}
+                    </span>
+                    <span data-heavy={heavy || undefined} data-testid={`auto-row-title-${thread.id}`} className={cn('min-w-0 flex-1 truncate text-ui', titleClass)}>
+                      {title}
+                    </span>
+                    <span className={cn('shrink-0 text-right text-metadata tabular-nums text-sidebar-time', timeHides)}>{time}</span>
+                  </span>
+                  <NeedsLine thread={thread} />
+                </button>
+                {/* The row's actions take the time's place while the pointer is on the row, the keyboard is, or their menu is open.
+                    A press on one leaves the keyboard where it is. */}
+                <div className={rowActions}>
+                  <SnoozeButton thread={thread} from="row" open={snoozing} onOpenChange={setSnoozing} tabIndex={-1} />
+                  <IconButton label="Archive" shortcut="E" tabIndex={-1} data-testid={`auto-archive-${thread.id}`} onMouseDown={keepFocus} onClick={() => void archiveThread(thread)}>
+                    <Archive aria-hidden className="h-3.5 w-3.5" />
+                  </IconButton>
+                </div>
+              </>
+            )}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent
@@ -206,8 +266,20 @@ export function RowMenuItems({ thread, now, snoozed, marked, mark, show, from }:
   const digestEntry = fromDigest(thread);
   return (
     <>
+      {/* Only a row of the sidebar is renamed in place; a row of the Put away page is not renamed.
+          Radix runs onSelect while the menu still holds focus, so the row's field opens once it has closed. */}
       {from === 'row' ? (
         <>
+          <ContextMenuItem
+            onSelect={() =>
+              window.setTimeout(() => {
+                show(thread.id);
+                useThreadStore.getState().startRename(thread.id, 'row');
+              }, 0)
+            }
+          >
+            Rename
+          </ContextMenuItem>
           <ContextMenuItem onSelect={() => show(thread.id, { side: true })}>Open to the side</ContextMenuItem>
           <ContextMenuSeparator />
         </>
@@ -228,17 +300,6 @@ export function RowMenuItems({ thread, now, snoozed, marked, mark, show, from }:
       <ContextMenuItem onSelect={mark}>
         {marked ? 'Take off the Mac mark' : 'Mark for the Mac'}
         {from === 'row' ? <ContextMenuShortcut aria-hidden>M</ContextMenuShortcut> : null}
-      </ContextMenuItem>
-      {/* Radix runs onSelect while the menu still holds focus, so the title's field opens once it has closed. */}
-      <ContextMenuItem
-        onSelect={() =>
-          window.setTimeout(() => {
-            show(thread.id);
-            useThreadStore.getState().startRename(thread.id);
-          }, 0)
-        }
-      >
-        Rename
       </ContextMenuItem>
       <ContextMenuSeparator />
       {digestEntry ? (

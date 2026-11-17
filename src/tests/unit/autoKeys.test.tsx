@@ -246,21 +246,24 @@ describe('the list under the keyboard', () => {
     rowButton('inspect').focus();
     key('F10', { shiftKey: true });
     const menu = within(await screen.findByTestId('auto-row-menu-inspect'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Mark for the MacM', 'Rename', 'DoneD', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Rename');
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the MacM', 'DoneD', 'ArchiveE']);
   });
 
-  it('renames from the row’s menu: the thread opens with its title as a field', async () => {
+  it('renames from the row’s menu: the thread opens, and its row’s title is the field', async () => {
     await open();
     await openThread('bread');
     rowButton('trellis').focus();
     key('F10', { shiftKey: true });
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
-    const title = await screen.findByRole('textbox', { name: 'Thread title' });
+    const title = await within(row('trellis')).findByRole('textbox', { name: 'Thread title' });
     expect(title).toHaveValue('Tomato trellis');
     await waitFor(() => expect(document.activeElement).toBe(title));
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('trellis'));
     fireEvent.change(title, { target: { value: 'Trellis for the tomatoes' } });
     fireEvent.keyDown(title, { key: 'Enter' });
     await waitFor(() => expect(last('rename')).toEqual({ kind: 'rename', id: 'trellis', title: 'Trellis for the tomatoes' }));
+    await waitFor(() => expect(focusedRow()).toBe('trellis'));
   });
 
   it('acts on single keys only from a row: not from the box, and not with a modifier', async () => {
@@ -637,12 +640,13 @@ describe('the open thread’s own actions', () => {
     expect(header.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
     expect(header.queryByRole('button', { name: 'Done' })).toBeNull();
     expect(header.queryByTestId('auto-stop')).toBeNull();
-    expect(header.queryByRole('button', { name: 'Thread menu' })).toBeNull();
-    const title = header.getByTestId('auto-thread-menu');
-    expect(title.textContent).toBe('Sourdough timings');
-    expect(title.querySelector('[data-testid="auto-title-chevron"]')).not.toBeNull();
-    await userEvent.setup().click(title);
-    expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Mark for the Mac', 'Rename']);
+    // The title's words, then the chevron that opens its menu.
+    expect(header.getByTestId('auto-title').textContent).toBe('Sourdough timings');
+    const chevron = header.getByRole('button', { name: 'Thread menu' });
+    expect(chevron).toBe(header.getByTestId('auto-thread-menu'));
+    expect(chevron.querySelector('[data-testid="auto-title-chevron"]')).not.toBeNull();
+    await userEvent.setup().click(chevron);
+    expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual(['Rename', 'Mark for the Mac']);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Mark for the Mac' }));
     await waitFor(() => expect(last('desk')).toEqual({ kind: 'desk', id: 'bread', on: true }));
     await openThread('inspect');

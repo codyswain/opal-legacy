@@ -6,7 +6,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AutoService, type AutoFetch, type AutoServiceDependencies } from '@/main/auto/AutoService';
 import { AutoAddressError } from '@/main/auto/autoRequests';
-import type { AutoDigest, AutoDigestDays, AutoSnapshot, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
+import type { AutoDigest, AutoDigestDays, AutoSnapshot, AutoStatus, AutoStreamMessage, AutoThread, AutoUsage } from '@/types/auto';
 import { startStandIn, type StandIn } from '../fixtures/auto/standIn.mjs';
 
 const BREAD = '5a0000000002';
@@ -216,6 +216,40 @@ describe('requests', () => {
     });
     const snapshot = await (await connected({ fetch: strange({ thread: 'none' }) })).request({ kind: 'thread', id: BREAD });
     expect(snapshot.success === false && snapshot.error.kind).toBe('unreachable');
+  });
+});
+
+describe('the plan usage', () => {
+  it('reads the usage with a GET, keeping the plan and the limits and never an email', async () => {
+    const auto = await connected();
+    const usage = await auto.request({ kind: 'usage' });
+    expect(asked.at(-1)?.url).toBe(`${standIn.url}/api/usage`);
+    expect(asked.at(-1)?.init.method).toBe('GET');
+    const data = (usage.success ? usage.data : null) as AutoUsage;
+    expect(data.plan).toBe('Pro');
+    expect(data.limits.map(({ label, used }) => ({ label, used }))).toEqual([
+      { label: 'Weekly, all models', used: 0.45 },
+      { label: 'Weekly, Large', used: 0.73 },
+    ]);
+    expect(JSON.stringify(data)).not.toMatch(/email|@/);
+  });
+
+  it('gives a refusal with its status for a service without the route', async () => {
+    await standIn.close();
+    standIn = await startStandIn({ usage: 'missing', retryMs: 500 });
+    const auto = await connected();
+    const usage = await auto.request({ kind: 'usage' });
+    expect(usage.success === false && usage.error).toMatchObject({ kind: 'refused', status: 404 });
+  });
+
+  it('passes on the usage event of the list stream, and reads the new numbers', async () => {
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    standIn.setUsage({ limits: [{ key: 'five_hour', label: 'Five hours', used: 0.9 }] });
+    await until(() => kinds('list').includes('usage'), 'the usage event');
+    const usage = await auto.request({ kind: 'usage' });
+    expect(usage.success && (usage.data as AutoUsage).limits.map(({ key, used }) => ({ key, used }))).toEqual([{ key: 'five_hour', used: 0.9 }]);
   });
 });
 
@@ -787,6 +821,44 @@ describe('the digest queue', () => {
     const first = (snapshot.success ? (snapshot.data as AutoSnapshot).items[0] : null) as { role: 'user'; text: string };
     expect(first.text.startsWith('Digest, Friday November 13, item 1: Order the seed trays')).toBe(true);
     expect(first.text.endsWith('says:\n\nAsk about peat-free\n\nAsk for collection on Saturday')).toBe(true);
+  });
+
+  it('adds an entry to the thread it matches, once, bringing a snoozed thread back, and refuses a match that has gone', async () => {
+    const OLD = '2026-11-12';
+    const auto = await connected();
+    await auto.follow({ stream: 'list', cursor: null });
+    await until(() => count('open') === 1, 'the list stream');
+    const before = (await auto.request({ kind: 'digest', date: OLD })) as { success: true; data: AutoDigest };
+    // Two matches on that day, one of them to a snoozed thread; the done to-do has none.
+    expect(entry(before.data, 'item-2')?.continues).toEqual({ id: '5a0000000007', title: 'Pantry labels', snoozed: true });
+    expect(entry(before.data, 'text-yesterday-1a2b3c4d')?.continues).toEqual({ id: '5a0000000009', title: 'Rain barrel', snoozed: false });
+    expect(entry(before.data, 'item-1')?.continues).toBeNull();
+
+    const added = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' });
+    expect(standIn.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/digest/continue', body: { date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' } });
+    const { thread } = (added.success ? added.data : null) as { thread: AutoThread };
+    expect(thread).toMatchObject({ id: '5a0000000007', snoozed: null });
+    await until(() => events('list').some((message) => message.event.kind === 'digest' && message.event.date === OLD), 'the digest event');
+    const after = (await auto.request({ kind: 'digest', date: OLD })) as { success: true; data: AutoDigest };
+    expect(entry(after.data, 'item-2')).toMatchObject({ state: 'thread', thread: '5a0000000007', continues: null });
+    expect(after.data.left).toBe(before.data.left - 1);
+    const said = () => [...((standIn.thread('5a0000000007')?.items ?? []) as Array<{ role: string; text: string }>), ...(((standIn.thread('5a0000000007')?.live as { items?: Array<{ role: string; text: string }> } | null)?.items) ?? [])].filter((item) => item.role === 'user');
+    await until(() => said().length === 2, 'the entry in the thread');
+    expect(said()[1].text.startsWith('Digest, Thursday November 12, item 2: Sharpen the secateurs')).toBe(true);
+    expect(said()[1].text.endsWith('says:\n\nThe stone is in the blue tin\n\nBring the stone')).toBe(true);
+
+    // The same click again answers the thread and adds nothing.
+    const repeat = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' });
+    expect(repeat.success && (repeat.data as { thread: AutoThread }).thread.id).toBe('5a0000000007');
+    expect(said()).toHaveLength(2);
+
+    // A match that has gone is the service's no_match, and no entry is the service's 404.
+    standIn.setContinues('text-yesterday-1a2b3c4d', null);
+    const gone = await auto.request({ kind: 'digest-continue', date: OLD, id: 'text-yesterday-1a2b3c4d', thread: '5a0000000009', words: null, cid: 'c0ffee0002' });
+    expect(gone.success === false && gone.error).toMatchObject({ kind: 'refused', code: 'no_match', status: 409 });
+    expect(standIn.requests.at(-1)?.body).toEqual({ date: OLD, id: 'text-yesterday-1a2b3c4d', thread: '5a0000000009', cid: 'c0ffee0002' });
+    const missing = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-99', thread: '5a0000000009', words: null, cid: null });
+    expect(missing.success === false && missing.error).toMatchObject({ kind: 'refused', status: 404 });
   });
 
   it('gives the service’s sentence for an entry or a day it does not have', async () => {

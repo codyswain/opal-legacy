@@ -245,6 +245,7 @@ edges at every width.
 | `--thread-row-height` | `h-thread-row`, `min-h-thread-row` | `--row-height-compact`; **B** 30 px (32 px apart with the gap) |
 | `--text-aside-size`, `--text-aside-line` | `text-aside` | 13 / 18 px in both looks: a digest entry's words under its title |
 | `--sidebar-time` | `text-sidebar-time` | `--text-tertiary`; **B** light `--text-secondary` |
+| `--usage`, `--usage-track`, `--usage-bar-track` | inline styles in `UsageRing.tsx` | `--usage` is #407bd9 in both themes, the single colour exception besides the touched list, used by the plan usage ring and its bars only (`usagePalette.css`); the tracks are greys, #b3b3b3 / #575757 and #e6e6e6 / #3d3d3d |
 
 A thread reads like a conversation in the Claude app (2026-11-15). A
 message is in the interface typeface at `text-reply`. The thread, the

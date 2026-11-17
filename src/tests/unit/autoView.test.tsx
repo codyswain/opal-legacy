@@ -363,7 +363,8 @@ describe('the list', () => {
     const pointer = userEvent.setup();
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('bread')).getAllByRole('button')[0] });
     let menu = within(await screen.findByTestId('auto-row-menu-bread'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Until a reply…', 'Mark for the MacM', 'Rename', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Rename');
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Until a reply…', 'Mark for the MacM', 'ArchiveE']);
     // The keys beside the items are for the eye; an item is still called by its name.
     expect(menu.getByRole('menuitem', { name: 'Mark for the Mac' })).toBeInTheDocument();
     fireEvent.click(menu.getByRole('menuitem', { name: 'Archive' }));
@@ -372,7 +373,8 @@ describe('the list', () => {
 
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('inspect')).getAllByRole('button')[0] });
     menu = within(await screen.findByTestId('auto-row-menu-inspect'));
-    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-4)).toEqual(['Mark for the MacM', 'Rename', 'DoneD', 'ArchiveE']);
+    expect(menu.getAllByRole('menuitem')[0].textContent).toBe('Rename');
+    expect(menu.getAllByRole('menuitem').map((item) => item.textContent).slice(-3)).toEqual(['Mark for the MacM', 'DoneD', 'ArchiveE']);
     fireEvent.click(menu.getByRole('menuitem', { name: 'Done' }));
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'inspect', archived: true, done: true }));
   });
@@ -990,7 +992,7 @@ describe('what the tab asks the service for', () => {
     await waitFor(() => expect(auto.asked('start')).toHaveLength(1));
     const allowed = [
       'status', 'check-status', 'threads', 'thread', 'create', 'message', 'stop', 'answer', 'model', 'rename', 'archive', 'move', 'snooze', 'start',
-      'desk', 'digest', 'digests', 'digest-resolve', 'digest-note', 'digest-thread',
+      'desk', 'digest', 'digests', 'digest-resolve', 'digest-note', 'digest-thread', 'usage',
     ];
     expect(kinds().filter((kind) => !allowed.includes(kind))).toEqual([]);
     expect(JSON.stringify(auto.routes())).not.toMatch(/tick|inbox|sends|confirm/);
@@ -1021,7 +1023,7 @@ describe('the sidebar row', () => {
     const count = () => screen.queryByTestId('auto-count')?.textContent ?? '';
     // Beds waits, Seeds has an unread reply and Trellis is back from snooze.
     await waitFor(() => expect(count()).toBe('3'));
-    expect(kinds().filter((kind) => !kind.startsWith('digest'))).toEqual(['status', 'threads']);
+    expect(kinds().filter((kind) => !kind.startsWith('digest') && kind !== 'usage')).toEqual(['status', 'threads']);
     // The list's stream is followed with no tab open, so the count stays true. No thread's stream is.
     await waitFor(() => expect(auto.followed.list).not.toBeNull());
     expect(auto.followed.thread).toBeNull();
@@ -1188,7 +1190,7 @@ describe('the sidebar review, smaller items', () => {
     act(() => useAutoStore.setState({ loaded: true }));
     expect(fold.style.height).toBe('');
   });
-  it('keeps the title field open after Rename is picked from a row’s menu with the pointer', async () => {
+  it('keeps the row’s title field open after Rename is picked from its menu with the pointer', async () => {
     await open();
     await openThread('bread');
     box().focus();
@@ -1196,9 +1198,11 @@ describe('the sidebar review, smaller items', () => {
     await pointer.pointer({ keys: '[MouseRight]', target: within(row('seeds')).getAllByRole('button')[0] });
     const menu = within(await screen.findByTestId('auto-row-menu-seeds'));
     await pointer.click(menu.getByRole('menuitem', { name: 'Rename' }));
-    const field = await screen.findByRole('textbox', { name: 'Thread title' });
+    const field = await within(row('seeds')).findByRole('textbox', { name: 'Thread title' });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.getByRole('textbox', { name: 'Thread title' })).toBe(field);
+    expect(within(row('seeds')).getByRole('textbox', { name: 'Thread title' })).toBe(field);
     expect(document.activeElement).toBe(field);
+    // The rename is on the row, not in the header as well.
+    expect(screen.getAllByRole('textbox', { name: 'Thread title' })).toHaveLength(1);
   });
 });

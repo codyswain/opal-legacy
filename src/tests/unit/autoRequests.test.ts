@@ -105,6 +105,10 @@ const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
   [{ kind: 'digest-note', date: '2026-11-13', id: 'item-1', text: '' }, 'POST', '/api/digest/note', { date: '2026-11-13', id: 'item-1', text: '' }],
   [{ kind: 'digest-thread', date: '2026-11-13', id: 'item-1', words: null, cid: null }, 'POST', '/api/digest/thread', { date: '2026-11-13', id: 'item-1', start: false }],
   [{ kind: 'digest-thread', date: '2026-11-13', id: 'item-1', words: 'send it', cid: 'a1b2c3d4e5' }, 'POST', '/api/digest/thread', { date: '2026-11-13', id: 'item-1', words: 'send it', cid: 'a1b2c3d4e5' }],
+  [{ kind: 'digest-continue', date: '2026-11-13', id: 'item-1', thread: ID, words: null, cid: null }, 'POST', '/api/digest/continue', { date: '2026-11-13', id: 'item-1', thread: ID }],
+  [{ kind: 'digest-continue', date: '2026-11-13', id: 'item-1', thread: ID, words: null, cid: 'a1b2c3d4e5' }, 'POST', '/api/digest/continue', { date: '2026-11-13', id: 'item-1', thread: ID, cid: 'a1b2c3d4e5' }],
+  [{ kind: 'digest-continue', date: '2026-11-13', id: 'item-1', thread: ID, words: 'and the lid', cid: 'a1b2c3d4e5' }, 'POST', '/api/digest/continue', { date: '2026-11-13', id: 'item-1', thread: ID, words: 'and the lid', cid: 'a1b2c3d4e5' }],
+  [{ kind: 'usage' }, 'GET', '/api/usage', undefined],
 ];
 
 describe('the request builder', () => {
@@ -274,6 +278,30 @@ describe('what the page may ask for', () => {
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask', cid: 'not a cid' })).toBeNull();
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask', cid: null })).toBeNull();
     expect(validRoute({ kind: 'digest-thread', date: DAY, id: 'item-1' })).toBeNull();
+  });
+
+  it('adds an entry to the thread it matches with only the named fields, each checked', () => {
+    const DAY = '2026-11-13';
+    // Nothing else the page sent rides along: no send mark, no model, no start.
+    expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: 'Bring the stone', cid: 'a1', sends: true, model: 'large', start: true })).toEqual({
+      kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: 'Bring the stone', cid: 'a1',
+    });
+    expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: null })).toEqual({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: null });
+    expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: 'a1' })).toEqual({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: null, cid: 'a1' });
+    const built = buildRequest(BASE, validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: 'x', cid: 'a1', sends: true }) as AutoRoute);
+    expect(Object.keys(JSON.parse(built.body ?? '{}'))).toEqual(['date', 'id', 'thread', 'words', 'cid']);
+    for (const date of ['', '2026-11-13/../x', 20261113, undefined]) expect(validRoute({ kind: 'digest-continue', date, id: 'item-1', thread: ID, words: null, cid: null }), `date ${String(date)}`).toBeNull();
+    for (const id of ['', 'Item-1', '../item-1', 7, null]) expect(validRoute({ kind: 'digest-continue', date: DAY, id, thread: ID, words: null, cid: null }), `id ${String(id)}`).toBeNull();
+    for (const thread of ['', '../x', 'a/b', 'a b', 7, null, undefined]) expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread, words: null, cid: null }), `thread ${String(thread)}`).toBeNull();
+    for (const words of ['   ', 'x'.repeat(100_001), 7, undefined]) expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words, cid: 'a1' }), `words ${String(words).slice(0, 10)}`).toBeNull();
+    for (const cid of ['not a cid', 7, undefined]) expect(validRoute({ kind: 'digest-continue', date: DAY, id: 'item-1', thread: ID, words: 'Ask', cid }), `cid ${String(cid)}`).toBeNull();
+  });
+
+  it('asks for the plan usage with nothing from the page in its path', () => {
+    const sneaky = { kind: 'usage', id: ID, date: '2026-11-13', path: '../threads', limit: 5 } as unknown;
+    const route = validRoute(sneaky);
+    expect(route).toEqual({ kind: 'usage' });
+    expect(buildRequest(BASE, route as AutoRoute)).toEqual({ url: `${BASE}/api/usage`, method: 'GET', headers: { Accept: 'application/json' } });
   });
 
   it('has no way to tick a box by number or to fill the inbox', () => {
