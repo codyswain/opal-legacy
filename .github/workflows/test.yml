@@ -35,7 +35,7 @@ jobs:
       - name: Measure editor timing in Chromium
         run: npm run test:browser
 
-      - name: Measure file search timing
+      - name: Measure file search and visible text timing
         run: npm test -- --no-file-parallelism src/tests/perf/
         env:
           SKIP_BUILD_TESTS: true

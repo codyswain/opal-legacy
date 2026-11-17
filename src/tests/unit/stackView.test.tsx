@@ -154,25 +154,31 @@ describe('StackView', () => {
   });
 
   it('loads more pages as the view nears the end, ends with a line, and unmounts what it left behind', async () => {
+    vi.useFakeTimers();
+    const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+    const nextFrame = () => act(() => { vi.advanceTimersToNextFrame(); });
     renderStack();
-    await waitFor(() => expect(document.querySelectorAll('[data-stack-section]')).toHaveLength(16));
+    await advance(0);
+    await nextFrame();
+    expect(document.querySelectorAll('[data-stack-section]')).toHaveLength(16);
     const scrollTo = async (top: number) => {
       act(() => {
         scroller().scrollTop = top;
         scroller().dispatchEvent(new Event('scroll'));
       });
-      await frames(2);
+      await nextFrame();
+      await nextFrame();
     };
     // The empty head took the caret; a focused section is never unmounted, so it lets go first.
-    await waitFor(() => expect(viewOf(HEAD)?.hasFocus).toBe(true));
+    expect(viewOf(HEAD)?.hasFocus).toBe(true);
     act(() => (viewOf(HEAD) as EditorView).contentDOM.blur());
     for (let step = 1; step <= 12; step += 1) await scrollTo(step * 600);
     await scrollTo((COUNT - 3) * SECTION_PX);
-    await waitFor(() => expect(document.querySelectorAll('[data-stack-section]')).toHaveLength(COUNT));
+    expect(document.querySelectorAll('[data-stack-section]')).toHaveLength(COUNT);
     expect(screen.getByText('No earlier pages')).toBeInTheDocument();
     // The head has been more than three viewports away for two seconds.
-    await act(() => new Promise((resolve) => setTimeout(resolve, 2300)));
-    await frames(4);
+    await advance(STACK_WINDOW.unmountAfterMs + 300);
+    for (let frame = 0; frame < 4; frame += 1) await nextFrame();
     expect(liveSections()).not.toContain(HEAD);
     expect(liveSections().length).toBeLessThanOrEqual(12);
     expect(liveSections()).toContain(paths[COUNT - 2]);
