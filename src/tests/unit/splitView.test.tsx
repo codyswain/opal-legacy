@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, useRoutes, type RouteObject } from 'react-router-dom';
 import { FilesRoute } from '@/renderer/features/disk-explorer';
@@ -190,6 +191,82 @@ describe('split view', () => {
     drag('drop', card, dataTransfer, 900);
     expect(state().panes.map((pane) => pane.tabs.map(tabFile))).toEqual([[LEFT], [OTHER]]);
     expect(columns()).toHaveLength(2);
+  });
+});
+
+describe('where the keyboard and a click end up', () => {
+  it('Split right from a tab’s menu leaves the new pane active once the menu has closed', async () => {
+    openTabs([LEFT, OTHER], 0);
+    renderShell();
+    await userEvent.setup().pointer({ keys: '[MouseRight]', target: rowOf(columns()[0]).getByRole('tab', { name: 'left.txt' }) });
+    const menu = await screen.findByRole('menu');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Split right/ }));
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    await act(async () => {
+      for (let frame = 0; frame < 3; frame += 1) await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(state().panes).toHaveLength(2);
+    expect(state().activePaneId).toBe(state().panes[1].id);
+    // The next page he opens goes to the new pane, and the one he was on stays.
+    act(() => state().open(fileLocation(RIGHT)));
+    expect(state().panes.map((pane) => pane.tabs.map(tabFile))).toEqual([[LEFT, OTHER], [RIGHT]]);
+  });
+
+  it('an empty pane takes a tab dropped anywhere on its row', () => {
+    openTabs([LEFT, OTHER]);
+    act(() => state().splitRight());
+    renderShell();
+    const [, right] = columns();
+    const dataTransfer = transfer({ [TAB_DRAG_TYPE]: state().panes[0].tabs[1].id });
+    // The row's empty end, past its New tab button: not the part that holds the tabs.
+    const row = within(right).getByTestId('titlebar');
+    drag('dragOver', row, dataTransfer, 1200);
+    drag('drop', row, dataTransfer, 1200);
+    expect(state().panes.map((pane) => pane.tabs.map(tabFile))).toEqual([[LEFT], [OTHER]]);
+  });
+
+  it('a tab dragged over the other pane’s card shows the drop zone there and lands in that pane', () => {
+    twoPanes();
+    renderShell();
+    const [left, right] = columns();
+    const dataTransfer = transfer();
+    fireEvent.dragStart(rowOf(left).getByRole('tab', { name: 'other.txt' }), { dataTransfer });
+    const card = within(right).getByTestId('workspace-surface');
+    drag('dragOver', card, dataTransfer, 1200);
+    expect(within(right).getByTestId('pane-drop-zone')).toBeInTheDocument();
+    // Its own pane's card is no drop zone.
+    drag('dragOver', within(left).getByTestId('workspace-surface'), dataTransfer, 500);
+    expect(within(left).queryByTestId('pane-drop-zone')).toBeNull();
+    drag('dragOver', card, dataTransfer, 1200);
+    drag('drop', card, dataTransfer, 1200);
+    expect(state().panes.map((pane) => pane.tabs.map(tabFile))).toEqual([[LEFT], [RIGHT, OTHER]]);
+    expect(state().activePaneId).toBe(state().panes[1].id);
+    expect(screen.queryByTestId('pane-drop-zone')).toBeNull();
+  });
+
+  it('in a window too narrow for both, a quiet button at the row’s end shows the other pane', async () => {
+    twoPanes();
+    setViewportWidth(980);
+    renderShell();
+    expect(columns()).toHaveLength(1);
+    const button = screen.getByRole('button', { name: /Show the other pane/ });
+    fireEvent.click(button);
+    expect(rowOf(columns()[0]).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['left.txt', 'other.txt']);
+    // Wide enough for both: no button.
+    setViewportWidth(1600);
+    act(() => void window.dispatchEvent(new Event('resize')));
+    await waitFor(() => expect(columns()).toHaveLength(2));
+    expect(screen.queryByRole('button', { name: /Show the other pane/ })).toBeNull();
+  });
+
+  it('draws the divider as one line, and gives a pane’s size no transition', () => {
+    twoPanes();
+    renderShell();
+    const divider = screen.getByTestId('pane-divider');
+    expect(divider.querySelectorAll('[aria-hidden]')).toHaveLength(1);
+    expect(screen.getByTestId('pane-divider-line')).toHaveClass('right-px');
+    for (const column of columns()) expect(column).toHaveClass('transition-none');
   });
 });
 

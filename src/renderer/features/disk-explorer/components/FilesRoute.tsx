@@ -8,6 +8,7 @@ import {
 import { useDiskStore } from '../store/diskStore';
 import { selectCurrentLocation, useTabsStore } from '../store/tabsStore';
 import { useAddressMemory, useKeepsAddress, usePaneId, usePaneTab } from '../panes/PaneContext';
+import { closePane } from '../panes/focusPane';
 import { DiskExplorer } from './DiskExplorer';
 import { NoFolderOpen } from './NoFolderOpen';
 import { NoPageOpen } from './NoPageOpen';
@@ -61,5 +62,5 @@ export function FilesRoute() {
   if (shown) return <DiskExplorer />;
   // Until the opened folders are known, show nothing rather than claim there are none.
   if (roots.length === 0) return null;
-  return <NoPageOpen onClosePane={split ? () => useTabsStore.getState().closePane(paneId) : undefined} />;
+  return <NoPageOpen onClosePane={split ? () => closePane(paneId) : undefined} />;
 }

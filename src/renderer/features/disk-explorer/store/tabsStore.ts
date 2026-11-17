@@ -578,7 +578,9 @@ function openBesideState(state: TabsState, location: FilesLocation): Partial<Tab
   const shown = tabShowing(state.panes, key);
   if (shown && shown.pane.id !== state.activePaneId) return activateIn(state, shown.pane, shown.tab.id);
   if (shown) {
-    // Shown in this pane: the tab itself goes to the side, unless it is all this pane has and there is no other pane.
+    // Shown in this pane: the tab itself goes to the side, unless it is all this pane has, which would end the split
+    // or leave nothing to split from. Then it only comes forward here.
+    if (shown.pane.tabs.length < 2) return activateIn(state, shown.pane, shown.tab.id);
     const moved = moveState(state, shown.tab.id);
     return Object.keys(moved).length > 0 ? moved : activateIn(state, shown.pane, shown.tab.id);
   }
@@ -593,25 +595,19 @@ function openBesideState(state: TabsState, location: FilesLocation): Partial<Tab
 function openState(state: TabsState, target: FilesLocation, options: OpenOptions): Partial<TabsState> {
   const location = canonical(target);
   if (options.side) return openBesideState(state, location);
-  // A page shows in one place: the other pane's tab that shows it is where it opens.
+  // A page shows in one place: when the other pane's open tab shows it, that is where it opens. One in a tab
+  // behind it opens here; the slot draws the line there if that tab comes forward later.
   const other = selectOtherPane(state);
-  const shown = other ? tabShowing([other], filesLocationKey(location)) : null;
-  if (shown) return activateIn(state, shown.pane, shown.tab.id);
+  const otherTab = other ? selectActiveTab(other) : null;
+  if (other && otherTab && filesLocationKey(tabLocation(otherTab)) === filesLocationKey(location)) return activateIn(state, other, otherTab.id);
   return inPane(state, state.activePaneId, (view) => openInView(view, location, options));
 }
 
 /**
- * Back or Forward in the active pane. A step that would land on a page the
- * other pane shows goes to that pane's tab instead, and this tab's history
- * stays where it was: a page shows in one place.
+ * Back or Forward in the active pane's open tab, always. A page it lands on
+ * that is live in the other pane shows the slot's line there, with Show it here.
  */
 function stepState(state: TabsState, delta: number): Partial<TabsState> {
-  const pane = selectPane(state, state.activePaneId);
-  const tab = pane ? selectActiveTab(pane) : null;
-  const target = tab?.history[tab.index + delta];
-  const other = selectOtherPane(state);
-  const shown = target && other ? tabShowing([other], filesLocationKey(target.location)) : null;
-  if (shown) return activateIn(state, shown.pane, shown.tab.id);
   return inPane(state, state.activePaneId, (view) => stepView(view, delta));
 }
 
@@ -722,13 +718,8 @@ export const useTabsStore = create<TabsStore>((set, get) => {
       const [closed, ...rest] = get().recentlyClosed;
       if (!closed) return false;
       update((state) => {
+        // The tab opens again in its own pane, always. A page live in the other pane shows the slot's line there.
         const paneId = closed.paneId && selectPane(state, closed.paneId) ? closed.paneId : state.activePaneId;
-        // A page the other pane shows now is not opened again: its tab there comes forward.
-        const elsewhere = tabShowing(
-          state.panes.filter((pane) => pane.id !== paneId),
-          filesLocationKey(tabLocation(closed.tab))
-        );
-        if (elsewhere) return { ...activateIn(state, elsewhere.pane, elsewhere.tab.id), recentlyClosed: rest };
         const placed = inPane(state, paneId, (view) => ({
           tabs: [...view.tabs.slice(0, closed.index), closed.tab, ...view.tabs.slice(closed.index)],
           activeId: closed.tab.id,

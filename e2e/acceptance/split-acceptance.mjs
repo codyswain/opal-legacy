@@ -51,6 +51,7 @@ await mkdir(outDir, { recursive: true });
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const TODAY = iso(new Date());
+const YESTERDAY = iso(new Date(Date.now() - 86_400_000));
 const paragraphs = (topic, count) =>
   Array.from({ length: count }, (_, index) => `${topic} paragraph ${index + 1}. The beds by the shed get the morning sun, so the seedlings go there first and the trays stay on the bench until the frost has passed.`).join('\n\n');
 
@@ -66,6 +67,8 @@ async function makeProfile({ withAuto = null } = {}) {
   };
   await put('Archive/Journal/Template.md', '---\ndate: {{date:YYYY-MM-DD}}\ntags:\n  - daily\n---\n');
   await put(`Library/daily/${TODAY}.mdo`, `---\ndate: ${TODAY}\ntags:\n  - daily\n---\nWalk the garden beds before the rain.\n`);
+  // Yesterday's page is long, so the stream of days scrolls to reach it.
+  await put(`Library/daily/${YESTERDAY}.mdo`, `---\ndate: ${YESTERDAY}\ntags:\n  - daily\n---\n${paragraphs('Yesterday', 24)}\n`);
   await put('Garden plan.md', `# Garden plan\n\n${paragraphs('Garden', 30)}\n`);
   await put('Kitchen list.md', `# Kitchen list\n\n${paragraphs('Kitchen', 30)}\n`);
   await put('Reading.md', '# Reading\n\n- The Well-Tempered Garden\n');
@@ -487,7 +490,7 @@ async function tour() {
     await until(async () => (await tabsOf(1)).join() === 'Reading');
     await leftCard();
     await menu('history.back');
-    check('Back that would show a page the other pane has goes to that pane’s tab, and the left tab stays', await until(async () => (await activeIndex()) === 1) && (await pill(0, 'Kitchen list').getAttribute('aria-selected')) === 'true' && (await liveFor(abs('Reading.md'))) === 1, `${await activeIndex()} ${(await tabsOf(0)).join()}`);
+    check('Back onto a page the other pane shows steps the left tab, and draws the line there', await until(async () => (await lineIn(0, abs('Reading.md')).count()) === 1) && (await activeIndex()) === 0 && (await tabsOf(0)).includes('Reading') && (await liveFor(abs('Reading.md'))) === 1 && (await tabsOf(1)).join() === 'Reading', `${await activeIndex()} ${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
     // Reopen: Garden plan closed in the left, then opened in the right; reopening it in the left would show it twice.
     await pill(0, 'Garden plan').hover();
     await column(0).locator('[data-testid^="tab-close-"]').first().click();
@@ -497,7 +500,7 @@ async function tour() {
     await until(async () => (await tabsOf(1)).includes('Garden plan'));
     await leftCard();
     await menu('tabs.reopenClosed');
-    check('reopening a closed tab whose page the other pane shows goes to that tab', await until(async () => (await activeIndex()) === 1) && !(await tabsOf(0)).includes('Garden plan') && (await liveFor(abs('Garden plan.md'))) === 1, `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
+    check('a closed tab whose page the other pane shows opens again in its own pane, with the line', await until(async () => (await lineIn(0, abs('Garden plan.md')).count()) === 1) && (await activeIndex()) === 0 && (await pill(0, 'Garden plan').getAttribute('aria-selected')) === 'true' && (await liveFor(abs('Garden plan.md'))) === 1, `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
     // Today's page in the stream at the left, and the same page opened alone at the right.
     await leftCard();
     await page.getByRole('button', { name: 'Daily', exact: true }).first().click();
@@ -525,6 +528,205 @@ async function tour() {
     await menu('panes.close');
     await until(async () => (await columnCount()) === 1);
     check('closing the pane lets the page go: the stream draws it again', await until(async () => (await column(0).locator(`[data-stack-section="${daily}"] [data-live-editor] .cm-content`).count()) === 1, 10_000) && (await page.locator('[data-testid="editor-elsewhere"]').count()) === 0);
+
+    // --- Where the keyboard and a click end up.
+    const yesterday = abs(`Library/daily/${YESTERDAY}.mdo`);
+    const toOnePane = async () => {
+      for (let step = 0; step < 3 && (await columnCount()) > 1; step += 1) {
+        await menu('panes.close');
+        await until(async () => (await columnCount()) === 1, 3_000);
+      }
+    };
+    /** Whether the keyboard is in a page's editor in a pane, by position. */
+    const typingIn = (index) => column(index).evaluate((element) => element.contains(document.activeElement) && document.activeElement?.matches('.cm-content') === true);
+    /** Whether an element is inside the visible part of the page that scrolls it. */
+    const inView = (locator) => locator.evaluate((element) => {
+      let scroller = element.parentElement;
+      while (scroller && !(['auto', 'scroll'].includes(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) scroller = scroller.parentElement;
+      if (!scroller) return false;
+      const box = element.getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      return scroller.scrollTop > 0 && box.bottom > view.top && box.top < view.bottom;
+    });
+    const openPage = (index) => column(index).locator('[data-testid="tab-strip"] [role="tab"][aria-selected="true"]').evaluate((tab) => tab.textContent?.trim() ?? '').catch(() => '');
+
+    // The stream of days at the left with the caret in yesterday's page; Focus Other Pane and back, then type.
+    await toOnePane();
+    await page.getByRole('button', { name: 'Daily', exact: true }).first().click();
+    const yesterdaySection = column(0).locator(`[data-stack-section="${yesterday}"]`);
+    await yesterdaySection.waitFor({ timeout: 10_000 });
+    await yesterdaySection.scrollIntoViewIfNeeded();
+    const yesterdayLine = yesterdaySection.locator('.cm-line', { hasText: 'Yesterday paragraph 12.' }).first();
+    await yesterdayLine.waitFor({ timeout: 10_000 });
+    await menu('panes.splitRight');
+    await until(async () => (await columnCount()) === 2);
+    await tree('Seeds.md').click();
+    await until(async () => (await openPage(1)) === 'Seeds');
+    await yesterdayLine.scrollIntoViewIfNeeded();
+    await yesterdayLine.click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' STREAMA', { delay: 15 });
+    const placed = column(0).locator('.cm-line', { hasText: 'STREAMA' }).first();
+    await menu('panes.focusOther');
+    await until(async () => (await keyboardIn()) === 1, 3_000);
+    await menu('panes.focusOther');
+    await until(async () => (await keyboardIn()) === 0, 3_000);
+    const streamKept = await inView(placed);
+    await page.keyboard.type(' STREAMB', { delay: 15 });
+    check('back in the stream, the keyboard is in yesterday’s page where it was, and the stream kept its place', streamKept && await until(async () => (await disk(`Library/daily/${YESTERDAY}.mdo`)).includes('STREAMA STREAMB'), 6_000) && !(await disk(`Library/daily/${TODAY}.mdo`)).includes('STREAMB'), `in view ${streamKept}`);
+    // Closing the other pane keeps the stream's place, with Reduce Motion on (as this run emulates) and off.
+    for (const motion of ['reduce', 'no-preference']) {
+      await page.emulateMedia({ reducedMotion: motion });
+      if ((await columnCount()) === 1) {
+        await menu('panes.splitRight');
+        await until(async () => (await columnCount()) === 2);
+        await wait(300);
+        check(`a split keeps the stream’s place (reduced motion: ${motion})`, await inView(placed));
+      }
+      if ((await activeIndex()) !== 1) await menu('panes.focusOther');
+      await until(async () => (await activeIndex()) === 1, 3_000);
+      await menu('panes.close');
+      await until(async () => (await columnCount()) === 1);
+      await wait(300);
+      check(`closing the other pane keeps the stream’s place (reduced motion: ${motion})`, await inView(placed));
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    // Split Right from a tab's menu: the new pane is the active one, and the next page opens there.
+    await tree('Seeds.md').click();
+    await until(async () => (await openPage(0)) === 'Seeds');
+    await pill(0, 'Seeds').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: /Split right/ }).click();
+    await until(async () => (await columnCount()) === 2);
+    await wait(300);
+    check('Split right from the tab’s menu leaves the new pane active with the keyboard in it', (await activeIndex()) === 1 && (await keyboardIn()) === 1, `${await activeIndex()} ${await keyboardIn()}`);
+    await tree('Garden plan.md').click();
+    await tree('Reading.md').click();
+    check('the next page from the tree opens in the new pane, and the left keeps its page', await until(async () => (await openPage(1)) === 'Reading') && (await openPage(0)) === 'Seeds', `${await openPage(0)} | ${await openPage(1)}`);
+
+    // Open to the side on what the active pane already shows, when it is all that pane has: the split stays.
+    await tree('Reading.md').click({ modifiers: ['Alt'] });
+    await wait(400);
+    check('Open to the side on the active pane’s only page keeps both panes and only focuses it', (await columnCount()) === 2 && (await tabsOf(1)).join() === 'Reading' && (await activeIndex()) === 1, `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
+
+    // A page in a tab behind the other pane's open one opens here.
+    await leftCard();
+    await tree('Kitchen list.md').click({ modifiers: ['Meta'] });
+    await until(async () => (await tabsOf(0)).includes('Kitchen list'));
+    await pill(0, 'Seeds').click();
+    await until(async () => (await openPage(0)) === 'Seeds');
+    await column(1).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
+    await tree('Kitchen list.md').click();
+    check('a page in a tab behind the other pane’s open one opens in this pane, and the other does not change', await until(async () => (await openPage(1)) === 'Kitchen list') && (await openPage(0)) === 'Seeds' && (await activeIndex()) === 1, `${await openPage(0)} | ${await openPage(1)}`);
+    await pill(0, 'Kitchen list').click();
+    check('that tab, brought forward, shows the line', await until(async () => (await lineIn(0, abs('Kitchen list.md')).count()) === 1) && (await liveFor(abs('Kitchen list.md'))) === 1);
+    await pill(0, 'Seeds').click();
+
+    // Back and Forward act in their own pane: the right tab went Garden plan, Reading, Kitchen list; the left opens Reading.
+    await leftCard();
+    await tree('Reading.md').click({ modifiers: ['Meta'] });
+    await until(async () => (await openPage(0)) === 'Reading');
+    await column(1).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
+    await menu('history.back');
+    const back1 = await until(async () => (await lineIn(1, abs('Reading.md')).count()) === 1);
+    check('Back onto the page the other pane shows steps this pane’s tab and draws the line', back1 && (await activeIndex()) === 1 && (await openPage(0)) === 'Reading' && (await openPage(1)) === 'Reading', `${await openPage(0)} | ${await openPage(1)}`);
+    await menu('history.back');
+    check('Back again goes past it', await until(async () => (await openPage(1)) === 'Garden plan') && (await activeIndex()) === 1 && (await openPage(0)) === 'Reading', `${await openPage(0)} | ${await openPage(1)}`);
+    await menu('history.forward');
+    check('Forward comes back to it, with the line', await until(async () => (await lineIn(1, abs('Reading.md')).count()) === 1) && (await openPage(0)) === 'Reading');
+    // Reopen Closed Tab: a tab closed at the left whose page the right pane opens since comes back at the left.
+    await leftCard();
+    await pill(0, 'Kitchen list').hover();
+    await pill(0, 'Kitchen list').locator('[data-testid^="tab-close-"]').click();
+    await until(async () => !(await tabsOf(0)).includes('Kitchen list'));
+    await column(1).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
+    await tree('Kitchen list.md').click();
+    await until(async () => (await openPage(1)) === 'Kitchen list');
+    await leftCard();
+    await menu('tabs.reopenClosed');
+    check('Reopen Closed Tab opens it again in its own pane, with the line', await until(async () => (await openPage(0)) === 'Kitchen list') && (await activeIndex()) === 0 && (await lineIn(0, abs('Kitchen list.md')).count()) === 1 && (await liveFor(abs('Kitchen list.md'))) === 1, `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
+
+    // A narrow window: the one pane shown ends its row with Show the other pane, and Focus Other Pane keeps the caret.
+    await pill(0, 'Seeds').click();
+    await until(async () => (await openPage(0)) === 'Seeds');
+    const seedsLine = column(0).locator('.cm-line', { hasText: 'Beans, peas, chard.' }).first();
+    await seedsLine.click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' NARROWA', { delay: 15 });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(900, 800));
+    await until(async () => (await columnCount()) === 1);
+    check('a window too narrow for both shows Show the other pane at the end of the row', (await column(0).getByTestId('show-other-pane').count()) === 1);
+    await shot('show-other-pane');
+    await column(0).getByTestId('show-other-pane').click();
+    check('Show the other pane shows it, with the keyboard in its page', await until(async () => (await openPage(0)) !== 'Seeds' && (await typingIn(0)), 3_000), await openPage(0));
+    await menu('panes.focusOther');
+    const narrowBack = await until(async () => (await openPage(0)) === 'Seeds' && (await typingIn(0)), 3_000);
+    await page.keyboard.type(' NARROWB', { delay: 15 });
+    check('Focus Other Pane in a narrow window puts the keyboard back in the page, where its caret was', narrowBack && await until(async () => (await disk('Seeds.md')).includes('NARROWA NARROWB'), 6_000), JSON.stringify((await disk('Seeds.md')).slice(-40)));
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size.width, size.height), { width: WIDTH, height: HEIGHT });
+    check('wide again, both panes, and no Show the other pane', await until(async () => (await columnCount()) === 2) && (await page.getByTestId('show-other-pane').count()) === 0);
+
+    // Move Tab to Other Pane, then type at once: the words go into the moved page, after its caret.
+    await seedsLine.click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' MOVEA', { delay: 15 });
+    await menu('panes.moveTab');
+    await page.keyboard.type(' MOVEB', { delay: 15 });
+    check('typed at once after Move Tab to Other Pane, the words go into the moved page after its caret', await until(async () => /MOVEA ?MOVEB/.test(await disk('Seeds.md')), 6_000) && (await openPage(1)) === 'Seeds' && (await activeIndex()) === 1, JSON.stringify((await disk('Seeds.md')).slice(-40)));
+
+    // A thread clicked in the sidebar while a page has the keyboard: the thread's pane is active and the box takes the words.
+    const threadIds = await page.locator('[data-testid^="auto-row-"][data-thread-id]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-thread-id')));
+    const otherThread = threadIds.find((id) => id !== BREAD);
+    await page.getByTestId(`auto-row-${BREAD}`).locator('[data-auto-row]').click({ modifiers: ['Alt'] });
+    await until(async () => (await column(1).getByTestId('auto-talk').count()) === 1 || (await column(0).getByTestId('auto-talk').count()) === 1, 15_000);
+    const autoAt = (await column(1).getByTestId('auto-talk').count()) === 1 ? 1 : 0;
+    const pageAt = 1 - autoAt;
+    const pageFile = (await openPage(pageAt)) === 'Seeds' ? 'Seeds.md' : `${await openPage(pageAt)}.md`;
+    await column(pageAt).locator('.cm-line').first().click();
+    await page.keyboard.press('End');
+    await page.getByTestId(`auto-row-${otherThread}`).locator('[data-auto-row]').click();
+    await wait(300);
+    await page.keyboard.type('TOTHREAD', { delay: 15 });
+    const boxHolds = await column(autoAt).getByTestId('auto-box').inputValue().catch(() => '');
+    await wait(800);
+    check('after a thread is clicked, its pane is active and the words go into its box, not the page', boxHolds.includes('TOTHREAD') && (await activeIndex()) === autoAt && !(await disk(pageFile)).includes('TOTHREAD'), `box ${JSON.stringify(boxHolds)}, active ${await activeIndex()}, page ${pageFile}`);
+    await column(autoAt).getByTestId('auto-box').fill('');
+
+    // Drops: a tab over the other pane's card lands there; an empty pane takes one anywhere on its row.
+    const dragTo = async (from, target, x, y) => {
+      const box = await from.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      const area = await target.boundingBox();
+      await page.mouse.move(area.x + area.width * x, area.y + area.height * y, { steps: 12 });
+      await wait(200);
+      const zone = await target.locator('[data-testid="pane-drop-zone"]').count();
+      await page.mouse.up();
+      return zone;
+    };
+    await column(pageAt).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
+    await tree('Garden plan.md').click({ modifiers: ['Meta'] });
+    await until(async () => (await tabsOf(pageAt)).includes('Garden plan') || (await tabsOf(0)).includes('Garden plan'));
+    const gardenAt = (await tabsOf(0)).includes('Garden plan') ? 0 : 1;
+    const zoneShown = await dragTo(pill(gardenAt, 'Garden plan'), column(1 - gardenAt).getByTestId('workspace-surface'), 0.3, 0.5);
+    check('a tab dragged over the other pane’s card shows the drop zone there', zoneShown === 1);
+    check('dropped there, it lands in that pane with the keyboard in its page', await until(async () => (await openPage(1 - gardenAt)) === 'Garden plan' && (await typingIn(1 - gardenAt)), 4_000), `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
+    await toOnePane();
+    await tree('Seeds.md').click({ modifiers: ['Meta'] });
+    await until(async () => (await tabsOf(0)).includes('Seeds'));
+    await menu('panes.splitRight');
+    await until(async () => (await columnCount()) === 2 && (await tabsOf(1)).length === 0);
+    await dragTo(pill(0, 'Seeds'), column(1).getByTestId('titlebar'), 0.8, 0.5);
+    check('an empty pane takes a tab dropped on its row past the New tab button, with the keyboard in the page', await until(async () => (await openPage(1)) === 'Seeds' && (await typingIn(1)), 4_000), `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
+    await menu('panes.close');
+    await until(async () => (await columnCount()) === 1);
+    await tree('Seeds.md').click({ modifiers: ['Meta'] });
+    await until(async () => (await tabsOf(0)).includes('Seeds'));
+    await menu('panes.splitRight');
+    await until(async () => (await columnCount()) === 2 && (await tabsOf(1)).length === 0);
+    await dragTo(pill(0, 'Seeds'), column(1).getByTestId('workspace-surface'), 0.5, 0.6);
+    check('an empty pane takes a tab dropped anywhere on its card', await until(async () => (await openPage(1)) === 'Seeds' && (await typingIn(1)), 4_000), `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
+    await toOnePane();
 
     // --- Thread beside a page once more, for the pictures of a split with the thread at the left.
     await page.addStyleTag({ content: '.cm-cursorLayer, .cm-cursor { visibility: hidden !important; } input, textarea { caret-color: transparent !important; }' });

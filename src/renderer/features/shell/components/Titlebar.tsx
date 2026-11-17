@@ -1,7 +1,8 @@
 import * as React from "react";
-import { PanelRight } from "lucide-react";
+import { Columns2, PanelRight } from "lucide-react";
 import { toggleDaySidebar } from "@/renderer/features/day-sidebar/store/daySidebarStore";
 import { TabStrip } from "@/renderer/features/disk-explorer/components/TabStrip";
+import { focusOtherPane } from "@/renderer/features/disk-explorer/panes/focusPane";
 import { IconButton } from "@/renderer/shared/ui";
 import { FrameControls, SearchButton, TrafficLightInset } from "./FrameControls";
 
@@ -18,6 +19,8 @@ interface TitlebarProps {
   onToggleSidebar: () => void;
   sidebarToggleRef?: React.Ref<HTMLButtonElement>;
   rightSidebarToggleRef?: React.Ref<HTMLButtonElement>;
+  /** The other pane is hidden in a window too narrow for both: a quiet button at the row's end shows it. */
+  otherPaneHidden?: boolean;
 }
 
 /**
@@ -27,12 +30,15 @@ interface TitlebarProps {
  * first. The tabs have the rest of the row, and shrink and scroll once they
  * fill it. Empty space drags the window; every control is no-drag. With two
  * panes each has its own row, as wide as its card; the left sidebar's
- * controls go in the first and the right sidebar's toggle in the last.
+ * controls go in the first and the right sidebar's toggle in the last. In a
+ * window too narrow for both, the one pane shown ends its row with a button
+ * that shows the other.
  */
 export function Titlebar({
   first = true,
   last = true,
   onToggleSidebar,
+  otherPaneHidden = false,
   paneId,
   rightSidebarOpen = false,
   rightSidebarToggleRef,
@@ -61,6 +67,19 @@ export function Titlebar({
         ) : null}
         <TabStrip paneId={paneId} />
       </div>
+      {otherPaneHidden ? (
+        <div className="flex shrink-0 justify-end">
+          <IconButton
+            label="Show the other pane"
+            shortcut="⌃⌘→"
+            data-testid="show-other-pane"
+            onClick={focusOtherPane}
+            variant="frame"
+          >
+            <Columns2 aria-hidden className="frame-icon" />
+          </IconButton>
+        </div>
+      ) : null}
       {!rightSidebarOpen && last ? (
         <div className="flex shrink-0 justify-end">
           <IconButton

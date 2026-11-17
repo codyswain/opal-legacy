@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { useAutoStore, wantedRow } from '../store/autoStore';
 
 /*
@@ -39,10 +40,18 @@ if (typeof document !== 'undefined') {
 /** The action being taken came from a key, not from the pointer. */
 export const byKey = (): boolean => input === 'key';
 
-/** After a pointer action: the keyboard goes back to where it was, if that is still there. A page's text keeps its caret. */
+/**
+ * After a pointer action: the keyboard goes back to where it was, if that is
+ * still there. A page's text keeps its caret. Not into a pane that is no
+ * longer the active one: the click showed something in the other pane, and
+ * the keyboard goes with it.
+ */
 export function giveBack(): void {
   const element = before as HTMLElement | null;
-  if (element && element.isConnected && element !== document.body && typeof element.focus === 'function' && document.activeElement !== element) element.focus({ preventScroll: true });
+  if (!element || !element.isConnected || element === document.body || typeof element.focus !== 'function' || document.activeElement === element) return;
+  const pane = element.closest('[data-pane-column]')?.getAttribute('data-pane-column');
+  if (pane && pane !== useTabsStore.getState().activePaneId) return;
+  element.focus({ preventScroll: true });
 }
 
 /** For the buttons on a row: a press does not take the keyboard from where it is. */

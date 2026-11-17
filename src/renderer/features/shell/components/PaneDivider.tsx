@@ -15,8 +15,8 @@ interface PaneDividerProps {
  * The band between the two page cards, as tall as the cards, that drags
  * where one pane ends and the other begins; arrow keys move it 8px. It is
  * the sidebar's resize handle turned to face two cards: the band is the grab
- * area, and on hover, during a drag and on keyboard focus a 2px line shows
- * on each card's facing edge, between the cards' rounded corners.
+ * area, and on hover, during a drag and on keyboard focus one 2px line shows
+ * on the right card's left edge, between its rounded corners.
  */
 export function PaneDivider({ max, min, onChange, onReset, value }: PaneDividerProps) {
   const clamp = (width: number) => Math.min(max, Math.max(min, width));
@@ -77,9 +77,9 @@ export function PaneDivider({ max, min, onChange, onReset, value }: PaneDividerP
       className="no-drag group absolute bottom-page top-[var(--header-height)] z-10 w-[calc(var(--page-inset)+4px)] -translate-x-1/2 cursor-col-resize outline-none"
       style={{ left: value }}
     >
-      {/* Over each card's 1px ring and 1px outside it, clear of the corners. */}
-      <div aria-hidden data-testid="pane-divider-line" className={cn(line, 'left-px')} />
-      <div aria-hidden className={cn(line, 'right-px')} />
+      {/* One line, on the right card's left edge, as the sidebar's line sits on the page card's edge: over its 1px
+          ring and 1px outside it, clear of the corners. */}
+      <div aria-hidden data-testid="pane-divider-line" className={cn(line, 'right-px')} />
     </div>
   );
 }

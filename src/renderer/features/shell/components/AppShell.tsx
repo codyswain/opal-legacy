@@ -7,6 +7,7 @@ import { useHiddenSync } from '@/renderer/features/disk-explorer/hooks/useHidden
 import { namesHidden, useHiddenStore } from '@/renderer/features/disk-explorer/store/hiddenStore';
 import { locationPath } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import {
+  paneOfTab,
   selectCurrentLocation,
   useTabsStore,
   type Pane,
@@ -18,7 +19,8 @@ import {
   leftPaneWidth,
   splitFor,
 } from '@/renderer/features/disk-explorer/panes/paneLayout';
-import { TAB_DRAG_TYPE } from '@/renderer/features/disk-explorer/components/TabStrip';
+import { TAB_DRAG_TYPE, draggedTab, endTabDrag } from '@/renderer/features/disk-explorer/components/TabStrip';
+import { focusActivePane, noteBlur, noteFocus } from '@/renderer/features/disk-explorer/panes/focusPane';
 import { useShell } from '../context/ShellContext';
 import {
   DEFAULT_SHELL_PREFERENCES,
@@ -189,6 +191,22 @@ export function AppShell({ children }: AppShellProps) {
   // With one tab-filled pane, a tab dragged over the card's right half splits there.
   const [dropZone, setDropZone] = React.useState(false);
   const canDropToSplit = panes.length === 1 && fitsTwoPanes(room);
+  // With two panes, a tab dragged over the other pane's card, or anywhere over an empty pane, lands in that pane.
+  const [dropPane, setDropPane] = React.useState<string | null>(null);
+  const takesTab = (pane: Pane): boolean => {
+    const dragged = draggedTab();
+    const from = dragged ? paneOfTab(useTabsStore.getState(), dragged) : null;
+    return panes.length > 1 && (from ? from.id !== pane.id : pane.tabs.length === 0);
+  };
+  const dropInto = (event: React.DragEvent, pane: Pane) => {
+    const id = event.dataTransfer.getData(TAB_DRAG_TYPE) || draggedTab();
+    endTabDrag();
+    setDropPane(null);
+    if (!id || paneOfTab(useTabsStore.getState(), id)?.id === pane.id) return;
+    useTabsStore.getState().moveToPane(id, pane.id);
+    // After a drag the keyboard is in the page that was dropped.
+    focusActivePane();
+  };
 
   useDiskSync();
   usePinsSync();
@@ -360,11 +378,28 @@ export function AppShell({ children }: AppShellProps) {
                 key={pane.id}
                 data-pane-column={pane.id}
                 data-pane-active={twoShown ? active : undefined}
-                className="flex min-w-0 flex-col"
+                // No transition on a pane's size, ever: under Reduce Motion every element gets a short one, and a
+                // pane that grows from nothing for a frame loses its place in a page.
+                className="flex min-w-0 flex-col transition-none"
                 style={twoShown && index === 0 ? { width: leftWidth, flex: 'none' } : { flex: '1 1 0%' }}
-                // The pane last clicked or typed in is the active one.
+                // The pane last clicked or typed in is the active one, and it remembers where the keyboard was in it.
                 onPointerDownCapture={() => useTabsStore.getState().focusPane(pane.id)}
-                onFocusCapture={() => useTabsStore.getState().focusPane(pane.id)}
+                onFocusCapture={(event) => {
+                  noteFocus(pane.id, event.target);
+                  useTabsStore.getState().focusPane(pane.id);
+                }}
+                onBlurCapture={(event) => noteBlur(pane.id, event.target)}
+                // An empty pane takes a tab dragged from the other pane anywhere on its row of tabs or its card.
+                onDragOver={panes.length > 1 && pane.tabs.length === 0 ? (event) => {
+                  if (!carriesTab(event)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                } : undefined}
+                onDrop={panes.length > 1 && pane.tabs.length === 0 ? (event) => {
+                  if (!carriesTab(event) || event.defaultPrevented) return;
+                  event.preventDefault();
+                  dropInto(event, pane);
+                } : undefined}
               >
                 <Titlebar
                   paneId={pane.id}
@@ -375,6 +410,7 @@ export function AppShell({ children }: AppShellProps) {
                   sidebarToggleRef={index === 0 ? sidebarToggleRef : undefined}
                   rightSidebarToggleRef={index === shown.length - 1 ? rightToggleRef : undefined}
                   onToggleSidebar={handleToggleSidebar}
+                  otherPaneHidden={panes.length > 1 && !twoShown}
                 />
                 <main
                   ref={active ? workspaceMainRef : undefined}
@@ -383,7 +419,7 @@ export function AppShell({ children }: AppShellProps) {
                   data-pane-id={pane.id}
                   aria-label="Page"
                   className={cn(
-                    'relative mb-page min-h-0 min-w-0 flex-1 overflow-hidden rounded-card border border-page-ring bg-canvas outline-none',
+                    'relative mb-page min-h-0 min-w-0 flex-1 overflow-hidden rounded-card border border-page-ring bg-canvas outline-none transition-none',
                     !twoShown ? 'mx-page' : index === 0 ? 'ml-page mr-[calc(var(--page-inset)/2)]' : 'ml-[calc(var(--page-inset)/2)] mr-page'
                   )}
                   // Capture, so a page's editor never takes a tab dragged over it.
@@ -397,17 +433,37 @@ export function AppShell({ children }: AppShellProps) {
                       event.dataTransfer.dropEffect = 'move';
                     }
                     setDropZone(over);
+                  } : panes.length > 1 ? (event) => {
+                    if (!carriesTab(event)) return;
+                    const over = takesTab(pane);
+                    event.stopPropagation();
+                    if (over) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                    }
+                    setDropPane(over ? pane.id : null);
                   } : undefined}
-                  onDragLeave={canDropToSplit ? (event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropZone(false);
+                  onDragLeave={canDropToSplit || panes.length > 1 ? (event) => {
+                    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                    setDropZone(false);
+                    setDropPane((current) => (current === pane.id ? null : current));
                   } : undefined}
                   onDropCapture={canDropToSplit ? (event) => {
                     if (!carriesTab(event)) return;
                     event.stopPropagation();
                     event.preventDefault();
                     const id = event.dataTransfer.getData(TAB_DRAG_TYPE);
-                    if (dropZone && id) useTabsStore.getState().moveToPane(id);
+                    endTabDrag();
+                    if (dropZone && id) {
+                      useTabsStore.getState().moveToPane(id);
+                      focusActivePane();
+                    }
                     setDropZone(false);
+                  } : panes.length > 1 ? (event) => {
+                    if (!carriesTab(event)) return;
+                    event.stopPropagation();
+                    event.preventDefault();
+                    dropInto(event, pane);
                   } : undefined}
                 >
                   <PaneProvider paneId={pane.id}>{children}</PaneProvider>
@@ -416,6 +472,13 @@ export function AppShell({ children }: AppShellProps) {
                       aria-hidden
                       data-testid="pane-drop-zone"
                       className="pointer-events-none absolute inset-y-0 right-0 z-20 w-1/2 rounded-r-card border-l-2 border-focus/40 bg-surface-hover"
+                    />
+                  ) : null}
+                  {dropPane === pane.id && panes.length > 1 ? (
+                    <div
+                      aria-hidden
+                      data-testid="pane-drop-zone"
+                      className="pointer-events-none absolute inset-0 z-20 rounded-card border-2 border-focus/40 bg-surface-hover"
                     />
                   ) : null}
                 </main>

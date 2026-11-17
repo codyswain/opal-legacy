@@ -31,7 +31,7 @@ import { useSettingsStore } from "@/renderer/features/settings/store/settingsSto
 import { useUpdatesStore, useUpdatesSync } from "@/renderer/features/updates";
 import { commentTarget, openCommentBox, selectionCrossesPages, useCommentSync } from "@/renderer/features/comment";
 import { openAutoTab, useAutoSync } from "@/renderer/features/auto";
-import { focusActivePane, focusOtherPane, moveTabToOtherPane, splitRight } from "@/renderer/features/disk-explorer/panes/focusPane";
+import { closePane, focusOtherPane, moveTabToOtherPane, splitRight } from "@/renderer/features/disk-explorer/panes/focusPane";
 import { commandRegistry, type Command } from "../services/commandRegistry";
 import { usePaletteStore } from "../store/paletteStore";
 
@@ -217,10 +217,8 @@ export const AppCommands: React.FC = () => {
           // With no tab left, Cmd+W closes an empty pane beside another, else the window, as in Safari.
           const { activeId, activePaneId, panes } = tabs();
           if (activeId) tabs().close(activeId);
-          else if (panes.length > 1) {
-            tabs().closePane(activePaneId);
-            focusActivePane();
-          } else window.systemAPI.closeWindow();
+          else if (panes.length > 1) closePane(activePaneId);
+          else window.systemAPI.closeWindow();
         },
       },
       {
@@ -307,7 +305,7 @@ export const AppCommands: React.FC = () => {
         type: "action",
         shortcut: ["Ctrl+Shift+Cmd+Right", "Ctrl+Shift+Cmd+Left"],
         keywords: ["split", "pane", "move", "tab", "side"],
-        perform: moveTabToOtherPane,
+        perform: () => moveTabToOtherPane(),
       },
       ...(twoPanes
         ? [
@@ -324,10 +322,7 @@ export const AppCommands: React.FC = () => {
             name: "Close Pane",
             type: "action",
             keywords: ["split", "pane", "close", "unsplit"],
-            perform: () => {
-              tabs().closePane(tabs().activePaneId);
-              focusActivePane();
-            },
+            perform: () => closePane(tabs().activePaneId),
           } satisfies Command,
         ]
         : []),

@@ -14,10 +14,18 @@ import { paneOfTab, selectPane, tabFile, tabLocation, useTabsStore, type Tab } f
 import { locationPath } from '../navigation/filesLocation';
 import { useAutoTabName } from '@/renderer/features/auto/useAutoTabName';
 import { tabLabels } from './tabLabels';
-import { focusActivePane, splitRight } from '../panes/focusPane';
+import { closePane as closePaneHere, focusActivePane, moveTabToOtherPane, splitRight } from '../panes/focusPane';
 import { namesHidden, useHiddenStore } from '../store/hiddenStore';
 
 export const TAB_DRAG_TYPE = 'application/x-opal-tab';
+
+/** The tab being dragged, if any: a drag's data cannot be read until the drop, and a card shows its drop zone before. */
+let draggedTabId: string | null = null;
+export const draggedTab = (): string | null => draggedTabId;
+/** For a drop that lands outside a row of tabs: the drag is over. */
+export const endTabDrag = (): void => {
+  draggedTabId = null;
+};
 const EMPTY: Tab[] = [];
 /** Past this many tabs the row offers a list of all of them, as browsers do. */
 const OVERFLOW_MENU_AT = 8;
@@ -80,7 +88,13 @@ export const TabStrip: React.FC<{
       return { name, hint: null, title: name };
     });
   }, [tabs, roots, autoName, hiddenChecks, hiddenReady]);
-  const { activate, close, closeAll, closeOthers, closeToRight, move, moveToPane, closePane } = useTabsStore.getState();
+  const { activate, close, closeAll, closeOthers, closeToRight, move, moveToPane } = useTabsStore.getState();
+  // Set while a pane command from a tab's menu runs, so the menu's close leaves the keyboard where the command put it.
+  const paneCommand = useRef(false);
+  const paneDo = (command: () => void) => {
+    paneCommand.current = true;
+    command();
+  };
 
   // The faded edges say more pills are scrolled out of view on that side.
   const measureEdges = useCallback(() => {
@@ -147,15 +161,19 @@ export const TabStrip: React.FC<{
     const target = dropIndex ?? dropTarget(event);
     setDragging(null);
     setDropIndex(null);
+    draggedTabId = null;
     if (!id) return;
     event.preventDefault();
     const from = tabs.findIndex((tab) => tab.id === id);
     // A tab from the other pane's row moves here, at the place it was dropped.
     if (from === -1) {
       if (paneOfTab(useTabsStore.getState(), id)) moveToPane(id, paneId, target);
-      return;
+    } else {
+      move(from, target > from ? target - 1 : target, paneId);
+      activate(id);
     }
-    move(from, target > from ? target - 1 : target, paneId);
+    // After a drag the keyboard is in the page that was dropped.
+    focusActivePane();
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, index: number, tab: Tab) => {
@@ -195,9 +213,11 @@ export const TabStrip: React.FC<{
       } : undefined}
       onDrop={tabs.length === 0 ? (event) => {
         const id = event.dataTransfer.getData(TAB_DRAG_TYPE);
+        draggedTabId = null;
         if (!id) return;
         event.preventDefault();
         moveToPane(id, paneId, 0);
+        focusActivePane();
       } : undefined}
     >
       {tabs.length > 0 ? (
@@ -249,9 +269,10 @@ export const TabStrip: React.FC<{
                     onDragStart={(event) => {
                       event.dataTransfer.setData(TAB_DRAG_TYPE, tab.id);
                       event.dataTransfer.effectAllowed = 'move';
+                      draggedTabId = tab.id;
                       setDragging(tab.id);
                     }}
-                    onDragEnd={() => { setDragging(null); setDropIndex(null); }}
+                    onDragEnd={() => { draggedTabId = null; setDragging(null); setDropIndex(null); }}
                     className={cn(
                       'tab-pill no-drag group relative flex h-control-compact max-w-[12.5rem] flex-[0_1_auto] cursor-default select-none items-center gap-1 rounded-control pl-2.5 pr-1 text-ui',
                       // About eight characters before the row scrolls; a pill that names its folder needs room for some of it.
@@ -301,7 +322,17 @@ export const TabStrip: React.FC<{
                     </button>
                   </div>
                 </ContextMenuTrigger>
-                <ContextMenuContent data-testid={`tab-menu-${key}`}>
+                <ContextMenuContent
+                  data-testid={`tab-menu-${key}`}
+                  // After a pane command the keyboard goes to the pane the command made active, as from the View
+                  // menu. The menu's own return to this tab would make this tab's pane the active one again.
+                  onCloseAutoFocus={(event) => {
+                    if (!paneCommand.current) return;
+                    paneCommand.current = false;
+                    event.preventDefault();
+                    focusActivePane();
+                  }}
+                >
                   <ContextMenuItem onSelect={() => close(tab.id)}>Close tab<ContextMenuShortcut>⌘W</ContextMenuShortcut></ContextMenuItem>
                   <ContextMenuItem disabled={tabs.length < 2} onSelect={() => closeOthers(tab.id)}>Close other tabs</ContextMenuItem>
                   <ContextMenuItem disabled={index === tabs.length - 1} onSelect={() => closeToRight(tab.id)}>Close tabs to the right</ContextMenuItem>
@@ -309,14 +340,14 @@ export const TabStrip: React.FC<{
                   <ContextMenuSeparator />
                   <ContextMenuItem
                     disabled={paneCount === 1 && tabs.length < 2}
-                    onSelect={() => { moveToPane(tab.id); focusActivePane(); }}
+                    onSelect={() => paneDo(() => moveTabToOtherPane(tab.id))}
                   >
                     Move to the other pane<ContextMenuShortcut>⌃⇧⌘→</ContextMenuShortcut>
                   </ContextMenuItem>
                   {paneCount === 1 ? (
-                    <ContextMenuItem onSelect={splitRight}>Split right<ContextMenuShortcut>⌃⌘\</ContextMenuShortcut></ContextMenuItem>
+                    <ContextMenuItem onSelect={() => paneDo(splitRight)}>Split right<ContextMenuShortcut>⌃⌘\</ContextMenuShortcut></ContextMenuItem>
                   ) : (
-                    <ContextMenuItem onSelect={() => closePane(paneId)}>Close pane</ContextMenuItem>
+                    <ContextMenuItem onSelect={() => paneDo(() => closePaneHere(paneId))}>Close pane</ContextMenuItem>
                   )}
                   {file ? (
                     <>

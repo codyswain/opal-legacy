@@ -554,4 +554,11 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
+  /* The short transition above would reach every property, since a transition's property is "all" by default. A pane
+     and its card would then grow from nothing for a frame on a split or a close, and a page in it lose its place. */
+  [data-pane-column],
+  [data-pane-column] > [data-testid="workspace-surface"] {
+    transition: none !important;
+  }
 }

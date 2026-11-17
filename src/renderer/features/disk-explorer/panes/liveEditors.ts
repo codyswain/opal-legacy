@@ -2,10 +2,11 @@ import { create } from 'zustand';
 
 /**
  * Which pane has a live editor for which file. A page shows in one place:
- * two editors on one file would each save over the other. Navigation already
- * sends a page that is open in the other pane to that pane's tab; this record
- * is the guard under it, at the view, so no way in (Back, a reopened tab, a
- * day in the stream and the same day opened alone) can draw a second editor.
+ * two editors on one file would each save over the other. A click on a page
+ * the other pane shows goes to that pane; every other way in (Back, Forward,
+ * a reopened tab, a page in a tab behind the other pane's open one, a day in
+ * the stream and the same day opened alone) opens where it is, and this
+ * record, at the view, draws the line there in place of a second editor.
  *
  * A pane takes a path when its editor mounts and lets it go when it unmounts.
  * `count` is how many of that pane's editors hold it, so a remount inside one
