@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type { AutoAPI, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
-import { applyOrder, moved, upsertThread } from '../model/listModel';
+import { applyOrder, isWorking, moved, upsertThread } from '../model/listModel';
 import { LIST_PLACE, forgetPlace } from '../model/places';
 import { unconfirmed } from '../model/unconfirmed';
+import { turnEnded } from './pageLinks';
 import { useSaidStore } from './saidStore';
 
 /*
@@ -293,7 +294,10 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       } else if (message.type === 'event' && message.stream === 'list') {
         const event = message.event;
         if (event.kind === 'thread') {
+          const before = get().threads.find((thread) => thread.id === event.thread.id);
           set({ threads: upsertThread(get().threads, laid(event.thread)) });
+          // A turn ended: the files its reply names may be on the remote by now, so the opened folders catch up.
+          if (before && isWorking(before) && !isWorking(event.thread)) turnEnded(() => get().address);
           get().archiveChanged(laid(event.thread));
         }
         else if (event.kind === 'order') set({ threads: ordered(get().threads, event.ids) });

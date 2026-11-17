@@ -262,7 +262,8 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
       followed[stream] = null;
       return ok(undefined);
     }),
-    resolvePage: vi.fn(async (path: string) => ok({ path: `/Vault/${path}` })),
+    resolvePage: vi.fn(async (path: string) => ok({ path: `/Vault/${path}`, title: null as string | null })),
+    updateFolders: vi.fn(async () => ok('current')),
     onStream: (callback: (message: AutoStreamMessage) => void) => {
       listeners.add(callback);
       return () => listeners.delete(callback);

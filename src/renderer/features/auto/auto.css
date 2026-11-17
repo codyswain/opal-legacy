@@ -76,6 +76,86 @@
   box-shadow: 0 0 0 2px hsl(var(--focus));
 }
 
+/*
+ * A link to a file in the vault: the link, then the quiet line that says a
+ * page is not on this Mac yet, anchored under it.
+ */
+.auto-md .auto-vault-link {
+  position: relative;
+}
+
+/*
+ * A link to a page reads as a page, not as a web link: a small page icon,
+ * then its name in the text's colour with the quiet underline, on one line.
+ * A long name is cut with an ellipsis inside the column; the box is one line
+ * high and sits at the top of the line, so its words share the line's
+ * baseline.
+ */
+.auto-md .auto-vault-link[data-page] {
+  display: inline-flex;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+.auto-md .auto-page-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  min-width: 0;
+  max-width: 100%;
+  text-decoration: none;
+}
+
+.auto-md .auto-page-icon {
+  width: 0.93em;
+  height: 0.93em;
+  flex-shrink: 0;
+  color: hsl(var(--text-secondary));
+}
+
+.auto-md .auto-page-icon.auto-spin {
+  width: 0.75em;
+  height: 0.75em;
+  margin: 0 0.09em;
+}
+
+.auto-md .auto-page-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--text-tertiary) / 0.55);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.auto-md .auto-page-link:hover .auto-page-words {
+  text-decoration-color: hsl(var(--foreground));
+}
+
+/* The line under a link to a page not here yet: small and quiet, over what follows, gone on the next click. */
+.auto-md .auto-page-missing {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 5;
+  margin-top: 2px;
+  white-space: nowrap;
+  font-size: 0.857em;
+  line-height: 1.5;
+  color: hsl(var(--text-secondary));
+  pointer-events: none;
+}
+
+.auto-md .auto-page-missing:not(:empty) {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: hsl(var(--surface));
+  box-shadow: 0 0 0 1px hsl(var(--border)), 0 2px 6px hsl(var(--foreground) / 0.08);
+}
+
 /* Code in a line: a light grey chip. */
 .auto-md code {
   padding: 0.1em 0.3em;

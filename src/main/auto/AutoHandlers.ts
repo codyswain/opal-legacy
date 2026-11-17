@@ -1,8 +1,8 @@
 import type { IpcMain } from 'electron';
-import type { AutoFailure, AutoResult } from '@/types/auto';
+import type { AutoFailure, AutoResult, FolderUpdateOutcome } from '@/types/auto';
 import type { AutoService } from './AutoService';
 import { AutoAddressError, validRoute, validStreamTarget } from './autoRequests';
-import { resolveVaultPage, type AutoPagesDependencies } from './autoPages';
+import { resolveVaultPage, type AutoPagesDependencies, type ResolvedPage } from './autoPages';
 
 const refuse = (kind: AutoFailure['kind'], message: string): AutoResult<never> => ({ success: false, error: { kind, message } });
 const invalid = (): AutoResult<never> => refuse('invalid', 'Opal could not send that to Auto.');
@@ -13,10 +13,16 @@ const invalid = (): AutoResult<never> => refuse('invalid', 'Opal could not send 
  * names an address, a path or a header.
  */
 export class AutoHandlers {
-  constructor(private deps: { ipc: Pick<IpcMain, 'handle'>; service: AutoService; pages: AutoPagesDependencies }) {}
+  constructor(private deps: {
+    ipc: Pick<IpcMain, 'handle'>;
+    service: AutoService;
+    pages: AutoPagesDependencies;
+    /** Brings the opened folders that are git checkouts up to date; the folders are the main process's own. */
+    folders: { update: () => Promise<FolderUpdateOutcome> };
+  }) {}
 
   registerAll(): void {
-    const { ipc, service, pages } = this.deps;
+    const { ipc, service, pages, folders } = this.deps;
     ipc.handle('auto:config', () => this.respond(() => service.config()));
     ipc.handle('auto:set-address', (_event, url: unknown) =>
       typeof url === 'string' ? this.respond(() => service.setAddress(url)) : invalid());
@@ -34,8 +40,15 @@ export class AutoHandlers {
       return { success: true, data: undefined };
     });
     ipc.handle('auto:resolve-page', async (_event, written: unknown) => {
-      const page = await resolveVaultPage(pages, written).catch(() => ({ error: 'Opal could not open that file.' }));
-      return 'path' in page ? { success: true, data: page } : refuse('invalid', page.error);
+      const page = await resolveVaultPage(pages, written).catch((): ResolvedPage => ({ error: 'Opal could not open that file.' }));
+      if ('path' in page) return { success: true, data: { path: page.path, title: page.title } };
+      return refuse('missing' in page ? 'missing' : 'invalid', page.error);
+    });
+    // No arguments: the page can never name a folder, a remote or a command. Only for a Mac with an address set.
+    ipc.handle('auto:update-folders', async (): Promise<AutoResult<FolderUpdateOutcome>> => {
+      const config = await service.config().catch(() => ({ url: null }));
+      if (!config.url) return { success: true, data: 'none' };
+      return { success: true, data: await folders.update().catch((): FolderUpdateOutcome => 'refused') };
     });
   }
 
