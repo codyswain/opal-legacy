@@ -14,6 +14,7 @@ import {
   fileLocation,
   filesLocationKey,
   isAutoLocation,
+  isDigestLocation,
   locationPath,
   remapFilesLocation,
   stackLocation,
@@ -513,15 +514,15 @@ function openInView(view: PaneView, location: FilesLocation, options: OpenOption
     const tab = createTab([{ location }]);
     return { tabs: insertBesideActive(view, tab), activeId: tab.id };
   }
-  // The Auto tab is a place of its own, not a page: what is opened from it
-  // goes to the tab that already shows it, else to a new tab beside it.
-  if (isAutoLocation(tabLocation(active)) && !isAutoLocation(location)) {
+  const from = tabLocation(active);
+  if (filesLocationKey(from) === filesLocationKey(location)) return {};
+  // Keep the thread and digest in their own tabs when opening another place.
+  if (isAutoLocation(from) || isDigestLocation(from)) {
     const shown = view.tabs.find((tab) => filesLocationKey(tabLocation(tab)) === filesLocationKey(location));
     if (shown) return { activeId: shown.id };
     const tab = createTab([{ location }]);
     return { tabs: insertBesideActive(view, tab), activeId: tab.id };
   }
-  if (filesLocationKey(tabLocation(active)) === filesLocationKey(location)) return {};
   const history = [...active.history.slice(0, active.index + 1), { location }].slice(
     -HISTORY_LIMIT
   );

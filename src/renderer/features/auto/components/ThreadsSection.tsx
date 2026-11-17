@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Plug, SquarePen } from 'lucide-react';
-import { isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { isAutoLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import type { OpenHow } from '@/renderer/features/disk-explorer/navigation/openHow';
 import { selectCurrentLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import { SidebarFold } from '@/renderer/features/shell/components/SidebarFold';
@@ -67,7 +68,9 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
   const loaded = useAutoStore((state) => state.loaded);
   const reachable = useAutoStore((state) => state.reachable);
   const needs = useAutoStore((state) => attentionCount(state.threads));
-  const inFront = useTabsStore((state) => isAutoLocation(selectCurrentLocation(state)));
+  const location = useTabsStore(selectCurrentLocation);
+  const inFront = isAutoLocation(location);
+  const digestInFront = isDigestLocation(location);
   const onNew = useThreadStore((state) => inFront && (state.openId === NEW_THREAD || state.openId === null));
   const libraryOpen = useShellStore((state) => state.libraryOpen);
   const threadsOpen = useShellStore((state) => state.threadsOpen);
@@ -92,7 +95,7 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
   }, [loaded, threadsOpen]);
 
   const show = React.useCallback(
-    (pane: string, how: { side?: boolean } = {}) => {
+    (pane: string, how: OpenHow = {}) => {
       showInAuto(navigateFiles, pane, how);
       onNavigate?.();
     },
@@ -179,9 +182,9 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         ) : (
           <div ref={section} className="flex min-h-0 flex-col">
-            {loaded ? <ThreadList show={show} inFront={inFront} /> : null}
+            {loaded ? <ThreadList show={show} inFront={inFront} digestInFront={digestInFront} /> : null}
             {/* Said once: with the Auto tab in front its own notice says it. Under the rows, so it does not move them. */}
-            {(!reachable || !loaded) && !inFront ? <OutOfReach /> : null}
+            {(!reachable || !loaded) && !inFront && !digestInFront ? <OutOfReach /> : null}
           </div>
         )}
       </SidebarFold>

@@ -1075,6 +1075,10 @@ export async function startStandIn(options = {}) {
         const match = continuesOf(found, shownState);
         if (!match || match.id !== data.thread) return refuse(response, 409, 'no_match', 'That entry no longer matches the thread.');
         const thread = threads.get(match.id);
+        if (data.model !== undefined) {
+          if (!Object.hasOwn(MODELS, data.model)) return refuse(response, 400, 'bad_request', 'No such model.');
+          thread.model = data.model;
+        }
         const section = digest.sections.find((each) => each.entries.includes(found)).title;
         const said = [found.note, words].filter(Boolean).join('\n\n');
         const text = said ? `${seedOf(data.date, found, section)}\n\n${NAME} says:\n\n${said}` : seedOf(data.date, found, section);
@@ -1112,9 +1116,10 @@ export async function startStandIn(options = {}) {
           }
           return answer(response, 200, { thread: entry(made) });
         }
+        if (data.model !== undefined && !Object.hasOwn(MODELS, data.model)) return refuse(response, 400, 'bad_request', 'No such model.');
         const t = now();
         const thread = add({
-          id: hex(6), title: (found.title || plainWords(firstLine(found.md))).slice(0, 80), status: 'idle', last: plainWords(firstLine(found.md)), activity: '', unread: false, model: '',
+          id: hex(6), title: (found.title || plainWords(firstLine(found.md))).slice(0, 80), status: 'idle', last: plainWords(firstLine(found.md)), activity: '', unread: false, model: data.model ?? '',
           created: t, updated: t, error: null, archived: false, snoozed: null, woke: null, digest: { date: data.date, id: found.id },
           waits: true, items: [], next: [], seed: seedOf(data.date, found, section),
         }, true);

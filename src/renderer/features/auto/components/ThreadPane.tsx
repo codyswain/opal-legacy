@@ -12,8 +12,6 @@ import {
   Menu,
   MenuContent,
   MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
   MenuTrigger,
 } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
@@ -24,7 +22,7 @@ import { AWAY, NEW_THREAD, paneThread } from '../model/pane';
 import { keepPlace, placeIn, placeOf, threadPlace } from '../model/places';
 import { failure, parseEntry, sentLine, showsNext, stepLines, stepsSummary, turnRuns, turnStart, waitingToGo } from '../model/threadModel';
 import { archiveThread, restoreThread, snoozeThread } from '../store/actions';
-import { modelChoices, useAutoStore } from '../store/autoStore';
+import { useAutoStore } from '../store/autoStore';
 import { TITLE_LIMIT, draftKey, useThreadStore } from '../store/threadStore';
 import { BoxFrame, boxField, paneHeader, SendButton, StopButton } from './Box';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
@@ -33,6 +31,7 @@ import { SnoozeButton } from './SnoozeMenu';
 import { usePaneId } from '@/renderer/features/disk-explorer/panes';
 import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { UsageRing } from './UsageRing';
+import { ReplyModelPicker } from './ReplyModelPicker';
 
 const quiet = 'text-control text-foreground-tertiary';
 /** A folded line of what Auto did: the reply's size, in grey. */
@@ -513,40 +512,6 @@ function useShownThread(): { isNew: boolean; thread: AutoThread | null; ghost: b
   return { isNew, thread: isNew ? null : ghost?.thread ?? entry ?? view?.thread ?? null, ghost: ghost !== null };
 }
 
-/** The model, at the left of the box's foot. */
-function ModelPicker() {
-  const newModel = useThreadStore((state) => state.newModel);
-  const status = useAutoStore((state) => state.status);
-  const { isNew, thread } = useShownThread();
-  if (!isNew && !thread) return null;
-  const models = modelChoices(status);
-  const model = isNew ? newModel : thread?.model ?? '';
-  const label = models.find(([key]) => key === model)?.[1] ?? model;
-  return (
-    <Menu>
-      <MenuTrigger asChild>
-        <Button size="compact" variant="ghost" aria-label={`Model: ${label}`} data-testid="auto-model" className="gap-1 rounded-full px-2.5 font-normal text-foreground-tertiary">
-          {label}
-          <ChevronDown aria-hidden className="h-3 w-3" />
-        </Button>
-      </MenuTrigger>
-      <MenuContent
-        align="start"
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          useThreadStore.getState().focusBox();
-        }}
-      >
-        <MenuRadioGroup value={model} onValueChange={(value) => void useThreadStore.getState().setModel(value)}>
-          {models.map(([key, name]) => (
-            <MenuRadioItem key={key} value={key}>{name}</MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuContent>
-    </Menu>
-  );
-}
-
 function ThreadHeader() {
   const openId = useThreadStore((state) => state.openId);
   const renaming = useThreadStore((state) => (state.renaming?.at === 'header' ? state.renaming.id : null));
@@ -660,6 +625,7 @@ const capital = (words: string): string => (words ? words.charAt(0).toUpperCase(
  */
 function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   const openId = useThreadStore((state) => state.openId);
+  const preferredModel = useThreadStore((state) => state.newModel);
   const view = useThreadStore((state) => state.view);
   const pending = useThreadStore((state) => state.pending);
   const boxFocus = useThreadStore((state) => state.boxFocus);
@@ -738,7 +704,13 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
           onSubmit={submit}
           row={
             <>
-              <ModelPicker />
+              {(thread || !paneThread(openId)) && (
+                <ReplyModelPicker
+                  model={thread?.model ?? preferredModel}
+                  onChange={(model) => void useThreadStore.getState().setModel(model)}
+                  field={box}
+                />
+              )}
               <UsageRing field={box} />
               <div className="flex-1" />
               {running ? <StopButton onStop={() => void stop()} /> : null}

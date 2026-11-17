@@ -5,7 +5,7 @@ import { localDate } from '@/common/vaultModel';
 import { locationPath, type FilesLocation } from '../navigation/filesLocation';
 
 export interface TabLabel {
-  /** The page name: the file's name, Markdown without `.md` or `.mdo`, Recent or Auto. */
+  /** The file's name, without a Markdown extension, or the built-in view's name. */
   name: string;
   /** The parent folders that tell same-name tabs apart, or null. */
   hint: string | null;
@@ -40,8 +40,14 @@ export function vaultFolder(path: string, roots: readonly string[]): string {
  * alone does. The Auto tab is named after what it shows, `autoName`.
  */
 export function locationName(location: FilesLocation, today = localDate(), autoName = 'Auto'): string {
-  const path = locationPath(location);
-  if (!path) return location.mode === 'browse' && location.collection.kind === 'auto' ? autoName : 'Recent';
+  if (location.mode === 'browse') {
+    switch (location.collection.kind) {
+      case 'auto': return autoName;
+      case 'digest': return 'Digest';
+      case 'recent': return 'Recent';
+    }
+  }
+  const path = location.file;
   if (location.mode === 'stack' && location.kind === 'daily' && dailyHeadDate(path) === today) return 'Daily';
   const name = basenameFsPath(path);
   return fileTreeLabel(name, classifyFile(name));

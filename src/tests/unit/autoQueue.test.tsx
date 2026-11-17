@@ -508,6 +508,33 @@ describe('an entry opened in place', () => {
     expect(screen.getByTestId('auto-queue-pane').textContent).not.toMatch(/\bSend\b|Send it|Confirm/);
   });
 
+  it('keeps the chosen reply model on the digest draft, in the thread it creates, and for later new threads', async () => {
+    await openQueue();
+    openEntry('item-1');
+    const picker = () => within(entry('item-1')).getByTestId('auto-model');
+    await userEvent.setup().click(picker());
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Large' }));
+    openEntry('meeting-committee');
+    expect(within(entry('meeting-committee')).getByTestId('auto-model')).toHaveAccessibleName('Model: Large');
+    await userEvent.setup().click(within(entry('meeting-committee')).getByTestId('auto-model'));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Small' }));
+    openEntry('item-1');
+    expect(picker()).toHaveAccessibleName('Model: Large');
+    const box = within(entry('item-1')).getByTestId('auto-entry-box');
+    fireEvent.change(box, { target: { value: 'Plan the collection' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(last('digest-thread')).toMatchObject({ model: 'large', words: 'Plan the collection' }));
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('from-item-1'));
+    expect(screen.getByTestId('auto-model')).toHaveAccessibleName('Model: Large');
+    expect(useThreadStore.getState().newModel).toBe('small');
+    fireEvent.click(digestRow());
+    openEntry('meeting-committee');
+    await userEvent.setup().click(within(entry('meeting-committee')).getByTestId('auto-model'));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Default' }));
+    fireEvent.click(within(entry('meeting-committee')).getByTestId('auto-entry-wordless'));
+    await waitFor(() => expect(last('digest-thread')).toMatchObject({ id: 'meeting-committee', words: null, model: '' }));
+  });
+
   it('starts a thread with his words on Enter and opens it', async () => {
     await openQueue();
     openEntry('item-1');
@@ -579,9 +606,10 @@ describe('an entry opened in place', () => {
     expect(within(entry('item-1')).queryByRole('link')).toBeNull();
     openEntry('item-1');
     fireEvent.click(within(entry('item-1')).getByRole('link', { name: 'Beds' }));
-    await waitFor(() => expect(tabPaths()).toEqual([null, '/Vault/Projects/Beds.md']));
+    await waitFor(() => expect(tabPaths()).toEqual([null, null, '/Vault/Projects/Beds.md']));
     expect(auto.api.resolvePage).toHaveBeenCalledWith('Projects/Beds.md');
-    // Following the link did not close the entry.
+    // Returning from the page still shows the expanded entry.
+    fireEvent.click(screen.getByTestId('auto-digest-row'));
     expect(entry('item-1').getAttribute('data-open')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Open the digest' }));
     await waitFor(() => expect(auto.api.resolvePage).toHaveBeenCalledWith(`Library/digests/${DAY} digest.md`));
@@ -757,7 +785,7 @@ describe('archiving the digest', () => {
     await waitFor(() => expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument());
     await userEvent.setup().pointer({ keys: '[MouseRight]', target: digestRow() });
     const menu = await screen.findByTestId('auto-digest-menu-row');
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Archive the digestE', 'Open the digest', 'Open to the side']);
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Open in new tab', 'Open to the side', 'Archive the digestE', 'Open the digest']);
     fireEvent.click(within(menu).getByRole('menuitem', { name: /Archive the digest/ }));
     await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
     await waitFor(() => expect(auto.asked('digest-archive').map((route) => route.archived)).toEqual([true, false, true]));

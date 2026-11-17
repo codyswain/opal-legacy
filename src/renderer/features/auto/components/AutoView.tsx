@@ -1,8 +1,9 @@
 import * as React from 'react';
+import { useIsActivePane } from '@/renderer/features/disk-explorer/panes/PaneContext';
 import { useShellStore } from '@/renderer/features/shell/store/shellStore';
 import { Button } from '@/renderer/shared/ui';
 import { MarkdownLinksContext } from '../markdown/Markdown';
-import { AWAY, DIGEST_QUEUE } from '../model/pane';
+import { AWAY } from '../model/pane';
 import { signInProblem, useAutoStore } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
 import { useVaultLinks } from '../useVaultLinks';
@@ -17,8 +18,9 @@ import { ThreadPane } from './ThreadPane';
  * service counts a thread with an open stream as looked at and sends no
  * ping for it, so a tab left in the background must not hold one.
  */
-function useWatching(): void {
+function useWatching(threadTab: boolean): void {
   React.useEffect(() => {
+    if (!threadTab) return;
     const update = () => useThreadStore.getState().setWatching(document.visibilityState === 'visible');
     update();
     document.addEventListener('visibilitychange', update);
@@ -26,7 +28,7 @@ function useWatching(): void {
       document.removeEventListener('visibilitychange', update);
       useThreadStore.getState().setWatching(false);
     };
-  }, []);
+  }, [threadTab]);
 }
 
 const field =
@@ -133,13 +135,8 @@ function Notice() {
   );
 }
 
-/**
- * The Auto tab: a screen for a service that runs on another machine. It
- * shows one thing, picked in the sidebar's Threads: the open thread, the
- * digest's queue, a new thread, the Put away page, or the address form. Opal holds no sign-in
- * and starts no run itself; it asks the service.
- */
-export function AutoView() {
+/** The two Auto tabs share connection state. Only the visible thread subscribes to its replies. */
+export function AutoView({ digest = false }: { digest?: boolean }) {
   const configured = useAutoStore((state) => state.configured);
   const address = useAutoStore((state) => state.address);
   const editing = useAutoStore((state) => state.editing);
@@ -147,7 +144,8 @@ export function AutoView() {
   const openId = useThreadStore((state) => state.openId);
   const sidebarShown = useShellStore((state) => (state.narrowLayout ? state.narrowSidebarOpen : state.sidebarOpen));
   const links = useVaultLinks();
-  useWatching();
+  const active = useIsActivePane();
+  useWatching(!digest);
 
   let body: React.ReactNode = null;
   if (configured && (!address || editing)) body = <AddressForm />;
@@ -157,11 +155,10 @@ export function AutoView() {
       <MarkdownLinksContext.Provider value={links}>
         <Notice />
         <div className="flex min-h-0 flex-1">
-          {/* One pane: a thread, a new thread, the digest's queue, or what is put away. */}
-          {openId === DIGEST_QUEUE ? <QueuePane /> : openId === AWAY ? <AwayPane /> : <ThreadPane />}
+          {digest ? <QueuePane /> : openId === AWAY ? <AwayPane /> : <ThreadPane />}
         </div>
         {/* With the sidebar not shown, what the last action did, and its Undo, show here instead. */}
-        {sidebarShown ? null : (
+        {sidebarShown || !active ? null : (
           <div className="auto-beside-talk shrink-0 pb-3">
             <div className="auto-column">
               <SaidBar />

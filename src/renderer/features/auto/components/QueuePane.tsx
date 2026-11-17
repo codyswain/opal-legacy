@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { AutoDigest, AutoDigestEntry } from '@/types/auto';
+import { useIsActivePane } from '@/renderer/features/disk-explorer/panes';
 import {
   Button,
   ContextMenu,
@@ -35,12 +36,14 @@ import {
 import { DIGEST_QUEUE } from '../model/pane';
 import { keepPlace, placeIn, placeOf, queuePlace } from '../model/places';
 import { useAutoStore } from '../store/autoStore';
-import { QUEUE_FIRST, QUEUE_TOP, selectDay, useDigestStore } from '../store/digestStore';
+import { QUEUE_FIRST, QUEUE_TOP, replyModelKey, selectDay, useDigestStore } from '../store/digestStore';
+import { showAutoPane } from '../openAutoTab';
 import { useThreadStore } from '../store/threadStore';
-import { focusRowNow, keepFocus, rovingTarget } from './focus';
+import { byKey, focusRowNow, keepFocus, rovingTarget } from './focus';
 import { BoxFrame, boxField, paneHeader, SendButton } from './Box';
 import { ThreadLine } from './ThreadLine';
 import { UsageRing } from './UsageRing';
+import { ReplyModelPicker } from './ReplyModelPicker';
 import { useGrow } from './ThreadPane';
 
 const quiet = 'text-control text-foreground-tertiary';
@@ -187,7 +190,7 @@ function ContinuesLine({ entry, whole = false }: { entry: AutoDigestEntry; whole
         type="button"
         data-testid="auto-entry-continues-thread"
         className="rounded-sm text-foreground underline decoration-foreground-tertiary/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-focus"
-        onClick={() => useThreadStore.getState().open(match.id)}
+        onClick={() => showAutoPane(match.id)}
       >
         {match.title}
       </button>
@@ -220,6 +223,10 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
     useDigestStore.setState({ boxWanted: null });
   }, [wanted]);
   const match = matchOf(entry);
+  const modelKey = replyModelKey(date, entry);
+  const picked = useDigestStore((state) => state.replyModels[modelKey]);
+  const matchedModel = useAutoStore((state) => state.threads.find((thread) => thread.id === match?.id)?.model);
+  const preferredModel = useThreadStore((state) => state.newModel);
   const submit = () => {
     if (sending) return;
     if (match) {
@@ -262,7 +269,23 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
           </Button>
         </p>
       ) : null}
-      <BoxFrame field={area} onSubmit={submit} row={<><UsageRing field={area} /><div className="flex-1" /><SendButton label={match ? 'Add to it' : 'Start a thread with it'} ready={match !== null || words.trim() !== ''} disabled={sending} /></>}>
+      <BoxFrame
+        field={area}
+        onSubmit={submit}
+        row={
+          <>
+            <ReplyModelPicker
+              model={picked ?? (match ? matchedModel : preferredModel)}
+              onChange={(model) => useDigestStore.getState().pickModel(modelKey, model)}
+              field={area}
+              disabled={sending}
+            />
+            <UsageRing field={area} />
+            <div className="flex-1" />
+            <SendButton label={match ? 'Add to it' : 'Start a thread with it'} ready={match !== null || words.trim() !== ''} disabled={sending} />
+          </>
+        }
+      >
         <textarea
           ref={area}
           rows={1}
@@ -380,7 +403,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
 
   /** Opens the entry in place, or the thread it became. */
   const activate = () => {
-    if (became && thread) useThreadStore.getState().open(thread.id);
+    if (became && thread) showAutoPane(thread.id);
     else useDigestStore.getState().open(open ? null : entry.id);
   };
 
@@ -612,6 +635,7 @@ function Queue({ day, roomy }: { day: AutoDigest; roomy: boolean }) {
  */
 export function QueuePane() {
   const day = useDigestStore(selectDay);
+  const active = useIsActivePane();
   const status = useDigestStore((state) => state.status);
   const days = useDigestStore((state) => state.days);
   const filter = useDigestStore((state) => state.filter);
@@ -647,13 +671,21 @@ export function QueuePane() {
   }, []);
 
   // The queue opens with the keyboard on its first entry, as a thread opens with the caret in its box.
+  const mounted = React.useRef(false);
   React.useEffect(() => {
-    useDigestStore.getState().requestFocus(QUEUE_FIRST);
-  }, []);
+    if (active && (!mounted.current || (byKey() && !pane.current?.contains(document.activeElement)))) {
+      useDigestStore.getState().requestFocus(QUEUE_FIRST);
+    }
+    mounted.current = true;
+  }, [active]);
 
   // An entry an action asked to focus takes the keyboard once it is drawn; with none left, the queue's first word does.
   React.useLayoutEffect(() => {
     if (!focusEntry) return;
+    if (!active) {
+      useDigestStore.getState().requestFocus(null);
+      return;
+    }
     // Not read yet: the request waits for the day.
     if (focusEntry === QUEUE_FIRST && !day && status === 'unknown') return;
     const element =

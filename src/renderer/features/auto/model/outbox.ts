@@ -19,6 +19,8 @@ export interface OutboxEntry {
   text: string;
   /** The model picked for a new thread. */
   model: string;
+  /** The Mini has not yet confirmed the model selected for this reply. */
+  awaitingModel?: boolean;
   /** When Enter was pressed, in ms. */
   at: number;
 }
@@ -102,7 +104,7 @@ export function giveBack(state: BoxState, entry: OutboxEntry): BoxState {
  * box, so nothing goes out long after he meant it to.
  */
 export function leftOver(state: BoxState, now: number): { resend: OutboxEntry[]; state: BoxState; returned: OutboxEntry[] } {
-  const resend = state.outbox.filter((entry) => now - entry.at <= RESEND_WINDOW_MS && now >= entry.at);
+  const resend = state.outbox.filter((entry) => !entry.awaitingModel && now - entry.at <= RESEND_WINDOW_MS && now >= entry.at);
   const returned = state.outbox.filter((entry) => !resend.includes(entry));
   return { resend, returned, state: returned.reduce(giveBack, state) };
 }

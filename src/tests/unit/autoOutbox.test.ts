@@ -101,6 +101,49 @@ describe('the box’s store', () => {
     expect(auto.asked('message')).toEqual([{ kind: 'message', id: 'bread', text: 'Move it to the 22nd', cid: expect.stringMatching(/^[0-9a-f]{10}$/) }]);
   });
 
+  it('waits for this thread’s model before replying, even if another thread opened', async () => {
+    const auto = start();
+    const store = useThreadStore.getState();
+    let land: () => void = () => undefined;
+    auto.state.gate = new Promise<void>((resolve) => { land = resolve; });
+    const picking = store.setModel('small');
+    const sending = store.send('Bread reply');
+    expect(auto.asked('message')).toEqual([]);
+    expect(stored().outbox[0].awaitingModel).toBe(true);
+    useThreadStore.setState({ openId: 'herbs' });
+    auto.state.gate = null;
+    expect(await store.send('Herb reply')).toBe(true);
+    land();
+    await picking;
+    expect(await sending).toBe(true);
+    expect(auto.asked('message').map(({ id, text }) => [id, text])).toEqual([['herbs', 'Herb reply'], ['bread', 'Bread reply']]);
+  });
+
+  it('restores his words and holds retries when the model change failed', async () => {
+    const auto = start();
+    const store = useThreadStore.getState();
+    auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
+    const picking = store.setModel('small');
+    const sending = store.send('Bread reply');
+    store.setDraft('Additional words');
+    await picking;
+    expect(await sending).toBe(false);
+    expect(auto.asked('message')).toEqual([]);
+    expect(stored().drafts.bread).toBe('Bread reply\n\nAdditional words');
+    auto.state.failWrites = null;
+    expect(await store.send(stored().drafts.bread)).toBe(false);
+    expect(auto.asked('message')).toEqual([]);
+    await store.setModel('small');
+    expect(await store.send(stored().drafts.bread)).toBe(true);
+  });
+
+  it('restores a reply if Opal closed before its model was confirmed', () => {
+    const auto = start({ outbox: [entry('a2', { awaitingModel: true, at: Date.now() })], drafts: {} });
+    useThreadStore.getState().flush();
+    expect(auto.asked('message')).toEqual([]);
+    expect(stored()).toEqual({ outbox: [], drafts: { bread: 'Message a2' } });
+  });
+
   it('puts the words back in the box when the post fails', async () => {
     const auto = start();
     auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };

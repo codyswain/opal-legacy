@@ -809,16 +809,17 @@ describe('the digest queue', () => {
     expect(digest.success && entry(digest.data as AutoDigest, 'meeting-allotment-committee')).toMatchObject({ state: 'thread', thread: thread.thread.id });
   });
 
-  it('starts a thread from an entry with his words, his note going along', async () => {
+  it('starts a thread from an entry with its chosen model, words and note', async () => {
     const auto = await connected();
     await auto.request({ kind: 'digest-note', date: DAY, id: 'item-1', text: 'Ask about peat-free' });
-    const made = await auto.request({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask for collection on Saturday', cid: 'a1b2c3d4e5' });
+    const made = await auto.request({ kind: 'digest-thread', date: DAY, id: 'item-1', words: 'Ask for collection on Saturday', cid: 'a1b2c3d4e5', model: 'small' });
     const { thread } = (made.success ? made.data : null) as { thread: AutoThread };
     expect(thread.waits).toBe(false);
-    expect(standIn.requests.at(-1)?.body).toEqual({ date: DAY, id: 'item-1', words: 'Ask for collection on Saturday', cid: 'a1b2c3d4e5' });
+    expect(standIn.requests.at(-1)?.body).toEqual({ date: DAY, id: 'item-1', words: 'Ask for collection on Saturday', cid: 'a1b2c3d4e5', model: 'small' });
     await until(() => standIn.thread(thread.id)?.status === 'idle' && !standIn.thread(thread.id)?.live, 'the turn to end');
     const snapshot = await auto.request({ kind: 'thread', id: thread.id });
     const first = (snapshot.success ? (snapshot.data as AutoSnapshot).items[0] : null) as { role: 'user'; text: string };
+    expect(snapshot.success && (snapshot.data as AutoSnapshot).thread.model).toBe('small');
     expect(first.text.startsWith('Digest, Friday November 13, item 1: Order the seed trays')).toBe(true);
     expect(first.text.endsWith('says:\n\nAsk about peat-free\n\nAsk for collection on Saturday')).toBe(true);
   });
@@ -834,10 +835,10 @@ describe('the digest queue', () => {
     expect(entry(before.data, 'text-yesterday-1a2b3c4d')?.continues).toEqual({ id: '5a0000000009', title: 'Rain barrel', snoozed: false });
     expect(entry(before.data, 'item-1')?.continues).toBeNull();
 
-    const added = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' });
-    expect(standIn.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/digest/continue', body: { date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' } });
+    const added = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001', model: 'large' });
+    expect(standIn.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/digest/continue', body: { date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001', model: 'large' } });
     const { thread } = (added.success ? added.data : null) as { thread: AutoThread };
-    expect(thread).toMatchObject({ id: '5a0000000007', snoozed: null });
+    expect(thread).toMatchObject({ id: '5a0000000007', snoozed: null, model: 'large' });
     await until(() => events('list').some((message) => message.event.kind === 'digest' && message.event.date === OLD), 'the digest event');
     const after = (await auto.request({ kind: 'digest', date: OLD })) as { success: true; data: AutoDigest };
     expect(entry(after.data, 'item-2')).toMatchObject({ state: 'thread', thread: '5a0000000007', continues: null });
@@ -849,7 +850,7 @@ describe('the digest queue', () => {
 
     // The same click again answers the thread and adds nothing.
     const repeat = await auto.request({ kind: 'digest-continue', date: OLD, id: 'item-2', thread: '5a0000000007', words: 'Bring the stone', cid: 'c0ffee0001' });
-    expect(repeat.success && (repeat.data as { thread: AutoThread }).thread.id).toBe('5a0000000007');
+    expect(repeat.success && (repeat.data as { thread: AutoThread }).thread).toMatchObject({ id: '5a0000000007', model: 'large' });
     expect(said()).toHaveLength(2);
 
     // A match that has gone is the service's no_match, and no entry is the service's 404.

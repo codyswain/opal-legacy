@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Archive, Newspaper } from 'lucide-react';
 import type { AutoThread } from '@/types/auto';
+import { openHowFor, type OpenHow } from '@/renderer/features/disk-explorer/navigation/openHow';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -19,7 +20,7 @@ import { AWAY, DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { LIST_PLACE, keepPlace, placeIn, placeOf } from '../model/places';
 import { archiveThread, snoozeThread, type From } from '../store/actions';
 import { useAutoStore } from '../store/autoStore';
-import { useDigestStore } from '../store/digestStore';
+import { selectDay, useDigestStore } from '../store/digestStore';
 import { TITLE_LIMIT, useThreadStore } from '../store/threadStore';
 import { useVaultLinks } from '../useVaultLinks';
 import { PAGE_FIRST, byKey, focusRowAfterClose, giveBack, keepFocus, rovingTarget, rowElement } from './focus';
@@ -28,9 +29,6 @@ import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
 
 const DRAG_TYPE = 'application/x-opal-auto-thread';
 
-/** Option+click and "Open to the side" show it in the other pane. */
-export type ShowHow = { side?: boolean };
-
 interface RowProps {
   thread: AutoThread;
   now: number;
@@ -38,7 +36,7 @@ interface RowProps {
   /** This row is the list's one Tab stop. */
   tabStop: boolean;
   /** Shows the thread in the Auto tab. */
-  show: (pane: string, how?: ShowHow) => void;
+  show: (pane: string, how?: OpenHow) => void;
   drop?: 'above' | 'below' | null;
   dragging?: boolean;
   drag?: {
@@ -262,7 +260,7 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
 }
 
 /** What a row's right-click menu offers for a thread that is not archived, in the sidebar or on the Put away page. */
-export function RowMenuItems({ thread, now, snoozed, marked, mark, show, from }: { thread: AutoThread; now: number; snoozed: boolean; marked: boolean; mark: () => void; show: (pane: string, how?: ShowHow) => void; from: From }) {
+export function RowMenuItems({ thread, now, snoozed, marked, mark, show, from }: { thread: AutoThread; now: number; snoozed: boolean; marked: boolean; mark: () => void; show: (pane: string, how?: OpenHow) => void; from: From }) {
   const digestEntry = fromDigest(thread);
   return (
     <>
@@ -323,7 +321,7 @@ interface GroupProps {
   now: number;
   openId: string | null;
   tabStop: string;
-  show: (pane: string, how?: ShowHow) => void;
+  show: (pane: string, how?: OpenHow) => void;
 }
 
 /** One group of rows. A movable group's rows drag to a new place among themselves. */
@@ -397,7 +395,7 @@ function GroupRows({ group, apart, now, openId, tabStop, show }: GroupProps) {
 const fadeClear = (): number => 1.5 * parseFloat(getComputedStyle(document.documentElement).fontSize || '16');
 
 /** The digest, as a queue. Not a thread: it does not drag or snooze. Its menu and E archive it, with Undo. */
-function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop: boolean; show: (pane: string, how?: ShowHow) => void; next: () => string | null }) {
+function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop: boolean; show: (pane: string, how?: OpenHow) => void; next: () => string | null }) {
   const digest = useDigestStore((state) => state.latest);
   const { openVault } = useVaultLinks();
   const archive = () => {
@@ -418,7 +416,13 @@ function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop
             tabIndex={tabStop ? 0 : -1}
             aria-current={current || undefined}
             aria-keyshortcuts={digest ? 'E' : undefined}
-            onClick={(event) => show(DIGEST_QUEUE, { side: event.altKey })}
+            onClick={(event) => show(DIGEST_QUEUE, openHowFor(event))}
+            onAuxClick={(event) => {
+              if (event.button === 1) {
+                event.preventDefault();
+                show(DIGEST_QUEUE, openHowFor(event));
+              }
+            }}
             onKeyDown={(event) => {
               if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'e' || !digest) return;
               event.preventDefault();
@@ -432,17 +436,20 @@ function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop
           </button>
         </div>
       </ContextMenuTrigger>
-      {digest ? (
-        <ContextMenuContent data-testid="auto-digest-menu-row" onCloseAutoFocus={(event) => focusRowAfterClose(event, DIGEST_QUEUE)}>
-          <ContextMenuItem onSelect={archive}>
-            Archive the digest
-            <ContextMenuShortcut aria-hidden>E</ContextMenuShortcut>
-          </ContextMenuItem>
-          {digest.path ? <ContextMenuItem onSelect={() => openVault(digest.path, false)}>Open the digest</ContextMenuItem> : null}
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { side: true })}>Open to the side</ContextMenuItem>
-        </ContextMenuContent>
-      ) : null}
+      <ContextMenuContent data-testid="auto-digest-menu-row" onCloseAutoFocus={(event) => focusRowAfterClose(event, DIGEST_QUEUE)}>
+        <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { newTab: true })}>Open in new tab</ContextMenuItem>
+        <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { side: true })}>Open to the side</ContextMenuItem>
+        {digest ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={archive}>
+              Archive the digest
+              <ContextMenuShortcut aria-hidden>E</ContextMenuShortcut>
+            </ContextMenuItem>
+            {digest.path ? <ContextMenuItem onSelect={() => openVault(digest.path, false)}>Open the digest</ContextMenuItem> : null}
+          </>
+        ) : null}
+      </ContextMenuContent>
     </ContextMenu>
   );
 }
@@ -454,14 +461,15 @@ function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop
  * It is one Tab stop; the arrow keys move between rows. A click shows the
  * thread in the Auto tab.
  */
-export function ThreadList({ show, inFront }: { show: (pane: string, how?: ShowHow) => void; inFront: boolean }) {
+export function ThreadList({ show, inFront, digestInFront }: { show: (pane: string, how?: OpenHow) => void; inFront: boolean; digestInFront: boolean }) {
   const threads = useAutoStore((state) => state.threads);
   const focusRow = useAutoStore((state) => state.focusRow);
   const openNow = useThreadStore((state) => state.openId);
   const fromAway = useThreadStore((state) => state.fromAway);
   const hold = useThreadStore((state) => state.hold);
-  // A row is marked as open only while the Auto tab is the one in front, as a page's row is.
-  const openId = inFront ? openNow : null;
+  // Highlight the row for the focused pane when the digest and thread are both visible.
+  const openId = digestInFront ? DIGEST_QUEUE : inFront ? openNow : null;
+  const archivedDigest = useDigestStore((state) => selectDay(state)?.archived);
   const digest = useDigestStore((state) => state.latest);
   const now = useNow();
   // The open thread keeps its place while it is open; leaving the tab lets it go to its place.
@@ -498,7 +506,7 @@ export function ThreadList({ show, inFront }: { show: (pane: string, how?: ShowH
   );
   const rows = React.useMemo(() => new Set(order), [order]);
   // The Put away row is marked while its page shows, or something opened from it that is not a row here.
-  const awayMarked = openId === AWAY || (openId !== null && fromAway && !rows.has(openId));
+  const awayMarked = digestInFront ? archivedDigest === true : openId === AWAY || (openId !== null && fromAway && !rows.has(openId));
   const marked = awayMarked ? AWAY : openId;
   const tabStop = active && rows.has(active) ? active : marked && rows.has(marked) ? marked : (order[0] ?? '');
 
@@ -594,7 +602,7 @@ export function ThreadList({ show, inFront }: { show: (pane: string, how?: ShowH
         }}
       >
         <div ref={content} className="ml-sidebar-inset flex flex-col gap-0.5">
-          {showsDigest ? <DigestRow current={openId === DIGEST_QUEUE && !fromAway} tabStop={tabStop === DIGEST_QUEUE} show={show} next={() => order[1] ?? null} /> : null}
+          {showsDigest ? <DigestRow current={digestInFront && !awayMarked} tabStop={tabStop === DIGEST_QUEUE} show={show} next={() => order[1] ?? null} /> : null}
 
           {empty ? (
             <p data-testid="auto-empty" className="py-1 pr-2 pl-[calc(var(--sidebar-icon-size)+var(--sidebar-icon-gap)+0.5rem)] text-control text-foreground-tertiary">

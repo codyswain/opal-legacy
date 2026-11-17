@@ -234,8 +234,8 @@ not exist.
   acceptance runs use `src/tests/fixtures/agent/fake-agent.mjs`; under the
   test profile `OPAL_TEST_AGENT_HOME` and `OPAL_TEST_AGENT_PATH` keep the
   lookup away from a real install
-- **Auto:** the sidebar's Threads section and one Auto tab, a screen for a
-  service on another machine that runs agent threads. The sidebar is
+- **Auto:** the sidebar’s Threads section opens a thread tab and a separate Digest tab.
+  Both connect to the agent service on the Mini. The sidebar is
   Daily, then two sections that fold (`SidebarFold.tsx`, kept in
   `shell.layout` as `threadsOpen` and `libraryOpen`): Threads
   (`ThreadsSection.tsx`: the heading with the count and New thread, the
@@ -292,9 +292,8 @@ not exist.
   reduced from its snapshot and events), `outbox.ts` (a message is kept
   until the service has it; a failed one returns to the box), `digestModel.ts`
   and `digestStore.ts` (the queue: Left and All, the day shown, and every
-  write answered with the day as it is now), `pane.ts` (the one piece of
-  state for what the Auto tab shows: a thread, a new thread, the queue
-  or nothing), and `markdown/` (replies and digest entries parsed with
+  write answered with the day as it is now), `pane.ts` (the selected thread,
+  new thread or Put away page), and `markdown/` (replies and digest entries parsed with
   `@lezer/markdown` and drawn as elements, never as HTML). The service ends
   the Mac mark and says when a digest changed; Opal only follows. It never
   calls the service's tick or inbox routes. What is put away is one quiet
@@ -318,7 +317,9 @@ not exist.
   a page keeps its caret. The open thread keeps its place in the list
   until another opens (`hold` in `threadStore.ts`). A thread from a digest entry starts with his words: "Thread" and
   T open the entry with the caret in its box, and nothing is made until he
-  sends them or picks "Make it without words". `store/actions.ts` holds what he
+  sends them or picks "Make it without words". New digest replies remember the
+  last model picked for a new conversation on this Mac. A reply to a matched
+  thread uses its saved model until another is picked. `store/actions.ts` holds what he
   does to a thread (archive, done, snooze, bring back): the row leaves at once, the
   next thread takes its place, and the row returns with the service's
   sentence if the post fails. A put-away says what it did in the phone's

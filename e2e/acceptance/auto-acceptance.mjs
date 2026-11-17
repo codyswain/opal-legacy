@@ -1361,7 +1361,10 @@ async function tour() {
     check('the Digest row is the first row of Threads and says how much is left', (await digestSays()) === 'Digest8 left' && (await page.locator('[data-testid="auto-list"] [data-auto-row]').first().getAttribute('data-testid')) === 'auto-digest-row');
     check('the Digest row is one line', (await digestRow.evaluate((element) => Math.round(element.getBoundingClientRect().height))) <= 32);
     await digestRow.click();
-    check('the Auto tab is named Digest while it shows the queue', await until(async () => (await tabName()) === 'Digest'), await tabName());
+    check('the Digest tab shows the queue beside the named thread tab', await until(async () =>
+      (await page.getByTestId('tab-label-digest').textContent()) === 'Digest' &&
+      (await page.getByTestId('tab-digest').getAttribute('aria-selected')) === 'true' &&
+      (await tabName()) === 'Sourdough timings'));
     await page.getByTestId('auto-queue-pane').waitFor({ timeout: 10_000 });
     check('the queue shows the day written out, Left and All with their counts', await until(async () => ((await page.getByTestId('auto-queue-day').textContent()) ?? '') === 'Friday, November 13' && ((await page.getByTestId('auto-queue-left').textContent()) ?? '') === 'Left8' && ((await page.getByTestId('auto-queue-all').textContent()) ?? '') === 'All10'));
     check('Left holds the open entries, in the file’s order, under their sections', (await entryIds()).join() === 'meeting-allotment-committee,item-1,item-3,person-robin-seed-swap,text-plots-3d20bff3,text-yesterday-5c1d2e3f,text-yesterday-a7b8c9d0,draft-1' && (await queue.getByRole('heading').allTextContents()).join() === 'Meetings,Top 3,People,Plots,Yesterday,Drafted replies');
@@ -1604,7 +1607,7 @@ async function tour() {
     // From the Digest row itself: a right-click menu, and E with the keyboard on it.
     await digestRow.click({ button: 'right' });
     const digestMenu = await until(async () => (await page.getByTestId('auto-digest-menu-row').count()) === 1) ? await page.getByTestId('auto-digest-menu-row').getByRole('menuitem').allTextContents() : [];
-    check('the Digest row has a right-click menu with Archive the digest, Open the digest when it has a page, and Open to the side last', digestMenu[0]?.startsWith('Archive the digest') && digestMenu.at(-1) === 'Open to the side' && digestMenu.slice(1, -1).every((item) => item.startsWith('Open the digest')), digestMenu.join(' | '));
+    check('the Digest row offers a new tab, a split, archiving, and the digest file', digestMenu[0] === 'Open in new tab' && digestMenu[1] === 'Open to the side' && digestMenu[2]?.startsWith('Archive the digest') && digestMenu[3] === 'Open the digest', digestMenu.join(' | '));
     await page.getByTestId('auto-digest-menu-row').getByRole('menuitem', { name: /^Archive the digest/ }).click();
     check('which archives it, with Undo', await until(async () => (await digestRow.count()) === 0 && service.digest()?.archived === true && (await saidText()).startsWith('Digest archived. It is off the list.Undo')), await saidText());
     await said.getByRole('button', { name: 'Undo' }).click();
@@ -1636,9 +1639,11 @@ async function tour() {
     await row(BEDS).click();
     await until(() => service.thread(BEDS)?.unread === false);
     await digestRow.click();
-    await page.getByTestId('tab-auto').hover();
-    await page.getByTestId('tab-close-auto').click();
-    await until(async () => (await page.getByTestId('tab-auto').count()) === 0);
+    for (const name of ['auto', 'digest']) {
+      await page.getByTestId(`tab-${name}`).hover();
+      await page.getByTestId(`tab-close-${name}`).click();
+      await until(async () => (await page.getByTestId(`tab-${name}`).count()) === 0);
+    }
     await until(async () => sidebarSays(needsHim()));
     const countBefore = needsHim();
     await fromPhone(`/api/threads/${BEDS}/messages`, { text: 'Which bed gets the leeks?', cid: 'p4' });
@@ -1648,8 +1653,8 @@ async function tour() {
     // --- With the keyboard alone: the tab from the palette, two entries cleared, two threads archived, a turn stopped.
     await key('Meta+k');
     await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
-    await page.keyboard.type('go to auto');
-    await page.getByTestId('palette-command-nav.auto').waitFor({ timeout: 5_000 });
+    await page.keyboard.type('>open auto digest');
+    await page.getByTestId('palette-command-auto.openDigest').waitFor({ timeout: 5_000 });
     await key('Enter');
     await auto.waitFor({ timeout: 10_000 });
     const queued = await until(async () => (await entryIds()).length >= 4) ? await entryIds() : [];

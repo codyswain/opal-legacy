@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { isAutoLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { selectCurrentLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { inField } from './components/focus';
 import { turnRuns } from './model/threadModel';
@@ -24,9 +24,10 @@ export function useAutoKeys(): void {
       // A title being renamed is his text alone: no key there acts on a thread, Cmd+Z included, even with the field emptied.
       if (target instanceof HTMLElement && target.hasAttribute('data-rename-field')) return;
       const nowhere = target === document.body || target === null;
-      const autoInFront = isAutoLocation(selectCurrentLocation(useTabsStore.getState()));
+      const location = selectCurrentLocation(useTabsStore.getState());
+      const threadInFront = isAutoLocation(location);
       const place = nowhere ? null : target.closest<HTMLElement>('[data-auto-keys]');
-      if (!place && !(nowhere && autoInFront)) return;
+      if (!place && !(nowhere && (threadInFront || isDigestLocation(location)))) return;
       if (!(event.metaKey || event.ctrlKey)) {
         // A single key, so only from a row or an entry, never from a field.
         const onRow = !!target && (target.hasAttribute('data-auto-row') || target.hasAttribute('data-auto-entry'));
@@ -35,7 +36,7 @@ export function useAutoKeys(): void {
       }
       if (event.key === '.') {
         // Only with the Auto tab in front, from it or from a row of the sidebar.
-        if (!autoInFront) return;
+        if (!threadInFront) return;
         const { view, stop } = useThreadStore.getState();
         if (!turnRuns(view)) return;
         event.preventDefault();

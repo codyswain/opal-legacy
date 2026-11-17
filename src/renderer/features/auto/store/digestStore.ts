@@ -6,7 +6,8 @@ import { cidFor, type Failed } from '../model/outbox';
 import { unconfirmed } from '../model/unconfirmed';
 import { autoApi, useAutoStore } from './autoStore';
 import { useSaidStore } from './saidStore';
-import { useThreadStore } from './threadStore';
+import { showAutoPane } from '../openAutoTab';
+import { rememberReplyModel, useThreadStore } from './threadStore';
 
 /*
  * The digest as a queue. The latest day is kept for the list's count; a day
@@ -31,6 +32,9 @@ export interface DigestStore {
   opened: string | null;
   /** Typed and not sent, by day and entry. */
   words: Record<string, string>;
+  /** Explicit choices for unsent entries. A new match keeps its own thread's model. */
+  replyModels: Record<string, string>;
+  pickModel: (key: string, model: string) => void;
   /** The entry whose words did not go, by the same key. */
   notSent: string | null;
   failed: Failed | null;
@@ -95,6 +99,9 @@ export interface DigestStore {
 
 /** The day the queue shows: the one he stepped to, else the latest. */
 export const selectDay = (state: Pick<DigestStore, 'latest' | 'past'>): AutoDigest | null => state.past ?? state.latest;
+
+export const replyModelKey = (date: string, entry: AutoDigestEntry): string =>
+  `${wordsKey(date, entry.id)}/${entry.continues?.id ?? ''}`;
 
 const UNREACHABLE = "Can't reach Auto.";
 /** What is said once when the thread an entry was shown to match no longer matches it. */
@@ -178,6 +185,16 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     return entry ? entryName(entry) : '';
   };
 
+  const newThreadModel = (day: AutoDigest, id: string): { model?: string } => {
+    const entry = allEntries(day).find((candidate) => candidate.id === id);
+    if (!entry) return {};
+    const explicit = get().replyModels[replyModelKey(day.date, entry)];
+    if (explicit !== undefined) return { model: explicit };
+    const target = useAutoStore.getState().threads.find((thread) => thread.id === entry.continues?.id);
+    const model = target?.model ?? useThreadStore.getState().newModel;
+    return model ? { model } : {};
+  };
+
   return {
     latest: null,
     status: 'unknown',
@@ -187,6 +204,11 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     filter: 'left',
     opened: null,
     words: {},
+    replyModels: {},
+    pickModel: (key, model) => {
+      set((state) => ({ replyModels: { ...state.replyModels, [key]: model } }));
+      rememberReplyModel(model);
+    },
     notSent: null,
     failed: null,
     focusEntry: null,
@@ -425,7 +447,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       // The entry leaves "Left" at once, and stays away whatever is read of the day until the post has landed.
       let end = keep(date, [id], () => 'thread');
       moveOn(day, [id]);
-      const post = api.request({ kind: 'digest-thread', date, id, words: null, cid: null }).catch((): null => null);
+      const post = api.request({ kind: 'digest-thread', date, id, words: null, cid: null, ...newThreadModel(day, id) }).catch((): null => null);
       let undone = false;
       const offer = said().offer({
         name,
@@ -433,7 +455,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
         subject: `${date}/${id}`,
         open: () => {
           void post.then((result) => {
-            if (result?.success) useThreadStore.getState().open(result.data.thread.id);
+            if (result?.success) showAutoPane(result.data.thread.id);
           });
         },
         // A thread nobody has started, archived, leaves its entry open again.
@@ -478,7 +500,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       const match = found?.state === 'open' ? found.continues : null;
       const date = day.date;
       const key = wordsKey(date, id);
-      if (!match || continuing.has(key)) return false;
+      if (!found || !match || continuing.has(key)) return false;
+      const model = get().replyModels[replyModelKey(date, found)];
       continuing.add(key);
       const words = text.trim();
       const name = named(day, id);
@@ -488,7 +511,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       const end = keep(date, [id], () => 'thread');
       moveOn(day, [id]);
       const result = useAutoStore.getState().reachable
-        ? await api.request({ kind: 'digest-continue', date, id, thread: match.id, words: words || null, cid }).catch((): null => null)
+        ? await api.request({ kind: 'digest-continue', date, id, thread: match.id, words: words || null, cid, ...(model !== undefined ? { model } : {}) }).catch((): null => null)
         : null;
       continuing.delete(key);
       end();
@@ -503,7 +526,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
           text: `Added to ${thread.title || match.title}`,
           whole: true,
           subject: `${date}/${id}`,
-          open: () => useThreadStore.getState().open(thread.id),
+          open: () => showAutoPane(thread.id),
         });
         await reload(date);
         return true;
@@ -545,7 +568,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       // The same words sent again go under the same id, so a copy that did arrive is not made twice.
       const cid = cidFor(get().failed, key, said);
       const result = useAutoStore.getState().reachable
-        ? await autoApi()?.request({ kind: 'digest-thread', date: day.date, id, words: said, cid }).catch((): null => null)
+        ? await autoApi()?.request({ kind: 'digest-thread', date: day.date, id, words: said, cid, ...newThreadModel(day, id) }).catch((): null => null)
         : null;
       if (!result?.success) {
         set({ notSent: key, failed: { thread: key, text: said, cid } });
@@ -555,7 +578,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       delete words[key];
       set({ words, notSent: null, failed: null, opened: null });
       useAutoStore.getState().upsert(result.data.thread);
-      useThreadStore.getState().open(result.data.thread.id);
+      showAutoPane(result.data.thread.id);
       void reload(day.date);
       return true;
     },
@@ -581,7 +604,7 @@ useAutoStore.subscribe((state, before) => {
   if (state.address !== before.address) {
     unconfirmedEntries.clear();
     unconfirmedDays.clear();
-    useDigestStore.setState({ latest: null, status: 'unknown', days: [], archivedDays: [], past: null, filter: 'left', opened: null, words: {}, notSent: null, failed: null, focusEntry: null, noteWanted: null, boxWanted: null });
+    useDigestStore.setState({ latest: null, status: 'unknown', days: [], archivedDays: [], past: null, filter: 'left', opened: null, words: {}, replyModels: {}, notSent: null, failed: null, focusEntry: null, noteWanted: null, boxWanted: null });
   }
   // Read whenever the list is, tab or no tab: the sidebar's Digest row counts what is left. And when the tab opens.
   const read = state.refreshedAt !== before.refreshedAt || (state.tabOpen && !before.tabOpen);

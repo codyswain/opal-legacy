@@ -30,7 +30,7 @@ const EMPTY: Tab[] = [];
 /** Past this many tabs the row offers a list of all of them, as browsers do. */
 const OVERFLOW_MENU_AT = 8;
 
-/** The file or folder a tab shows, which names it for tests; Recent is `recent` and Auto `auto`. */
+/** A stable test id from the tab's file path or built-in view. */
 function tabKey(tab: Tab): string {
   const location = tabLocation(tab);
   return locationPath(location) ?? (location.mode === 'browse' ? location.collection.kind : 'recent');
