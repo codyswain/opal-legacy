@@ -108,7 +108,25 @@ let refreshing: Promise<boolean> | null = null;
  * the thread that arrives meanwhile.
  */
 export const unconfirmedThreads = unconfirmed<AutoThread>();
-const laid = (thread: AutoThread): AutoThread => unconfirmedThreads.lay(thread.id, thread);
+
+/**
+ * Archives he took back, by thread: when the service says the undone
+ * archive happened. The list stream can trail the answers, so its word of
+ * that archive can arrive after the undo has landed and its change has
+ * ended. A copy archived no later than that is the old archive and leaves
+ * the row where it is; an archive made since is later and is taken.
+ */
+export const undoneArchives = new Map<string, number>();
+const notUndone = (thread: AutoThread): AutoThread => {
+  const at = undoneArchives.get(thread.id);
+  if (at === undefined || !thread.archived || thread.archivedAt === null) return thread;
+  if (thread.archivedAt > at) {
+    undoneArchives.delete(thread.id);
+    return thread;
+  }
+  return { ...thread, archived: false, archivedAt: null };
+};
+const laid = (thread: AutoThread): AutoThread => unconfirmedThreads.lay(thread.id, notUndone(thread));
 
 /**
  * Where a thread sits in his order while an undo is putting it back there:
@@ -230,6 +248,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       if (!result?.success) return result?.error.message ?? 'Opal could not save the address.';
       // Another address is another service: nothing of the old one stays.
       unconfirmedThreads.clear();
+      undoneArchives.clear();
       heldPlaces.clear();
       set({ archive: NO_ARCHIVE });
       set({ address: result.data.url, editing: false, loaded: false, reachable: false, problem: null, threads: [], status: null, listToken: null });

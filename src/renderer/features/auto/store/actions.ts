@@ -3,7 +3,7 @@ import { isWaitingOnReply, lower, returns, waitLine } from '../model/awayModel';
 import { nextAfter, putBack, shownOrder, upsertThread } from '../model/listModel';
 import { AWAY, NEW_THREAD } from '../model/pane';
 import { PAGE_TOP, byKey, giveBack, pageNext } from '../components/focus';
-import { autoApi, heldPlaces, unconfirmedThreads, useAutoStore } from './autoStore';
+import { autoApi, heldPlaces, unconfirmedThreads, undoneArchives, useAutoStore } from './autoStore';
 import { useDigestStore } from './digestStore';
 import { UNDO_MS, useSaidStore } from './saidStore';
 import { useThreadStore } from './threadStore';
@@ -203,6 +203,8 @@ export async function archiveThread(thread: AutoThread, options: { done?: boolea
           useSaidStore.getState().refuse(back?.error.message ?? UNREACHABLE, name(thread));
           return;
         }
+        // The list stream's word of the archive can still be on its way: it must not take the row away once this change ends.
+        if (result.data.thread.archivedAt !== null) undoneArchives.set(thread.id, result.data.thread.archivedAt);
         // The mark is kept on the row until the service has it again, so the row never leaves its group.
         const marked = thread.desk ? await api.request({ kind: 'desk', id: thread.id, on: true }).catch((): null => null) : null;
         // Its writes have landed: the thread's next write may go while the pane finishes reading.

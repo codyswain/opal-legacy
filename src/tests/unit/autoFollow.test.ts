@@ -106,3 +106,33 @@ describe('a thread’s writes', () => {
     expect(listed()).toEqual(['bread']);
   });
 });
+
+describe('an archive taken back', () => {
+  it('stays back when the list stream brings the archive after the undo has landed', async () => {
+    const request = vi.mocked(auto.api.request);
+    const passOn = request.getMockImplementation();
+    request.mockImplementation(async (route) => {
+      if (route.kind === 'archive') return { success: true, data: { thread: { ...BREAD, archived: route.archived, archivedAt: route.archived ? 1_794_000_100 : null } } } as never;
+      return passOn ? passOn(route) : (new Promise(() => undefined) as never);
+    });
+    useAutoStore.setState({ listToken: 7 });
+    const listed7 = (thread: AutoThread) => useAutoStore.getState().handle({ token: 7, type: 'event', stream: 'list', event: { kind: 'thread', thread }, cursor: null });
+    await useThreadStore.getState().load();
+
+    useSaidStore.setState(useSaidStore.getInitialState(), true);
+    await archiveThread(BREAD);
+    expect(useSaidStore.getState().undo()).toBe(true);
+    // The undo lands, and its change ends.
+    await vi.waitFor(() => expect(vi.mocked(auto.api.request).mock.calls.filter(([route]) => route.kind === 'archive').map(([route]) => (route as { archived: boolean }).archived)).toEqual([true, false]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(useThreadStore.getState().openId).toBe('bread');
+    // Only now does the stream's word of the archive arrive, then of the undo.
+    listed7({ ...BREAD, archived: true, archivedAt: 1_794_000_100 });
+    expect(listed()).toEqual(['bread']);
+    expect(useThreadStore.getState().openId).toBe('bread');
+    listed7({ ...BREAD, archived: false, archivedAt: null });
+    // An archive made since, on another device, still takes the row away.
+    listed7({ ...BREAD, archived: true, archivedAt: 1_794_000_200 });
+    expect(listed()).toEqual([]);
+  });
+});
