@@ -77,6 +77,7 @@ import { AgentService } from "@/main/agent/AgentService";
 import { AgentHandlers } from "@/main/agent/AgentHandlers";
 import { AutoService } from "@/main/auto/AutoService";
 import { AutoHandlers } from "@/main/auto/AutoHandlers";
+import { FolderUpdates } from "@/main/fs/FolderUpdates";
 import { loginShellPath } from "@/main/agent/loginPath";
 import { runAgentFile, spawnAgent } from "@/main/agent/nodeProcesses";
 import { runningBuild } from "@/main/updates/buildIdentity";
@@ -663,6 +664,10 @@ const autoService = new AutoService({
     mainWindow.webContents.send("auto:stream", message);
   },
 });
+// An opened folder that is a git checkout is brought up to date with its
+// upstream, by fast-forward only, when a page a reply names is not here yet
+// and when a thread's turn ends; the page asks, and the folders are these.
+const folderUpdates = new FolderUpdates({ folders: () => rootRegistry.list() });
 const autoHandlers = new AutoHandlers({
   ipc: ipcMain,
   service: autoService,
@@ -670,6 +675,7 @@ const autoHandlers = new AutoHandlers({
     registry: rootRegistry,
     vaults: async () => (await vaultService.discover()).map((vault) => vault.path),
   },
+  folders: folderUpdates,
 });
 
 // --- Primary Initialization and Cleanup ---

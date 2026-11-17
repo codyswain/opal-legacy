@@ -28,7 +28,8 @@ interface GroupRule {
   takes: (thread: AutoThread) => boolean;
 }
 
-const isWorking = (thread: AutoThread): boolean => thread.status === 'working' || thread.status === 'queued';
+/** At work, or queued to be. */
+export const isWorking = (thread: AutoThread): boolean => thread.status === 'working' || thread.status === 'queued';
 const isWaiting = (thread: AutoThread): boolean => thread.status === 'waiting';
 
 /** The dot before a title: a reply he has not read, or a thread back from snooze. */

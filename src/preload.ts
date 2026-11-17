@@ -253,6 +253,7 @@ const autoAPI: AutoAPI = {
   follow: (target) => ipcRenderer.invoke("auto:follow", target),
   unfollow: (stream) => ipcRenderer.invoke("auto:unfollow", stream),
   resolvePage: (path) => ipcRenderer.invoke("auto:resolve-page", path),
+  updateFolders: () => ipcRenderer.invoke("auto:update-folders"),
   onStream: (callback) => {
     const listener = (_event: IpcRendererEvent, message: AutoStreamMessage) => callback(message);
     ipcRenderer.on("auto:stream", listener);

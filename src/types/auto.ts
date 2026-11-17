@@ -361,7 +361,8 @@ export interface AutoRouteData {
  * the service answered with an error, whose sentence can be shown as it is.
  */
 export interface AutoFailure {
-  kind: 'no-address' | 'unreachable' | 'refused' | 'invalid';
+  /** `missing`: a page path that names no file on this Mac. */
+  kind: 'no-address' | 'unreachable' | 'refused' | 'invalid' | 'missing';
   message: string;
   /** The service's error code and HTTP status, for `refused`. */
   code?: string;
@@ -423,6 +424,20 @@ export type AutoStreamMessage = {
   | { type: 'event'; stream: 'thread'; event: AutoThreadEvent; cursor: string | null }
 );
 
+/**
+ * What bringing the opened folders up to date did: `updated` (a checkout
+ * moved forward), `current` (nothing new), `refused` (git would not
+ * fast-forward, or could not reach the remote) or `none` (no opened folder
+ * is a checkout with an upstream, or its repo was busy, or no address is set).
+ */
+export type FolderUpdateOutcome = 'updated' | 'current' | 'refused' | 'none';
+
+/** A page found in an opened folder, with its first heading when it has one. */
+export interface ResolvedVaultPage {
+  path: string;
+  title: string | null;
+}
+
 export interface AutoAPI {
   config: () => Promise<AutoResult<AutoConfig>>;
   /** Saves the address for this Mac. An empty string forgets it. */
@@ -432,7 +447,9 @@ export interface AutoAPI {
   follow: (target: AutoStreamTarget) => Promise<AutoResult<{ token: number }>>;
   unfollow: (stream: 'list' | 'thread') => Promise<AutoResult>;
   /** The file in an opened folder that a path from the vault's top names. */
-  resolvePage: (path: string) => Promise<AutoResult<{ path: string }>>;
+  resolvePage: (path: string) => Promise<AutoResult<ResolvedVaultPage>>;
+  /** Brings the opened folders that are git checkouts up to date with their upstreams, by fast-forward only. */
+  updateFolders: () => Promise<AutoResult<FolderUpdateOutcome>>;
   onStream: (callback: (message: AutoStreamMessage) => void) => () => void;
 }
 

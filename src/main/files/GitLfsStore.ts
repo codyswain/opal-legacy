@@ -12,7 +12,7 @@ const FETCH_TIMEOUT_MS = 5 * 60_000;
  * A store that is asleep or off gives up in seconds, not after git-lfs's
  * eight retries: the settings the vault's own lfs-sync.sh uses.
  */
-const SHORT_TIMEOUTS = ['-c', 'lfs.dialtimeout=5', '-c', 'lfs.tlstimeout=5', '-c', 'lfs.activitytimeout=30', '-c', 'lfs.transfer.maxretries=1'];
+export const SHORT_TIMEOUTS = ['-c', 'lfs.dialtimeout=5', '-c', 'lfs.tlstimeout=5', '-c', 'lfs.activitytimeout=30', '-c', 'lfs.transfer.maxretries=1'];
 
 /**
  * The `-I` pattern that names one file to git lfs fetch, from the repo's

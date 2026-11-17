@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type { AutoAPI, AutoStatus, AutoStreamMessage, AutoThread } from '@/types/auto';
-import { applyOrder, moved, upsertThread } from '../model/listModel';
+import { applyOrder, isWorking, moved, upsertThread } from '../model/listModel';
 import { LIST_PLACE, forgetPlace } from '../model/places';
 import { unconfirmed } from '../model/unconfirmed';
+import { turnEnded } from './pageLinks';
 import { useSaidStore } from './saidStore';
 
 /*
@@ -171,6 +172,14 @@ let wanted: { row: string; at: number } | null = null;
  */
 export const wantedRow = (): string | null => (wanted && Date.now() - wanted.at < 1_000 ? wanted.row : null);
 
+/** Whether each thread was working when the list stream last spoke of it. */
+const listWorking = new Map<string, boolean>();
+
+/** For tests: forgets what the list stream said. */
+export function forgetListWorking(): void {
+  listWorking.clear();
+}
+
 export const useAutoStore = create<AutoStore>((set, get) => {
   /** A write whose failure is said in one line, at the foot of the list. */
   const said = (message: string) => useSaidStore.getState().refuse(message);
@@ -249,6 +258,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       // Another address is another service: nothing of the old one stays.
       unconfirmedThreads.clear();
       undoneArchives.clear();
+      listWorking.clear();
       heldPlaces.clear();
       set({ archive: NO_ARCHIVE });
       set({ address: result.data.url, editing: false, loaded: false, reachable: false, problem: null, threads: [], status: null, listToken: null });
@@ -293,7 +303,14 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       } else if (message.type === 'event' && message.stream === 'list') {
         const event = message.event;
         if (event.kind === 'thread') {
+          const before = get().threads.find((thread) => thread.id === event.thread.id);
           set({ threads: upsertThread(get().threads, laid(event.thread)) });
+          // A turn ended: the files its reply names may be on the remote by now, so the opened folders catch up.
+          // Judged by what this stream said last: the open thread's own stream may have put the end in the list first.
+          const was = listWorking.get(event.thread.id) ?? (before ? isWorking(before) : false);
+          const working = isWorking(event.thread);
+          listWorking.set(event.thread.id, working);
+          if (was && !working) turnEnded(() => get().address);
           get().archiveChanged(laid(event.thread));
         }
         else if (event.kind === 'order') set({ threads: ordered(get().threads, event.ids) });

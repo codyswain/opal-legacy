@@ -59,6 +59,11 @@ The full method is in [Bread](Recipes/Bread.md), and the flour you have is liste
 
 Rest the loaf for an hour before you cut it.`;
 
+/** A reply naming pages its turn wrote on its own machine, a page that is here, one never written, and a long one. */
+const PAGES_REPLY = `Two new pages: \`Library/notes/first-page.md\` and [[Library/notes/second-page]]. The seeds are in [the seed plan](Projects/Garden/Seeds.md), and \`Library/notes/never-written.md\` was never written.
+
+The long one: [Library/notes/A very long page name about the north beds, the rain gauge on the shed and the compost bins by the fence.md](<Library/notes/A very long page name about the north beds, the rain gauge on the shed and the compost bins by the fence.md>).`;
+
 const SHORT_REPLY = `The four beds get six hours of sun from May. Beans and peas go in bed 2, where the trellis is.
 
 See [Beds](Projects/Garden/Beds.md) for the layout.`;
@@ -648,6 +653,12 @@ export async function startStandIn(options = {}) {
       ctx.activity('Writing');
       const picks = Object.values(answer.answers).map((picked) => (Array.isArray(picked) ? picked.join(' and ') : picked));
       await ctx.say(`Squash: **${picks[0]}**. Beside it: **${picks[1]}**.`);
+      return [];
+    }
+    if (said.includes('new pages')) {
+      ctx.activity('Writing the pages');
+      await ctx.wait(pace * 2);
+      await ctx.say(PAGES_REPLY, { piece: 80 });
       return [];
     }
     if (said.includes('wide')) {

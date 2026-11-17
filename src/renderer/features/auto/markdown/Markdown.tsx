@@ -1,21 +1,36 @@
 import * as React from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, FileText } from 'lucide-react';
 import { IconButton } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
-import { codeTarget, linkTarget, wikiTarget, type LinkContext, type LinkTarget } from '../model/links';
+import { codeTarget, isPagePath, linkTarget, ownWords, tidyName, wikiTarget, type LinkContext, type LinkTarget } from '../model/links';
+import { usePageTitle } from '../store/pageLinks';
 import { parseMarkdown, type Block, type Inline } from './parseMarkdown';
 import '../auto.css';
+
+/** How a link to a file in the vault ended: opened, not on this Mac, or refused for another reason (said elsewhere). */
+export type VaultOpen = 'opened' | 'missing' | 'refused';
+
+export interface VaultOpenOptions {
+  /** The link says a missing page where it is, so the foot of the sidebar says nothing. */
+  atLink?: boolean;
+  /** Called when the page was not found and the opened folders are being brought up to date. */
+  onWorking?: () => void;
+}
 
 /** How links in a reply are followed. */
 export interface MarkdownLinks {
   context: LinkContext;
   /** Opens a file by its path from the vault's top. */
-  openVault: (path: string, newTab: boolean) => void;
+  openVault: (path: string, newTab: boolean, options?: VaultOpenOptions) => Promise<VaultOpen> | void;
 }
 
 const NO_LINKS: MarkdownLinks = { context: { roots: [], tops: new Set() }, openVault: () => undefined };
 
 export const MarkdownLinksContext = React.createContext<MarkdownLinks>(NO_LINKS);
+
+/** How long the line under a link to a missing page stays, unless a click anywhere takes it first. */
+export const MISSING_LINE_MS = 6_000;
+export const MISSING_LINE = 'This file is not on this Mac yet.';
 
 /** A web or mail address opens outside the app, the way every other link in Opal does: the main process decides. */
 function openExternal(event: React.MouseEvent, url: string) {
@@ -23,8 +38,108 @@ function openExternal(event: React.MouseEvent, url: string) {
   window.open(url, '_blank');
 }
 
-function LinkView({ target, children }: { target: LinkTarget | null; children: React.ReactNode }) {
+/** The words of inline nodes, as one string. */
+function plainText(nodes: readonly Inline[]): string {
+  return nodes
+    .map((node) => {
+      if (node.type === 'text' || node.type === 'code') return node.text;
+      if (node.type === 'break') return ' ';
+      return plainText(node.children);
+    })
+    .join('');
+}
+
+/** A page's name when its link has no words of its own: its first heading once read, its tidy file name until then. */
+function PageName({ path }: { path: string }) {
+  const title = usePageTitle(path);
+  return <>{title ?? tidyName(path)}</>;
+}
+
+/**
+ * A link to a file in the vault. A page reads as a page: a small page icon,
+ * then its words in the text's colour, cut inside the column on one line,
+ * with its path from the folder's top on hover and for a screen reader. A
+ * page that is not here yet is looked for again after the opened folders are
+ * brought up to date, with the working mark in place of the icon; if it is
+ * still missing, a quiet line under the link says so.
+ */
+function VaultLink({ path, words }: { path: string; words: React.ReactNode | null }) {
   const { openVault } = React.useContext(MarkdownLinksContext);
+  const [working, setWorking] = React.useState(false);
+  const [missing, setMissing] = React.useState(false);
+  const busy = React.useRef(false);
+  const alive = React.useRef(true);
+  React.useEffect(() => () => {
+    alive.current = false;
+  }, []);
+  React.useEffect(() => {
+    if (!missing) return;
+    const timer = setTimeout(() => setMissing(false), MISSING_LINE_MS);
+    const away = () => setMissing(false);
+    document.addEventListener('pointerdown', away, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointerdown', away, true);
+    };
+  }, [missing]);
+  const page = isPagePath(path);
+  const open = (newTab: boolean) => {
+    if (busy.current) return;
+    setMissing(false);
+    const result = openVault(path, newTab, { atLink: true, onWorking: () => alive.current && setWorking(true) });
+    if (!result) return;
+    busy.current = true;
+    void result.then(
+      (outcome) => {
+        busy.current = false;
+        if (!alive.current) return;
+        setWorking(false);
+        if (outcome === 'missing') setMissing(true);
+      },
+      () => {
+        busy.current = false;
+        if (alive.current) setWorking(false);
+      }
+    );
+  };
+  const link = (
+    <span
+      role="link"
+      tabIndex={0}
+      title={path}
+      aria-busy={working || undefined}
+      data-vault-path={path}
+      data-page={page || undefined}
+      data-working={working || undefined}
+      className={page ? 'auto-page-link' : undefined}
+      onClick={(event) => open(event.metaKey || event.ctrlKey)}
+      onAuxClick={(event) => event.button === 1 && open(true)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') open(event.metaKey || event.ctrlKey);
+      }}
+    >
+      {page ? (
+        <>
+          {working ? <span aria-hidden className="auto-spin auto-page-icon" /> : <FileText aria-hidden className="auto-page-icon" strokeWidth={1.75} />}
+          <span className="auto-page-words">{words ?? <PageName path={path} />}</span>
+        </>
+      ) : (
+        words ?? tidyName(path)
+      )}
+    </span>
+  );
+  return (
+    <span className="auto-vault-link" data-page={page || undefined}>
+      {link}
+      {/* Always in the page, so a screen reader hears the line when it comes. */}
+      <span role="status" className="auto-page-missing" data-testid="auto-page-missing">
+        {missing ? MISSING_LINE : ''}
+      </span>
+    </span>
+  );
+}
+
+function LinkView({ target, children }: { target: LinkTarget | null; children: React.ReactNode }) {
   if (!target) return <>{children}</>;
   if (target.kind === 'external') {
     return (
@@ -41,21 +156,13 @@ function LinkView({ target, children }: { target: LinkTarget | null; children: R
     );
   }
   // A file in the vault opens as a page in Opal, once the main process has found it in an opened folder.
-  return (
-    <span
-      role="link"
-      tabIndex={0}
-      title={target.path}
-      data-vault-path={target.path}
-      onClick={(event) => openVault(target.path, event.metaKey || event.ctrlKey)}
-      onAuxClick={(event) => event.button === 1 && openVault(target.path, true)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') openVault(target.path, event.metaKey || event.ctrlKey);
-      }}
-    >
-      {children}
-    </span>
-  );
+  return <VaultLink path={target.path} words={children} />;
+}
+
+/** A link to the vault keeps words of its own; words that only say its address again become the page's name. */
+function linkWords(target: LinkTarget | null, words: readonly Inline[], written: string, kind: 'link' | 'wiki', context: LinkContext): React.ReactNode {
+  if (target?.kind !== 'vault' || !isPagePath(target.path) || ownWords(plainText(words), written, target.path, kind)) return inlineViews(words, context);
+  return null;
 }
 
 function InlineView({ node, context }: { node: Inline; context: LinkContext }) {
@@ -70,12 +177,22 @@ function InlineView({ node, context }: { node: Inline; context: LinkContext }) {
       return <em>{inlineViews(node.children, context)}</em>;
     case 'del':
       return <del>{inlineViews(node.children, context)}</del>;
-    case 'code':
-      return <LinkView target={codeTarget(node.text, context)}><code>{node.text}</code></LinkView>;
-    case 'link':
-      return <LinkView target={linkTarget(node.href, context)}>{inlineViews(node.children, context)}</LinkView>;
-    case 'wiki':
-      return <LinkView target={wikiTarget(node.target)}>{inlineViews(node.children, context)}</LinkView>;
+    case 'code': {
+      const target = codeTarget(node.text, context);
+      // A code span that is nothing but a page's path is a link to that page, drawn as one.
+      if (target?.kind === 'vault') return <VaultLink path={target.path} words={isPagePath(target.path) ? null : <code>{node.text}</code>} />;
+      return <code>{node.text}</code>;
+    }
+    case 'link': {
+      const target = linkTarget(node.href, context);
+      if (target?.kind === 'vault') return <VaultLink path={target.path} words={linkWords(target, node.children, node.href, 'link', context)} />;
+      return <LinkView target={target}>{inlineViews(node.children, context)}</LinkView>;
+    }
+    case 'wiki': {
+      const target = wikiTarget(node.target);
+      if (target?.kind === 'vault') return <VaultLink path={target.path} words={linkWords(target, node.children, node.target, 'wiki', context)} />;
+      return <LinkView target={target}>{inlineViews(node.children, context)}</LinkView>;
+    }
   }
 }
 
