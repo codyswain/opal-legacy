@@ -29,7 +29,7 @@ import {
   DEFAULT_BROWSER_WINDOW_WIDTH,
 } from "@/common/constants";
 import { log } from "@/main/index";
-import { SystemHandlers } from "@/main/services/system/SystemHandlers";
+import { SystemHandlers } from "@/main/services/system/systemHandlers";
 import { CredentialHandlers } from "@/main/services/credentials/CredentialHandlers";
 import { CredentialManager } from "@/main/services/credentials/CredentialManager";
 import { RootRegistry } from "@/main/fs/RootRegistry";
