@@ -1,5 +1,6 @@
 import type {
   AutoAsk,
+  AutoContinues,
   AutoDigest,
   AutoDigestDays,
   AutoDigestEntry,
@@ -398,19 +399,29 @@ function toEntry(value: unknown, section: string): AutoDigestEntry | null {
   // A to-do carries its drafted reply; a drafted reply of its own carries its words.
   const drafted = fields(entry.draft);
   const paste = drafted ? text(drafted.paste, TEXT_LIMIT) : kind === 'draft' ? text(entry.paste, TEXT_LIMIT) : '';
+  // An entry said to be a thread without one that can be named is still open.
+  const state: AutoDigestEntry['state'] = entry.state === 'resolved' ? 'resolved' : entry.state === 'thread' && thread ? 'thread' : 'open';
   return {
     id: entry.id,
     kind,
     title,
     md: text(entry.md, TEXT_LIMIT),
     section,
-    // An entry said to be a thread without one that can be named is still open.
-    state: entry.state === 'resolved' ? 'resolved' : entry.state === 'thread' && thread ? 'thread' : 'open',
+    state,
     thread,
     note: text(entry.note, NOTE_LIMIT),
     priority: kind === 'item' ? text(entry.priority, 40) : '',
     draft: paste ? { title: drafted ? text(drafted.title, TITLE_LIMIT) : title, paste } : null,
+    continues: state === 'open' ? toContinues(entry.continues) : null,
   };
+}
+
+/** The thread an open entry matches: kept only with an id that can be named and a title to show. */
+function toContinues(value: unknown): AutoContinues | null {
+  const match = fields(value);
+  if (!match || !validThreadId(match.id)) return null;
+  const title = text(match.title, TITLE_LIMIT).trim();
+  return title ? { id: match.id, title, snoozed: match.snoozed === true } : null;
 }
 
 /** A day's digest, or null when it names no day. Entries and sections that do not fit are left out. */

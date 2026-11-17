@@ -45,6 +45,15 @@ function begunBefore(earlier: Record<string, string>, box: BoxState, thread: str
   return next;
 }
 
+/** Where a title is being changed: in the open thread's header, or on its row in the sidebar. */
+export interface Renaming {
+  id: string;
+  at: 'header' | 'row';
+}
+
+/** The longest title the field takes. */
+export const TITLE_LIMIT = 120;
+
 /** How many threads' last views are kept. */
 const KEPT_LIMIT = 40;
 /** "Loading…" shows only when nothing is kept and the wait passes this, in ms. */
@@ -66,8 +75,11 @@ export interface ThreadStore {
   loading: boolean;
   /** The wait for a thread with nothing kept has passed 300 ms: say so. */
   slow: boolean;
-  /** The open thread's title is being changed, asked for from its row's menu or its own. */
-  renaming: boolean;
+  /**
+   * The one title being changed, in the header or on its row, or null. It is
+   * always the open thread's: starting a rename opens the thread.
+   */
+  renaming: Renaming | null;
   /** Why the thread could not be read. */
   problem: string | null;
   /** The last read failed, so what shows may be old: it is read again once Auto answers. */
@@ -113,9 +125,10 @@ export interface ThreadStore {
   /** Reads the open thread again if its last read failed or never happened. */
   recover: () => void;
   focusBox: () => void;
-  setRenaming: (renaming: boolean) => void;
-  /** Opens a thread with its title ready to be changed. */
-  startRename: (id: string) => void;
+  /** Opens a thread with its title ready to be changed, in the header unless `at` says its row. */
+  startRename: (id: string, at?: Renaming['at']) => void;
+  /** Ends that rename, and only that one: a newer one started meanwhile stays. */
+  endRename: (renaming: Renaming) => void;
   setWatching: (watching: boolean) => void;
   handle: (message: AutoStreamMessage) => void;
   setDraft: (text: string) => void;
@@ -132,7 +145,8 @@ export interface ThreadStore {
   setPicks: (picks: Picks) => void;
   /** Starts a waiting entry with its own words alone. */
   handOver: () => Promise<void>;
-  rename: (title: string) => Promise<void>;
+  /** Posts a new title for a thread, the open one unless `id` names another. An empty or unchanged title posts nothing. */
+  rename: (title: string, id?: string) => Promise<void>;
   setModel: (model: string) => Promise<void>;
   /** Sends again what a closed app left on its way, and gives the rest back to its box. */
   flush: () => void;
@@ -218,7 +232,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     ghost: null,
     loading: false,
     slow: false,
-    renaming: false,
+    renaming: null,
     problem: null,
     stale: false,
     openedUnread: false,
@@ -262,7 +276,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         ghost: thread && !seen ? get().view ?? get().ghost : null,
         loading: false,
         slow: false,
-        renaming: false,
+        renaming: null,
         problem: null,
         stale: false,
         openedUnread: entry?.unread === true,
@@ -280,11 +294,14 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
 
     focusBox: () => set({ boxFocus: get().boxFocus + 1 }),
 
-    setRenaming: (renaming) => set({ renaming }),
-
-    startRename: (id) => {
+    startRename: (id, at = 'header') => {
       get().open(id, { focus: false });
-      set({ renaming: true });
+      set({ renaming: { id, at } });
+    },
+
+    endRename: (renaming) => {
+      const now = get().renaming;
+      if (now && now.id === renaming.id && now.at === renaming.at) set({ renaming: null });
     },
 
     recover: () => {
@@ -486,10 +503,13 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (get().openId === id) get().focusBox();
     },
 
-    rename: async (title) => {
-      const id = paneThread(get().openId);
+    rename: async (title, id = paneThread(get().openId) ?? undefined) => {
       const said = title.trim();
-      if (!id || !said || said === get().view?.thread.title) return;
+      if (!id || !said) return;
+      // Unchanged: the title the row shows, or the open thread's while the list has none.
+      const view = get().view;
+      const was = useAutoStore.getState().threads.find((thread) => thread.id === id)?.title ?? (view?.thread.id === id ? view.thread.title : undefined);
+      if (said === was) return;
       const result = await autoApi()?.request({ kind: 'rename', id, title: said }).catch((): null => null);
       if (result?.success) useAutoStore.getState().upsert(result.data.thread);
     },

@@ -12,7 +12,7 @@ import { useThreadStore } from './store/threadStore';
  * front. Cmd+Z takes back his last action, newest first, while one is on
  * offer; in a field that holds text it is the field's own undo, and in an
  * empty one it undoes the action. Cmd+. stops the open thread's running
- * turn while the tab is in front. O opens what the last action made, from a row or
+ * turn while the tab is in front. A title being renamed takes none of them. O opens what the last action made, from a row or
  * an entry. None acts in a page's text, the palette, a dialog or another
  * part of the app. Mounted once, by useAutoSync.
  */
@@ -21,6 +21,8 @@ export function useAutoKeys(): void {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.shiftKey) return;
       const target = event.target as HTMLElement | null;
+      // A title being renamed is his text alone: no key there acts on a thread, Cmd+Z included, even with the field emptied.
+      if (target instanceof HTMLElement && target.hasAttribute('data-rename-field')) return;
       const nowhere = target === document.body || target === null;
       const autoInFront = isAutoLocation(selectCurrentLocation(useTabsStore.getState()));
       const place = nowhere ? null : target.closest<HTMLElement>('[data-auto-keys]');

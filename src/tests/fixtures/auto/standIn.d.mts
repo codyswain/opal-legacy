@@ -49,6 +49,12 @@ export interface StandIn {
     left: number;
     sections: Array<{ title: string; entries: Array<{ id: string; state: string; thread: string | null; note: string }> }>;
   } | null;
+  /**
+   * Sets or drops (null) the thread a digest entry matches, on 2026-11-12
+   * unless `date` says another day. The list stream says the day changed,
+   * unless `silent`.
+   */
+  setContinues: (id: string, thread: string | null, date?: string, options?: { silent?: boolean }) => void;
   /** A new day's digest is written; the list stream says nothing of it. Entries are `{ id, kind, title, md, note, resolved }`. */
   addDigest: (date: string, sections: Array<{ title: string; entries: Array<Record<string, unknown> & { id: string }> }>) => void;
   signOut: (out?: boolean) => void;

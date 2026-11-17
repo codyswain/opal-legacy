@@ -306,17 +306,35 @@ describe("reading the service's answers", () => {
       archived: false,
       sections: [
         { title: 'Top 3', entries: [
-          { id: 'item-1', kind: 'item', title: 'Order the seed trays', md: 'Two trays.', section: 'Top 3', state: 'open', thread: null, note: 'Ask about peat', priority: 'High', draft: { title: 'Garden centre', paste: 'Two trays, please.' } },
-          { id: 'item-2', kind: 'item', title: 'Book the inspection', md: 'On the 21st.', section: 'Top 3', state: 'thread', thread: '82a494f21dd8', note: '', priority: '', draft: null },
+          { id: 'item-1', kind: 'item', title: 'Order the seed trays', md: 'Two trays.', section: 'Top 3', state: 'open', thread: null, note: 'Ask about peat', priority: 'High', draft: { title: 'Garden centre', paste: 'Two trays, please.' }, continues: null },
+          { id: 'item-2', kind: 'item', title: 'Book the inspection', md: 'On the 21st.', section: 'Top 3', state: 'thread', thread: '82a494f21dd8', note: '', priority: '', draft: null, continues: null },
         ] },
         { title: 'Yesterday', entries: [
-          { id: 'text-yesterday-3d20bff3', kind: 'text', title: '', md: 'The compost was turned.', section: 'Yesterday', state: 'resolved', thread: null, note: '', priority: '', draft: null },
+          { id: 'text-yesterday-3d20bff3', kind: 'text', title: '', md: 'The compost was turned.', section: 'Yesterday', state: 'resolved', thread: null, note: '', priority: '', draft: null, continues: null },
         ] },
         { title: 'Drafted replies', entries: [
-          { id: 'draft-1', kind: 'draft', title: 'Garden club', md: '**Garden club**, newsletter.', section: 'Drafted replies', state: 'open', thread: null, note: '', priority: '', draft: { title: 'Garden club', paste: 'It reads well.' } },
+          { id: 'draft-1', kind: 'draft', title: 'Garden club', md: '**Garden club**, newsletter.', section: 'Drafted replies', state: 'open', thread: null, note: '', priority: '', draft: { title: 'Garden club', paste: 'It reads well.' }, continues: null },
         ] },
       ],
     });
+  });
+
+  it('reads the thread an open entry matches, and drops a match it cannot name or show', () => {
+    const match = (continues: unknown, state = 'open', thread: string | null = null) =>
+      toDigest({ date: '2026-11-13', sections: [{ title: 'Top 3', entries: [{ id: 'item-1', kind: 'item', title: 'Fix the tap', md: 'It drips.', state, thread, continues }] }] })?.sections[0]?.entries[0]?.continues;
+    expect(match({ id: '5a0000000007', title: 'Kitchen tap', snoozed: false })).toEqual({ id: '5a0000000007', title: 'Kitchen tap', snoozed: false });
+    expect(match({ id: '5a0000000007', title: 'Kitchen tap', snoozed: true, extra: 1 })).toEqual({ id: '5a0000000007', title: 'Kitchen tap', snoozed: true });
+    // Snoozed only from a plain true.
+    for (const snoozed of ['true', 1, null, undefined]) expect(match({ id: '5a0000000007', title: 'Kitchen tap', snoozed })?.snoozed).toBe(false);
+    // Only while the entry is open.
+    expect(match({ id: '5a0000000007', title: 'Kitchen tap', snoozed: false }, 'resolved')).toBeNull();
+    expect(match({ id: '5a0000000007', title: 'Kitchen tap', snoozed: false }, 'thread', '5a0000000007')).toBeNull();
+    // An id that cannot be named, or no title to show.
+    for (const id of ['', '../x', 'a b', 7, null]) expect(match({ id, title: 'Kitchen tap', snoozed: false }), String(id)).toBeNull();
+    for (const title of ['', '   ', 7, null]) expect(match({ id: '5a0000000007', title, snoozed: false }), String(title)).toBeNull();
+    for (const other of [null, 'yes', 7, [] as unknown[]] as unknown[]) expect(match(other)).toBeNull();
+    // A title as long as any other title, and no longer.
+    expect(match({ id: '5a0000000007', title: 'x'.repeat(400), snoozed: false })?.title).toHaveLength(300);
   });
 
   it('reads a kind it does not know as text, and drops what does not fit', () => {
@@ -343,9 +361,9 @@ describe("reading the service's answers", () => {
       left: 2,
       archived: false,
       sections: [{ title: 'News', entries: [
-        { id: 'widget-1', kind: 'text', title: 'A chart', md: 'Three bars.', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null },
+        { id: 'widget-1', kind: 'text', title: 'A chart', md: 'Three bars.', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null, continues: null },
         // Said to be a thread, with no thread that can be named: still open.
-        { id: 'item-9', kind: 'item', title: '', md: '', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null },
+        { id: 'item-9', kind: 'item', title: '', md: '', section: 'News', state: 'open', thread: null, note: '', priority: '', draft: null, continues: null },
       ] }],
     });
     expect(toDigest({ date: '2026-11-13' })).toEqual({ date: '2026-11-13', path: '', left: 0, archived: false, sections: [] });

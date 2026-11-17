@@ -451,7 +451,7 @@ async function tour() {
     check('the box has 16 px corners, a shadow, and is as wide as the text', look.radius === '16px' && look.shadow && Math.abs(look.boxWidth - look.columnWidth) <= 1, `${look.radius} ${look.boxWidth}/${look.columnWidth}`);
     check('the box’s controls sit on a row at its foot: the model at the left, the usage ring beside it, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-usage-ring,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
     check('a hairline runs under the header, the width of the pane', look.hairline);
-    check('the title ends in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && ((await page.getByTestId('auto-thread-menu').textContent()) ?? '') === 'Sourdough timings');
+    check('the title’s words end in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && (await textOf('auto-title')) === 'Sourdough timings');
     await talk.evaluate((element) => { element.scrollTop = 0; });
     await shot(3, 'thread-long-reply');
     await talk.evaluate((element) => { element.scrollTop = element.scrollHeight; });
@@ -862,7 +862,7 @@ async function tour() {
     await shot(28, 'undo-archive');
     await said.getByRole('button', { name: 'Undo' }).click();
     check('Undo puts it back where it was', await until(async () => (await rowIds()).indexOf(BARREL) === barrelAt && service.thread(BARREL)?.archived === false));
-    // Rename, from a row's menu: the thread opens with its title as a field.
+    // Rename, from a row's menu: the thread opens and the row's title is the field.
     await fromMenu(BARREL, 'Rename');
     const rowTitle = page.getByRole('textbox', { name: 'Thread title' });
     await rowTitle.waitFor({ timeout: 5_000 });
@@ -2228,10 +2228,168 @@ async function tour() {
     service.down(false);
     check('and comes back when it returns', await until(async () => (await threadRing.count()) === 1 && (await fillOf(threadRing)) === '0.73', 40_000));
 
+    // --- Renaming a thread: a double-click on a row's title, on the open thread's title, and Rename first in the row's menu.
+    await row(BREAD).locator('[data-auto-row]').click();
+    await box.waitFor({ timeout: 10_000 });
+    const renamePosts = () => service.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/rename') && request.headers['x-auto-client'] !== 'phone').map((request) => ({ path: request.path, title: request.body?.title }));
+    const renamesBefore = renamePosts().length;
+    const renamed = (await listedIds()).find((id) => id !== BREAD && service.thread(id) && !service.thread(id).snoozed && service.thread(id).status !== 'waiting');
+    const renamedTitle = service.thread(renamed)?.title ?? '';
+    /** The row's box, where its title's words start, and the middle of their line: the field must keep all three. */
+    const rowGeometry = (id) => page.evaluate((thread) => {
+      const rowElement = document.querySelector(`[data-testid="auto-row-${thread}"]`);
+      const words = document.querySelector(`[data-testid="auto-row-title-field-${thread}"]`) ?? document.querySelector(`[data-testid="auto-row-title-${thread}"]`);
+      if (!rowElement || !words) return null;
+      const box = rowElement.getBoundingClientRect();
+      const text = words.getBoundingClientRect();
+      const style = getComputedStyle(words);
+      return {
+        top: box.top, left: box.left, width: box.width, height: box.height,
+        wordsLeft: Math.round((text.left + parseFloat(style.paddingLeft || '0') + parseFloat(style.borderLeftWidth || '0')) * 10) / 10,
+        middle: Math.round((text.top + text.height / 2) * 10) / 10,
+      };
+    }, id);
+    const sameGeometry = (a, b) => !!a && !!b && ['top', 'left', 'width', 'height'].every((part) => Math.abs(a[part] - b[part]) < 0.5) && Math.abs(a.wordsLeft - b.wordsLeft) < 0.5 && Math.abs(a.middle - b.middle) < 0.6;
+    const fieldFocused = (id) => page.evaluate((thread) => document.activeElement?.getAttribute('data-testid') === `auto-row-title-field-${thread}`, id);
+    check('a thread to rename that is not the open one', !!renamed && renamed !== BREAD, String(renamed));
+    const beforeRename = await rowGeometry(renamed);
+    await page.getByTestId(`auto-row-title-${renamed}`).dblclick();
+    check('a double-click with the mouse turns the row’s title into a field with the caret in it', await until(() => fieldFocused(renamed), 3_000), await focused());
+    check('the field holds the whole title, selected', await page.getByTestId(`auto-row-title-field-${renamed}`).evaluate((field) => field.selectionStart === 0 && field.selectionEnd === field.value.length && field.value.length > 0));
+    const loaded = await until(async () => (await textOf('auto-title')) === renamedTitle && (await box.count()) === 1);
+    await wait(400);
+    check('the thread opened behind it, and the caret stayed in the field while it loaded', loaded && (await fieldFocused(renamed)), await focused());
+    const duringRename = await rowGeometry(renamed);
+    check('the row measures the same with its title as a field: its box, the words’ left edge and their line', sameGeometry(beforeRename, duringRename), `${JSON.stringify(beforeRename)} ${JSON.stringify(duringRename)}`);
+    await shot(95, 'rename-row', null, ['light', 'dark'], false);
+    check('the field kept the caret through the pictures', await fieldFocused(renamed), await focused());
+    await page.keyboard.type('see');
+    check('typed letters are the title’s: nothing snoozed, archived or marked', (await page.getByTestId(`auto-row-title-field-${renamed}`).inputValue()) === 'see' && (await page.getByTestId('auto-snooze-menu').count()) === 0 && !service.thread(renamed)?.snoozed && !service.thread(renamed)?.archived && !service.thread(renamed)?.desk);
+    await key('Enter');
+    check('Enter renames it, the row shows the new title, and the keyboard is on the row', await until(async () => service.thread(renamed)?.title === 'see' && (await textOf(`auto-row-title-${renamed}`)) === 'see' && (await focused()) === renamed), `${service.thread(renamed)?.title} ${await focused()}`);
+    check('the row measures as before the rename', sameGeometry(beforeRename, await rowGeometry(renamed)), JSON.stringify(await rowGeometry(renamed)));
+    await page.getByTestId(`auto-row-title-${renamed}`).dblclick();
+    await until(() => fieldFocused(renamed), 3_000);
+    await page.keyboard.type('nope');
+    await key('Escape');
+    check('Escape leaves the title as it was, posts nothing, and puts the keyboard on the row', await until(async () => (await focused()) === renamed) && (await textOf(`auto-row-title-${renamed}`)) === 'see' && renamePosts().length === renamesBefore + 1, `${await focused()} ${renamePosts().length - renamesBefore}`);
+    await page.getByTestId('auto-title').dblclick();
+    const headerField = page.getByTestId('auto-thread-header').getByRole('textbox', { name: 'Thread title' });
+    check('a double-click on the open thread’s title makes it the field, with no menu open', await until(async () => (await headerField.count()) === 1 && (await focused()) === 'Thread title', 3_000) && (await page.getByRole('menu').count()) === 0, await focused());
+    await wait(500);
+    check('and no menu opens after it either', (await page.getByRole('menu').count()) === 0 && (await headerField.count()) === 1);
+    await shot(96, 'rename-header', null, ['light', 'dark'], false);
+    await page.keyboard.type(renamedTitle);
+    await key('Enter');
+    check('Enter in the header renames it back', await until(async () => service.thread(renamed)?.title === renamedTitle && (await focused()) === 'auto-box'), await focused());
+    await row(renamed).locator('[data-auto-row]').click({ button: 'right' });
+    const firstItem = page.getByRole('menuitem').first();
+    check('Rename is the first item of the row’s menu', ((await firstItem.textContent()) ?? '') === 'Rename', (await firstItem.textContent()) ?? '');
+    await firstItem.click();
+    check('and turns the row’s title into the field, with the caret in it', await until(() => fieldFocused(renamed), 3_000), await focused());
+    await key('Escape');
+    await until(async () => (await focused()) === renamed);
+    check('the stand-in received exactly the renames made', JSON.stringify(renamePosts().slice(renamesBefore)) === JSON.stringify([{ path: `/api/threads/${renamed}/rename`, title: 'see' }, { path: `/api/threads/${renamed}/rename`, title: renamedTitle }]), JSON.stringify(renamePosts().slice(renamesBefore)));
+
+    // --- An entry that matches a thread he has: "Continues: <thread>", and one click adds the entry there.
+    const OLD_DAY = '2026-11-12';
+    const SNOOZED_MATCH = '5a0000000007';
+    const PLAIN_MATCH = '5a0000000009';
+    const continuesLines = () => queue.locator('[data-testid="auto-entry-continues"]').evaluateAll((lines) => lines.map((line) => line.closest('li')?.getAttribute('data-testid')?.replace('auto-entry-', '')));
+    /** An entry's box, and where its title line and words sit inside it. */
+    /** `height` is the entry's own words; the row around it keeps a least height for its actions, which `outer` measures. */
+    const entryGeometry = (id) => entry(id).evaluate((item) => {
+      const box = item.getBoundingClientRect();
+      const own = item.querySelector('[data-auto-entry]')?.getBoundingClientRect();
+      const title = item.querySelector('[data-auto-entry] p')?.getBoundingClientRect();
+      const words = item.querySelector('[data-testid="auto-entry-words"]')?.getBoundingClientRect();
+      const line = item.querySelector('[data-testid="auto-entry-continues"]')?.getBoundingClientRect();
+      return { height: own?.height ?? 0, outer: box.height, width: box.width, title: title ? [title.top - box.top, title.left - box.left, title.height] : null, words: words ? [words.top - box.top, words.left - box.left, words.height] : null, line: line ? line.height + parseFloat(getComputedStyle(item.querySelector('[data-testid="auto-entry-continues"]')).marginTop) : 0 };
+    });
+    const leftCount = async () => Number(((await textOf('auto-queue-left')) ?? '').replace(/\D+/g, ''));
+    /** The last message he sent a thread, from what the stand-in holds. */
+    const lastSaid = (id) => {
+      const thread = service.thread(id);
+      const said = [...(thread?.items ?? []), ...(thread?.live?.items ?? [])].filter((item) => item.role === 'user');
+      return said.at(-1)?.text ?? '';
+    };
+    // The default matches, on the second day back. The snoozed one is put away again first, for a run that brought it back.
+    if (!service.thread(SNOOZED_MATCH)?.snoozed) await fromPhone(`/api/threads/${SNOOZED_MATCH}/snooze`, { until: Math.floor(Date.now() / 1000) + 86400 });
+    service.setContinues('item-2', null);
+    service.setContinues('text-yesterday-1a2b3c4d', null);
+    await digestRow.click();
+    await queue.waitFor({ timeout: 10_000 });
+    for (let step = 0; step < 4 && (await textOf('auto-queue-day')) !== 'Thursday, November 12'; step += 1) {
+      await page.getByRole('button', { name: 'Earlier day' }).click();
+      await until(async () => (await textOf('auto-queue-day')) !== '', 2_000);
+      await wait(300);
+    }
+    check('the queue steps back to the day with the matches', (await textOf('auto-queue-day')) === 'Thursday, November 12', await textOf('auto-queue-day'));
+    await until(async () => (await continuesLines()).length === 0);
+    const withoutMatch = { 'item-1': await entryGeometry('item-1'), 'item-2': await entryGeometry('item-2'), 'text-yesterday-1a2b3c4d': await entryGeometry('text-yesterday-1a2b3c4d') };
+    service.setContinues('item-2', SNOOZED_MATCH);
+    service.setContinues('text-yesterday-1a2b3c4d', PLAIN_MATCH);
+    check('the line shows on the two matching entries and on no other', await until(async () => (await continuesLines()).join() === 'item-2,text-yesterday-1a2b3c4d'), (await continuesLines()).join());
+    const snoozedTitle = service.thread(SNOOZED_MATCH)?.title ?? '';
+    const plainTitle = service.thread(PLAIN_MATCH)?.title ?? '';
+    check('it names the thread, and says when it is snoozed', (await textOf('auto-entry-item-2').catch(() => '')).includes(`Continues: ${snoozedTitle} (snoozed)`) && ((await entry('text-yesterday-1a2b3c4d').getByTestId('auto-entry-continues').textContent()) ?? '') === `Continues: ${plainTitle}`, `${snoozedTitle} | ${plainTitle}`);
+    const withMatch = { 'item-1': await entryGeometry('item-1'), 'item-2': await entryGeometry('item-2'), 'text-yesterday-1a2b3c4d': await entryGeometry('text-yesterday-1a2b3c4d') };
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    check('a row without a match measures as before', same(withoutMatch['item-1'], withMatch['item-1']), `${JSON.stringify(withoutMatch['item-1'])} ${JSON.stringify(withMatch['item-1'])}`);
+    check('a matching row keeps its title and words where they were, and grows by the line alone', ['item-2', 'text-yesterday-1a2b3c4d'].every((id) => same(withoutMatch[id].title, withMatch[id].title) && same(withoutMatch[id].words, withMatch[id].words) && Math.abs(withMatch[id].height - withoutMatch[id].height - withMatch[id].line) < 0.6), JSON.stringify([withoutMatch, withMatch]));
+    await shot(97, 'continues-row', () => entry('text-yesterday-1a2b3c4d').hover());
+    check('the row’s act that makes a thread reads Add to it', await (async () => {
+      await entry('text-yesterday-1a2b3c4d').hover();
+      return (await entry('text-yesterday-1a2b3c4d').getByRole('button', { name: 'Add to it', exact: true }).count()) === 1 && (await entry('text-yesterday-1a2b3c4d').getByRole('button', { name: 'Thread', exact: true }).count()) === 0;
+    })());
+    const continuesBefore = posts('/api/digest/continue').length;
+    const leftBeforeAdd = await leftCount();
+    await act('text-yesterday-1a2b3c4d', 'Add to it');
+    check('Add to it from the row posts once, with the day, the entry and the thread', await until(() => posts('/api/digest/continue').length === continuesBefore + 1) && (() => {
+      const body = posts('/api/digest/continue').at(-1);
+      return body.date === OLD_DAY && body.id === 'text-yesterday-1a2b3c4d' && body.thread === PLAIN_MATCH && body.words === undefined && typeof body.cid === 'string';
+    })(), JSON.stringify(posts('/api/digest/continue').at(-1)));
+    check('the queue’s count goes down by one, and the line is gone', await until(async () => (await leftCount()) === leftBeforeAdd - 1 && !(await continuesLines()).includes('text-yesterday-1a2b3c4d')), `${leftBeforeAdd} -> ${await leftCount()}`);
+    check('the thread has the entry as its last message', await until(() => lastSaid(PLAIN_MATCH).startsWith('Digest, Thursday November 12') && lastSaid(PLAIN_MATCH).includes('Four rows of carrots')), lastSaid(PLAIN_MATCH).slice(0, 80));
+    check('the line at the sidebar’s foot says what it was added to, with no Undo', await until(async () => (await saidText()).startsWith(`Added to ${plainTitle}`)) && (await said.getByRole('button', { name: 'Undo' }).count()) === 0, await saidText());
+
+    // From the open entry, with his words, into the snoozed thread.
+    await entry('item-2').locator('[data-auto-entry]').click();
+    const entryBox = entry('item-2').getByTestId('auto-entry-box');
+    await entryBox.waitFor({ timeout: 5_000 });
+    check('the open entry says the line in full above its box, with Add to it and New thread instead', ((await entry('item-2').getByTestId('auto-entry-continues-open').textContent()) ?? '') === `Continues: ${snoozedTitle} (snoozed)` && (await entry('item-2').getByTestId('auto-send').getAttribute('aria-label')) === 'Add to it' && (await entry('item-2').getByTestId('auto-send').getAttribute('data-ready')) === 'true' && ((await entry('item-2').getByTestId('auto-entry-new-thread').textContent()) ?? '') === 'New thread instead');
+    await shot(98, 'continues-open');
+    await entryBox.fill('Bring the stone too');
+    service.slow(1_200);
+    const continuesBeforeOpen = posts('/api/digest/continue').length;
+    await entry('item-2').getByTestId('auto-send').click();
+    await entry('item-2').getByTestId('auto-send').click({ timeout: 500 }).catch(() => undefined);
+    await entryBox.press('Enter', { timeout: 500 }).catch(() => undefined);
+    await wait(2_000);
+    service.slow(0);
+    check('a second click while the first is out sends nothing more', posts('/api/digest/continue').length === continuesBeforeOpen + 1, String(posts('/api/digest/continue').length - continuesBeforeOpen));
+    check('his words arrive with the entry, and the snoozed thread is back', await until(() => posts('/api/digest/continue').at(-1)?.words === 'Bring the stone too' && lastSaid(SNOOZED_MATCH).includes('Bring the stone too') && lastSaid(SNOOZED_MATCH).includes('Sharpen the secateurs') && !service.thread(SNOOZED_MATCH)?.snoozed), `${lastSaid(SNOOZED_MATCH).slice(-60)} ${service.thread(SNOOZED_MATCH)?.snoozed}`);
+
+    // On the latest day: a match that has gone by the time of the click, and a new thread after all.
+    service.setContinues('item-1', PLAIN_MATCH, NEW_DAY);
+    service.setContinues('item-2', PLAIN_MATCH, NEW_DAY);
+    for (let step = 0; step < 4 && (await textOf('auto-queue-day')) !== 'Saturday, November 14'; step += 1) {
+      await page.getByRole('button', { name: 'Later day' }).click();
+      await wait(300);
+    }
+    check('both entries of the latest day show their line', await until(async () => (await textOf('auto-queue-day')) === 'Saturday, November 14' && (await continuesLines()).join() === 'item-1,item-2'), (await continuesLines()).join());
+    service.setContinues('item-1', null, NEW_DAY, { silent: true });
+    const noMatchBefore = posts('/api/digest/continue').length;
+    await act('item-1', 'Add to it');
+    check('a match gone before the click: the 409 leaves the entry open, the line gone and the sentence shown', await until(async () => (await entryIds()).includes('item-1') && (await entry('item-1').getAttribute('data-state')) === 'open' && (await entry('item-1').getByTestId('auto-entry-continues').count()) === 0 && (await saidText()).startsWith('That thread no longer matches.')) && posts('/api/digest/continue').length === noMatchBefore + 1, await saidText());
+    await entry('item-2').locator('[data-auto-entry]').click();
+    await entry('item-2').getByTestId('auto-entry-new-thread').click();
+    check('New thread instead still makes a new thread, and the line is gone after', await until(async () => JSON.stringify(posts('/api/digest/thread').at(-1)) === JSON.stringify({ date: NEW_DAY, id: 'item-2', start: false }) && service.entries().some((thread) => thread.title === 'Net the peas') && service.digest(NEW_DAY)?.sections[0].entries.find((each) => each.id === 'item-2')?.continues === null && !(await continuesLines()).includes('item-2')) && posts('/api/digest/continue').length === noMatchBefore + 1, JSON.stringify(posts('/api/digest/thread').at(-1)));
+
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);
     check('Opal never ticked a box by number and never asked for the inbox', !paths.some((requestPath) => requestPath.includes('/digest/tick') || requestPath.includes('/digest/inbox')));
-    const KNOWN = /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\?archived=1(&limit=\d+)?|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread|archive)|usage)$/;
+    const KNOWN = /^\/api\/(status|status\/check|events(\?last=[\w.]+)?|threads|threads\?archived=1(&limit=\d+)?|threads\/[\w-]+(\/(events(\?last=[\w.]+)?|messages|stop|answer|model|rename|archive|move|snooze|start|desk))?|digest(\?date=\d{4}-\d{2}-\d{2})?|digests|digest\/(resolve|note|thread|continue|archive)|usage)$/;
     check('Opal asked only for routes it has', paths.every((requestPath) => KNOWN.test(requestPath)), paths.find((requestPath) => !KNOWN.test(requestPath)) ?? '');
     check('every snooze carried a time or null, and a wait carried only his words', posts('/api/threads/').length === 0 && service.requests.filter((request) => request.method === 'POST' && /\/snooze$/.test(request.path) && request.headers['x-auto-client'] !== 'phone').every((request) => Object.keys(request.body).every((field) => field === 'until' || field === 'wait') && (request.body.wait === undefined || JSON.stringify(Object.keys(request.body.wait)) === '["say"]')));
     check('no request marked a message as a send', !service.requests.some((request) => JSON.stringify(request.body ?? {}).includes('sends')));

@@ -165,6 +165,15 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
         id: route.id,
         ...(route.words !== null ? { words: route.words, ...(route.cid ? { cid: route.cid } : {}) } : { start: false }),
       });
+    case 'digest-continue':
+      // Into the thread the entry matches, as one message with his note and his words. Nothing in it is a send.
+      return post(base, '/api/digest/continue', {
+        date: route.date,
+        id: route.id,
+        thread: route.thread,
+        ...(route.words !== null ? { words: route.words } : {}),
+        ...(route.cid !== null ? { cid: route.cid } : {}),
+      });
   }
 }
 
@@ -241,6 +250,7 @@ export function validRoute(value: unknown): AutoRoute | null {
     case 'digest-resolve':
     case 'digest-note':
     case 'digest-thread':
+    case 'digest-continue':
       return validDigestRoute(route);
     default:
   }
@@ -286,8 +296,9 @@ export function validRoute(value: unknown): AutoRoute | null {
 
 /**
  * A write to a day's digest: its day and every entry id are checked before
- * anything is sent. Opal resolves, notes and makes threads; it never ticks a
- * box by number and never asks the service to fill the inbox.
+ * anything is sent. Opal resolves, notes, makes threads and adds an entry to
+ * the thread it matches; it never ticks a box by number and never asks the
+ * service to fill the inbox.
  */
 function validDigestRoute(route: Fields): AutoRoute | null {
   if (!validDate(route.date)) return null;
@@ -304,6 +315,12 @@ function validDigestRoute(route: Fields): AutoRoute | null {
     return typeof route.text === 'string' && route.text.length <= NOTE_LIMIT && !route.text.includes('\0')
       ? { kind: 'digest-note', date, id, text: route.text.trim() }
       : null;
+  }
+  if (route.kind === 'digest-continue') {
+    // The thread it goes into is the one the entry was shown to match; words and the client's id are each optional.
+    if (!validThreadId(route.thread)) return null;
+    if (!(route.words === null || words(route.words)) || !(route.cid === null || validCid(route.cid))) return null;
+    return { kind: 'digest-continue', date, id, thread: route.thread, words: route.words as string | null, cid: route.cid as string | null };
   }
   if (route.words === null) return route.cid === null ? { kind: 'digest-thread', date, id, words: null, cid: null } : null;
   return words(route.words) && validCid(route.cid) ? { kind: 'digest-thread', date, id, words: route.words, cid: route.cid } : null;
