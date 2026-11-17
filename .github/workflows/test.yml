@@ -30,7 +30,9 @@ jobs:
         run: npm run lint
       
       - name: Run tests
-        run: npm test
+        # The editor and search tests measure elapsed time against UI budgets.
+        # Give each test file the runner to itself while it takes those measurements.
+        run: npm test -- --no-file-parallelism
         env:
           SKIP_BUILD_TESTS: true
 
