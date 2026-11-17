@@ -218,6 +218,9 @@ describe('an entry that matches a thread', () => {
     expect(send).toHaveAccessibleName(/^Add to it/);
     expect(send).toBeEnabled();
     expect(within(entry('text-b')).getByTestId('auto-entry-new-thread').textContent).toBe('New thread instead');
+    // The box says where the entry goes, to the eye and to a screen reader.
+    const field = within(entry('text-b')).getByRole('textbox', { name: 'Add to Seed order. Say more if you want.' });
+    expect(field).toHaveAttribute('placeholder', 'Add to Seed order. Say more if you want.');
     expect(within(entry('text-b')).queryByTestId('auto-entry-wordless')).toBeNull();
     const box = within(entry('text-b')).getByTestId('auto-entry-box') as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: '  Note the bean variety  ' } });
@@ -229,6 +232,19 @@ describe('an entry that matches a thread', () => {
     openEntry('text-c');
     fireEvent.keyDown(within(entry('text-c')).getByTestId('auto-entry-box'), { key: 'Enter' });
     await waitFor(() => expect(last('digest-continue')).toMatchObject({ id: 'text-c', thread: 'labels', words: null }));
+  });
+
+  it('cuts a long thread title in the box’s placeholder so the sentence’s end still shows, and keeps the plain one without a match', async () => {
+    const long = 'Seed order for the spring beds and the cold frame by the shed';
+    const only = autoDigest(DAY, [['Yesterday', [digestEntry('text-b', { md: 'Sowed the beans.', continues: { id: 'seeds', title: long, snoozed: false } }), digestEntry('text-x', { md: 'Swept the path.' })]]]);
+    await openQueue({ digests: { [DAY]: only } });
+    openEntry('text-b');
+    const placeholder = within(entry('text-b')).getByTestId('auto-entry-box').getAttribute('placeholder') ?? '';
+    expect(placeholder).toBe('Add to Seed order for the spring beds and the… Say more if you want.');
+    expect(within(entry('text-b')).getByTestId('auto-entry-box')).toHaveAccessibleName(placeholder);
+    openEntry('text-x');
+    expect(within(entry('text-x')).getByTestId('auto-entry-box').getAttribute('placeholder')).toBe('Say what you want done');
+    expect(within(entry('text-x')).getByTestId('auto-entry-box')).toHaveAccessibleName('Say what you want done');
   });
 
   it('makes a new thread instead, with the box’s words or without any', async () => {

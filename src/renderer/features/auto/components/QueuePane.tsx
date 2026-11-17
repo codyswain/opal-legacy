@@ -158,6 +158,11 @@ function DraftedReply({ entry }: { entry: AutoDigestEntry }) {
   );
 }
 
+/** The most of a thread's title the box's placeholder holds, so the end of its sentence still shows. */
+const PROMPT_TITLE = 40;
+/** A thread's title cut for the box's placeholder, ending in an ellipsis when it is longer. */
+const cutTitle = (title: string): string => (title.length <= PROMPT_TITLE ? title : `${title.slice(0, PROMPT_TITLE - 1).trimEnd()}…`);
+
 /** The thread an open entry matches, as the service found it, or null: only an open entry has one. */
 const matchOf = (entry: AutoDigestEntry) => (entry.state === 'open' ? entry.continues : null);
 
@@ -236,6 +241,10 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
     setSending(true);
     void useDigestStore.getState().say(entry.id, words).then(() => setSending(false));
   };
+  // With a match, the box says where the entry goes, since its button is only an arrow.
+  const shown = match ? cutTitle(match.title) : '';
+  // A cut title ends in its ellipsis, with no full stop after it.
+  const prompt = match ? `Add to ${shown}${shown.endsWith('…') ? '' : '.'} Say more if you want.` : 'Say what you want done';
   return (
     <div>
       {/* Enter was taken: his words leave the box and show on their way, until the thread opens. */}
@@ -257,9 +266,9 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
         <textarea
           ref={area}
           rows={1}
-          aria-label="What you want done"
+          aria-label={prompt}
           data-testid="auto-entry-box"
-          placeholder="Say what you want done"
+          placeholder={prompt}
           value={sending ? '' : words}
           readOnly={sending}
           onChange={(event) => useDigestStore.getState().setWords(entry.id, event.target.value)}
