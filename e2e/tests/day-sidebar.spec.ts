@@ -47,7 +47,9 @@ test("the right sidebar shows a line appended to today's log, and ticks the dige
 
   await appendFile(log, "- 09:05 Appended while the sidebar was open. · agent turn\n");
   await expect(card.getByText("Appended while the sidebar was open.")).toBeVisible({ timeout: 10000 });
-  await expect(card.getByRole("button", { name: /^Activity log/ })).toContainText("2");
+  const logHeader = card.getByRole("button", { name: /^Activity log/ });
+  await logHeader.click();
+  await expect(logHeader).toContainText("2 entries, last 09:05");
 
   const tom = sidebar.getByRole("region", { name: "Digest" }).getByRole("checkbox", { name: "Answer Tom on the 409A price" });
   await expect(tom).toHaveAttribute("aria-checked", "false");

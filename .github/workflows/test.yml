@@ -30,7 +30,9 @@ jobs:
         run: npm run lint
       
       - name: Run tests
-        run: npm test
+        # The editor and search tests measure elapsed time against UI budgets.
+        # Give each test file the runner to itself while it takes those measurements.
+        run: npm test -- --no-file-parallelism
         env:
           SKIP_BUILD_TESTS: true
 
@@ -43,10 +45,10 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Use Node.js 18.x
+      - name: Use the project's Node.js version
         uses: actions/setup-node@v3
         with:
-          node-version: 18.x
+          node-version-file: .nvmrc
           cache: 'npm'
 
       - name: Install dependencies
