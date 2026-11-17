@@ -1,4 +1,5 @@
 import { imageFields, toAutoImage, validImageId, validImageIds } from '@/common/autoImages';
+import { replyChoice } from '@/common/autoReplyModel';
 import {
   NOTE_LIMIT,
   RESOLVE_LIMIT,
@@ -8,7 +9,6 @@ import {
   validCursor,
   validDate,
   validEntryId,
-  validModel,
   validThreadId,
 } from '@/common/autoModel';
 import type { AutoAnswer, AutoRoute, AutoStreamTarget } from '@/types/auto';
@@ -118,7 +118,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
     case 'image':
       return get(base, `/api/images/${route.id}`);
     case 'create':
-      return post(base, '/api/threads', { text: route.text, model: route.model, cid: route.cid, ...imageFields(route.images) });
+      return post(base, '/api/threads', { text: route.text, ...replyChoice(route), cid: route.cid, ...imageFields(route.images) });
     case 'message':
       return post(base, `/api/threads/${route.id}/messages`, { text: route.text, cid: route.cid, ...imageFields(route.images) });
     case 'stop':
@@ -126,7 +126,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
     case 'answer':
       return post(base, `/api/threads/${route.id}/answer`, answerBody(route.answer));
     case 'model':
-      return post(base, `/api/threads/${route.id}/model`, { model: route.model });
+      return post(base, `/api/threads/${route.id}/model`, { ...replyChoice(route) });
     case 'rename':
       return post(base, `/api/threads/${route.id}/rename`, { title: route.title });
     case 'archive':
@@ -168,7 +168,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, '/api/digest/thread', {
         date: route.date,
         id: route.id,
-        model: route.model,
+        ...replyChoice(route),
         ...imageFields(route.images),
         ...(route.words !== null ? { words: route.words } : {}),
         ...(route.cid ? { cid: route.cid } : {}),
@@ -179,7 +179,7 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, '/api/digest/continue', {
         date: route.date,
         id: route.id,
-        model: route.model,
+        ...replyChoice(route),
         thread: route.thread,
         ...imageFields(route.images),
         ...(route.words !== null ? { words: route.words } : {}),
@@ -253,10 +253,12 @@ export function validRoute(value: unknown): AutoRoute | null {
     }
     case 'image':
       return validImageId(route.id) && words(route.expectedAddress, 2000) ? { kind: 'image', id: route.id, expectedAddress: route.expectedAddress } : null;
-    case 'create':
-      return validMessage(route.text, route.images) && validModel(route.model) && validCid(route.cid)
-        ? { kind: 'create', text: route.text, model: route.model, cid: route.cid, ...imageFields(route.images) }
+    case 'create': {
+      const choice = replyChoice(route);
+      return validMessage(route.text, route.images) && choice && validCid(route.cid)
+        ? { kind: 'create', text: route.text, ...choice, cid: route.cid, ...imageFields(route.images) }
         : null;
+    }
     case 'archived':
       return route.limit === null || (Number.isInteger(route.limit) && (route.limit as number) > 0 && (route.limit as number) <= ARCHIVED_LIMIT)
         ? { kind: 'archived', limit: route.limit as number | null }
@@ -289,8 +291,10 @@ export function validRoute(value: unknown): AutoRoute | null {
       const answer = validAnswer(route.answer);
       return answer ? { kind: 'answer', id, answer } : null;
     }
-    case 'model':
-      return validModel(route.model) ? { kind: 'model', id, model: route.model } : null;
+    case 'model': {
+      const choice = replyChoice(route);
+      return choice ? { kind: 'model', id, ...choice } : null;
+    }
     case 'rename':
       return words(route.title, 300) ? { kind: 'rename', id, title: route.title.trim() } : null;
     case 'archive':
@@ -338,11 +342,8 @@ function validDigestRoute(route: Fields): AutoRoute | null {
       ? { kind: 'digest-note', date, id, text: route.text.trim() }
       : null;
   }
-  const choice: { model?: string } = {};
-  if (route.model !== undefined) {
-    if (!validModel(route.model)) return null;
-    choice.model = route.model;
-  }
+  const choice = route.model === undefined && route.effort === undefined && route.speed === undefined ? {} : replyChoice(route);
+  if (!choice) return null;
   if (route.images !== undefined && !validImageIds(route.images)) return null;
   const attachments = imageFields(route.images);
   if (attachments.images && !validCid(route.cid)) return null;

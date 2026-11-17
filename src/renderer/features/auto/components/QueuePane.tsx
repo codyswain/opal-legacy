@@ -235,7 +235,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   const match = matchOf(entry);
   const modelKey = replyModelKey(date, entry);
   const picked = useDigestStore((state) => state.replyModels[modelKey]);
-  const matchedModel = useAutoStore((state) => state.threads.find((thread) => thread.id === match?.id)?.model);
+  const matchedModel = useAutoStore((state) => state.threads.find((thread) => thread.id === match?.id));
   const preferredModel = useThreadStore((state) => state.newModel);
   const submit = () => {
     if (sending || !pasted.canSubmit()) return;
@@ -286,7 +286,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
         row={
           <>
             <ReplyModelPicker
-              model={picked ?? (match ? matchedModel : preferredModel)}
+              choice={picked ?? (match ? matchedModel : preferredModel)}
               onChange={(model) => useDigestStore.getState().pickModel(modelKey, model)}
               field={area}
               disabled={sending}

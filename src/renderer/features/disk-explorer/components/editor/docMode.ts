@@ -1,5 +1,5 @@
 import { redo } from '@codemirror/commands';
-import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, forceParsing, syntaxTree } from '@codemirror/language';
 import {
   ChangeSet,
   EditorSelection,
@@ -338,9 +338,14 @@ function moveVisibly(forward: boolean, extend: boolean): Command {
  */
 function deleteVisibly(forward: boolean): Command {
   return (view) => {
+    const before = view.state;
+    const range = before.selection.main;
+    if (before.readOnly || before.selection.ranges.length > 1) return false;
+    // Delete can reach across a newline to the first character of a block.
+    // Keep the text intact if the parser hasn't reached that neighbour yet.
+    const near = Math.min(before.doc.length, range.to + (forward ? 2 : 0));
+    if (syntaxTree(before).length < near && !forceParsing(view, near, 50)) return true;
     const { state } = view;
-    const range = state.selection.main;
-    if (state.readOnly || state.selection.ranges.length > 1) return false;
     if (deleteObject(view, forward ? 1 : -1, currentKeyEvent(view, forward ? 'Delete' : 'Backspace'))) return true;
     let { from, to } = range;
     if (range.empty) {

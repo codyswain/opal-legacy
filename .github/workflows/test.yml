@@ -11,7 +11,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # The pinned Playwright build provides Chromium for Ubuntu 24.04.
+        os: [macos-latest, ubuntu-24.04]
     
     steps:
       - uses: actions/checkout@v3
@@ -34,13 +35,14 @@ jobs:
       - name: Measure editor timing in Chromium
         run: npm run test:browser
 
-      - name: Measure file search timing
+      - name: Measure file search and visible text timing
         run: npm test -- --no-file-parallelism src/tests/perf/
         env:
           SKIP_BUILD_TESTS: true
 
       - name: Run remaining tests
-        run: npm test -- --exclude 'src/tests/perf/**'
+        # Keep DOM and filesystem integration tests from competing for the same runner.
+        run: npm test -- --no-file-parallelism --exclude 'src/tests/perf/**'
         env:
           SKIP_BUILD_TESTS: true
 

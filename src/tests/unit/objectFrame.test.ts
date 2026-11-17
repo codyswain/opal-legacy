@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from '@testing-library/react';
+import { syntaxTree } from '@codemirror/language';
 import { EditorState, Transaction, type Extension } from '@codemirror/state';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
 import { markdownEditorExtensions } from '@/renderer/features/disk-explorer/components/editor/editorSetup';
@@ -68,6 +69,20 @@ const RULE = 'text\n***\nmore\n';
 const AFTER = RULE.indexOf('more');
 
 describe('the object frame', () => {
+  it.each([['Backspace', AFTER], ['Delete', RULE.indexOf('\n')]] as const)(
+    'frames the rule on %s even when the initial parse has not reached it',
+    (name, at) => {
+      const paragraphs = 'A paragraph.\n\n'.repeat(250);
+      const doc = paragraphs + RULE + paragraphs;
+      const view = mount(doc, paragraphs.length + at);
+      expect(syntaxTree(view.state).length).toBeLessThan(paragraphs.length);
+      expect(key(view, name)).toBe(true);
+      expect(text(view)).toBe(doc);
+      expect(frame(view)).toMatchObject({ kind: 'rule', from: paragraphs.length + 5, to: paragraphs.length + 8 });
+      expect(syntaxTree(view.state).length).toBeLessThan(doc.length);
+    },
+  );
+
   it('frames a block on the first Backspace, holds against a held key, and removes it on a new press', () => {
     const view = mount(RULE, AFTER);
     expect(key(view, 'Backspace')).toBe(true);

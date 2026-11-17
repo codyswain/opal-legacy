@@ -1,7 +1,8 @@
+import { replyChoice } from '@/common/autoReplyModel';
 import { create } from 'zustand';
 import { validImageIds } from '@/common/autoImages';
 import { byKey, giveBack } from '../components/focus';
-import type { AutoDigest, AutoDigestEntry, AutoStreamMessage } from '@/types/auto';
+import type { AutoModelChoice, AutoDigest, AutoDigestEntry, AutoStreamMessage } from '@/types/auto';
 import { afterLeaving, allEntries, entryName, queueOrder, queueSections, stepDay, withState, wordsKey, type QueueFilter } from '../model/digestModel';
 import { cidFor, type Failed } from '../model/outbox';
 import { unconfirmed } from '../model/unconfirmed';
@@ -37,8 +38,8 @@ export interface DigestStore {
   images: Record<string, string[]>;
   setImages: (date: string, id: string, images: string[]) => void;
   /** Explicit choices for unsent entries. A new match keeps its own thread's model. */
-  replyModels: Record<string, string>;
-  pickModel: (key: string, model: string) => void;
+  replyModels: Record<string, AutoModelChoice>;
+  pickModel: (key: string, model: AutoModelChoice) => void;
   /** The entry whose words did not go, by the same key. */
   notSent: string | null;
   failed: Failed | null;
@@ -189,14 +190,14 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     return entry ? entryName(entry) : '';
   };
 
-  const newThreadModel = (day: AutoDigest, id: string): { model?: string } => {
+  const newThreadModel = (day: AutoDigest, id: string): Partial<AutoModelChoice> => {
     const entry = allEntries(day).find((candidate) => candidate.id === id);
     if (!entry) return {};
     const explicit = get().replyModels[replyModelKey(day.date, entry)];
-    if (explicit !== undefined) return { model: explicit };
+    if (explicit !== undefined) return explicit;
     const target = useAutoStore.getState().threads.find((thread) => thread.id === entry.continues?.id);
-    const model = target?.model ?? useThreadStore.getState().newModel;
-    return model ? { model } : {};
+    const choice = (target && replyChoice(target)) ?? useThreadStore.getState().newModel;
+    return choice.model || choice.effort || choice.speed ? choice : {};
   };
 
   /** Only clear the submitted draft. Edits made while its request was in flight stay put. */
@@ -539,7 +540,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       const end = keep(date, [id], () => 'thread');
       moveOn(day, [id]);
       const result = useAutoStore.getState().reachable
-        ? await api.request({ kind: 'digest-continue', date, id, thread: match.id, words: words || null, cid, ...attachments, ...(model !== undefined ? { model } : {}) }).catch((): null => null)
+        ? await api.request({ kind: 'digest-continue', date, id, thread: match.id, words: words || null, cid, ...attachments, ...model }).catch((): null => null)
         : null;
       posting.delete(postKey);
       end();
