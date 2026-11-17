@@ -2436,12 +2436,8 @@ async function tour() {
     const pageLinkAt = (relative) => talk.locator(`[data-vault-path="${relative}"]`).last();
     const missingLine = (relative) => pageLinkAt(relative).locator('xpath=..').getByTestId('auto-page-missing');
     const MISSING = 'This file is not on this Mac yet.';
-    // The foot of the sidebar may still hold the last section's line; a link adds nothing of its own there.
-    const footBefore = await saidText();
-    const footQuiet = async () => {
-      const now = await saidText();
-      return (now === '' || now === footBefore) && !/not on this Mac|Could not find|could not open/i.test(now);
-    };
+    // The foot of the sidebar may still hold the last section's line; a link puts nothing of its own there.
+    const footQuiet = async () => !/not on this Mac|Could not find|could not open|first-page|never-written/i.test(await saidText());
     await toAuto();
     await newThread.click();
     await say('Write the new pages');
