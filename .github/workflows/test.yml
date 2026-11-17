@@ -28,13 +28,19 @@ jobs:
       - name: Lint
         run: npm run lint
       
-      - name: Measure editor and search timing budgets
-        run: npm test -- --no-file-parallelism src/tests/perf/ src/tests/unit/visibleSearch.test.ts
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps --only-shell chromium
+
+      - name: Measure editor timing in Chromium
+        run: npm run test:browser
+
+      - name: Measure file search timing
+        run: npm test -- --no-file-parallelism src/tests/perf/
         env:
           SKIP_BUILD_TESTS: true
 
       - name: Run remaining tests
-        run: npm test -- --exclude 'src/tests/perf/**' --exclude 'src/tests/unit/visibleSearch.test.ts'
+        run: npm test -- --exclude 'src/tests/perf/**'
         env:
           SKIP_BUILD_TESTS: true
 

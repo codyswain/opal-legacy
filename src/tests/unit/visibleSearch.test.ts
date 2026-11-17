@@ -223,17 +223,6 @@ describe('Find and Replace in a document', () => {
     expect(text(view)).toBe('x `plan` y and a`b\n');
   });
 
-  it('replaces every match with punctuation in the replacement in well under a second on 1500 lines', () => {
-    const lines = Array.from({ length: 1500 }, (_, i) => `Line ${i} has a plan and **bold** text and [a link](https://x.com/${i}).`);
-    const view = mount(`${lines.join('\n')}\n`);
-    query(view, 'plan', 'plan-b');
-    const started = performance.now();
-    run(view, replaceAll);
-    const took = performance.now() - started;
-    expect(text(view).split('plan-b').length - 1).toBe(1500);
-    expect(took).toBeLessThan(2_000);
-  });
-
   it('shows matches Replace keeps apart from those it changes, and says how many it kept', () => {
     const view = mount('The plan is in [[Plan]] and at https://plan.example.com/plan today.\n');
     query(view, 'plan', 'roadmap');

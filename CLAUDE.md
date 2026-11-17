@@ -445,6 +445,7 @@ e2e/                   # Playwright Electron suite and acceptance scripts
 |---|---|---|
 | Unit (vitest) | Anything not requiring a live Electron process | pre-commit + CI |
 | Contract (vitest) | Cross-process agreements no single unit can verify | pre-commit + CI |
+| Browser (Vitest + Chromium) | Editor DOM timing budgets | macOS and Linux CI |
 | E2E (Playwright) | Only what is impossible to verify any other way | CI + on demand |
 
 Only five things genuinely require a real Electron process: the app boots,
@@ -461,8 +462,9 @@ font-dependent; its false failures destroy trust in the suite.
 ### Commands
 
 - `npm test` — unit + contract (vitest).
+- `npm run test:browser` measures editor timing in headless Chromium. Install its browser once with `npx playwright install --with-deps --only-shell chromium`.
 - `npm run test:e2e` — builds the three Vite bundles, then Playwright.
-- `npm run test:all` — both.
+- `npm run test:all` runs unit, contract, browser and E2E tests.
 - `node e2e/acceptance/<name>-acceptance.mjs` — disposable acceptance runs against
   the built app; see `e2e/acceptance/README.md`.
 
