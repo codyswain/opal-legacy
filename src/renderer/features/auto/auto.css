@@ -93,7 +93,8 @@
  */
 .auto-md .auto-vault-link[data-page] {
   display: inline-flex;
-  max-width: 100%;
+  /* Room for one mark of punctuation after it, so a full stop never wraps onto a line of its own. */
+  max-width: calc(100% - 0.75em);
   vertical-align: top;
 }
 

@@ -2497,9 +2497,20 @@ async function tour() {
         inside: !!column && box.right <= column.getBoundingClientRect().right + 0.5 && box.left >= column.getBoundingClientRect().left - 0.5,
         oneLine: box.height <= line * 1.2,
         colour: getComputedStyle(words ?? link).color === getComputedStyle(link.closest('p') ?? link).color,
+        // The full stop written right after the link, and whether its box sits on the link's line.
+        stop: (() => {
+          const after = link.closest('.auto-vault-link')?.nextSibling;
+          if (!after || after.nodeType !== Node.TEXT_NODE || !after.textContent?.startsWith('.')) return 'none';
+          const range = document.createRange();
+          range.setStart(after, 0);
+          range.setEnd(after, 1);
+          const mark = range.getBoundingClientRect();
+          return Math.abs((mark.top + mark.bottom) / 2 - (box.top + box.bottom) / 2) < line / 2 && mark.right <= (column?.getBoundingClientRect().right ?? Infinity) + 0.5 ? 'same line' : `own line (${Math.round(mark.top)} against ${Math.round(box.top)})`;
+        })(),
       };
     });
     check('a link written as a long path shows as a name with the icon, inside the column, on one line, with the path on hover', linkLook.text === LONG_PAGE.split('/').pop().replace(/\.md$/, '') && linkLook.icon && linkLook.cut && linkLook.ellipsis === 'ellipsis' && linkLook.inside && linkLook.oneLine && linkLook.colour && linkLook.title === LONG_PAGE, JSON.stringify(linkLook));
+    check('the full stop right after a long link stays on the link’s line', linkLook.stop === 'same line', linkLook.stop);
     check('a link with words of its own keeps them, with the icon', ((await pageLinkAt('Projects/Garden/Seeds.md').textContent()) ?? '') === 'the seed plan' && (await pageLinkAt('Projects/Garden/Seeds.md').locator('svg.auto-page-icon').count()) === 1, (await pageLinkAt('Projects/Garden/Seeds.md').textContent()) ?? '');
     check('a bare wiki link shows the page’s name, then its heading once the page is here', await until(async () => ((await pageLinkAt('Library/notes/second-page').textContent()) ?? '') === 'Second page', 5_000), (await pageLinkAt('Library/notes/second-page').textContent()) ?? '');
     await shot(99, 'page-links', () => longLink.hover());
