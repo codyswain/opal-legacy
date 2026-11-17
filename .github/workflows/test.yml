@@ -11,7 +11,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # The pinned Playwright build provides Chromium for Ubuntu 24.04.
+        os: [macos-latest, ubuntu-24.04]
     
     steps:
       - uses: actions/checkout@v3
