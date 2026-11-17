@@ -2436,6 +2436,12 @@ async function tour() {
     const pageLinkAt = (relative) => talk.locator(`[data-vault-path="${relative}"]`).last();
     const missingLine = (relative) => pageLinkAt(relative).locator('xpath=..').getByTestId('auto-page-missing');
     const MISSING = 'This file is not on this Mac yet.';
+    // The foot of the sidebar may still hold the last section's line; a link adds nothing of its own there.
+    const footBefore = await saidText();
+    const footQuiet = async () => {
+      const now = await saidText();
+      return (now === '' || now === footBefore) && !/not on this Mac|Could not find|could not open/i.test(now);
+    };
     await toAuto();
     await newThread.click();
     await say('Write the new pages');
@@ -2451,7 +2457,7 @@ async function tour() {
     await pageLinkAt('Library/notes/first-page.md').click();
     const firstTab = page.getByTestId(`tab-${path.join(vault, 'Library/notes/first-page.md')}`);
     check('a click on a page only the remote has opens it after one fast-forward', await until(async () => (await firstTab.count()) === 1 && (await firstTab.getAttribute('aria-selected')) === 'true', 20_000) && (await inVault('Library/notes/first-page.md')) && git(vault, 'rev-parse', 'HEAD') === git(elsewhere, 'rev-parse', 'HEAD') && fastForwards() === forwardsBefore + 1, `${fastForwards() - forwardsBefore} fast-forwards`);
-    check('and said nothing at the foot of the sidebar', (await said.count()) === 0, await saidText());
+    check('and said nothing at the foot of the sidebar', await footQuiet(), await saidText());
     await toAuto();
     check('after the update the link shows the page’s heading', await until(async () => ((await pageLinkAt('Library/notes/first-page.md').textContent()) ?? '') === 'Planting plan for spring', 5_000), (await pageLinkAt('Library/notes/first-page.md').textContent()) ?? '');
 
@@ -2460,7 +2466,7 @@ async function tour() {
     check('a link to a missing page shows the working mark in place of its icon', await until(async () => (await pageLinkAt('Library/notes/never-written.md').getAttribute('data-working')) === 'true' && (await pageLinkAt('Library/notes/never-written.md').locator('.auto-spin').count()) === 1, 3_000));
     await shot(100, 'page-link-working', () => pageLinkAt('Library/notes/never-written.md').hover(), ['light', 'dark'], false);
     check('a page that no remote has shows the line at the link', await until(async () => ((await missingLine('Library/notes/never-written.md').textContent()) ?? '') === MISSING, 20_000), (await missingLine('Library/notes/never-written.md').textContent()) ?? '');
-    check('the line is a status a screen reader announces, and there is no line at the foot of the sidebar', (await missingLine('Library/notes/never-written.md').getAttribute('role')) === 'status' && (await said.count()) === 0);
+    check('the line is a status a screen reader announces, and there is no line at the foot of the sidebar', (await missingLine('Library/notes/never-written.md').getAttribute('role')) === 'status' && (await footQuiet()), await saidText());
     await shot(101, 'page-link-missing', null, ['light'], false);
     await page.mouse.click(WIDTH - 40, 40);
     check('the next click anywhere takes the line away', await until(async () => ((await missingLine('Library/notes/never-written.md').textContent()) ?? '') === '', 2_000));

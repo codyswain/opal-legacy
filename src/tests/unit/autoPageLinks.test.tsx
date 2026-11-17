@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import type { AutoItem, AutoResult, FolderUpdateOutcome, ResolvedVaultPage } from '@/types/auto';
 import { useAutoStore, useAutoSync } from '@/renderer/features/auto';
+import { forgetListWorking } from '@/renderer/features/auto/store/autoStore';
 import { MISSING_LINE, MISSING_LINE_MS, Markdown, MarkdownLinksContext, type VaultOpen } from '@/renderer/features/auto/markdown/Markdown';
 import { ownWords, tidyName } from '@/renderer/features/auto/model/links';
 import { forgetPlaces } from '@/renderer/features/auto/model/places';
@@ -226,6 +227,7 @@ describe('following a link to a page in the app', () => {
   beforeEach(() => {
     window.localStorage.clear();
     useAutoStore.setState(useAutoStore.getInitialState(), true);
+    forgetListWorking();
     useThreadStore.setState({ ...useThreadStore.getInitialState(), box: { outbox: [], drafts: {} } }, true);
     useDigestStore.setState(useDigestStore.getInitialState(), true);
     useSaidStore.getState().clear();
@@ -320,6 +322,16 @@ describe('following a link to a page in the app', () => {
     act(() => auto.list({ kind: 'thread', thread: { ...OTHER, status: 'failed' } }));
     await sleep(TURN_END_SETTLE_MS + 100);
     expect(auto.api.updateFolders).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks once when the open thread’s own stream puts the end in the list before the list stream says it', async () => {
+    await openNotes();
+    act(() => auto.list({ kind: 'thread', thread: { ...NOTES, status: 'working' } }));
+    // The thread's stream, which the open thread follows, gets there first.
+    act(() => useAutoStore.getState().upsert({ ...NOTES, status: 'idle' }));
+    act(() => auto.list({ kind: 'thread', thread: { ...NOTES, status: 'idle' } }));
+    await sleep(TURN_END_SETTLE_MS + 100);
+    expect(auto.api.updateFolders).toHaveBeenCalledTimes(1);
   });
 
   it('asks nothing with no address set', async () => {
