@@ -8,6 +8,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
   IconButton,
   Menu,
@@ -15,15 +16,12 @@ import {
   MenuItem,
   MenuTrigger,
 } from "@/renderer/shared/ui";
+import { openHowFor, type OpenHow } from "@/renderer/features/disk-explorer/navigation/openHow";
 import { useShell } from "../context/ShellContext";
 import { openDaily, openDailyPage } from "../utils/openDaily";
 import { DailyDateDialog } from "./DailyDateDialog";
 import { SidebarItem } from "./SidebarItem";
 
-/** Cmd+click and middle-click open in a new tab, as everywhere else. */
-function wantsNewTab(event: React.MouseEvent): boolean {
-  return event.metaKey || event.ctrlKey || event.button === 1;
-}
 
 // Radix runs onSelect while the menu still traps focus, so the dialog opens once the menu has closed.
 const afterMenu = (action: () => void) => () => window.setTimeout(action, 0);
@@ -66,8 +64,8 @@ export function DailyItem({ onNavigate }: DailyItemProps) {
       toast.error(error instanceof Error ? error.message : failure);
     }
   };
-  const goToDaily = (newTab: boolean) => {
-    void run(() => openDaily(navigateFiles, { newTab }), "Could not open today's page.");
+  const goToDaily = (how: OpenHow) => {
+    void run(() => openDaily(navigateFiles, how), "Could not open today's page.");
   };
   const openDay = (date: string) => {
     chose.current = true;
@@ -84,7 +82,7 @@ export function DailyItem({ onNavigate }: DailyItemProps) {
               icon={CalendarDays}
               label="Daily"
               active={active}
-              onActivate={(event) => goToDaily(wantsNewTab(event))}
+              onActivate={(event) => goToDaily(openHowFor(event))}
             />
             <Menu>
               <MenuTrigger asChild>
@@ -111,6 +109,8 @@ export function DailyItem({ onNavigate }: DailyItemProps) {
             <DayHint date={tomorrow} />
           </ContextMenuItem>
           <ContextMenuItem onSelect={pickDate}>Pick a date…</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => goToDaily({ side: true })}>Open to the side</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
       <DailyDateDialog open={picking} defaultDate={tomorrow} onOpenChange={setPicking} onCreate={openDay} />

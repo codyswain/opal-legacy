@@ -92,8 +92,8 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
   }, [loaded, threadsOpen]);
 
   const show = React.useCallback(
-    (pane: string) => {
-      showInAuto(navigateFiles, pane);
+    (pane: string, how: { side?: boolean } = {}) => {
+      showInAuto(navigateFiles, pane, how);
       onNavigate?.();
     },
     [navigateFiles, onNavigate],

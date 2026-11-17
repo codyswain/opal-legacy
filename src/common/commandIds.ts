@@ -24,6 +24,10 @@ export const COMMAND_IDS = {
   previousTab: "tabs.previous",
   nextTab: "tabs.next",
   lastTab: "tabs.showLast",
+  splitRight: "panes.splitRight",
+  focusOtherPane: "panes.focusOther",
+  moveTabToOtherPane: "panes.moveTab",
+  closePane: "panes.close",
   back: "history.back",
   forward: "history.forward",
 } as const;

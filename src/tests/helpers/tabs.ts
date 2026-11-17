@@ -3,13 +3,14 @@ import {
   type FilesLocation,
 } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import {
+  emptyTabsState,
   selectOpenedPath,
   tabFile,
   useTabsStore,
 } from '@/renderer/features/disk-explorer/store/tabsStore';
 
 export function resetTabs(): void {
-  useTabsStore.setState({ tabs: [], activeId: null, recentlyClosed: [], lastSessionDate: null });
+  useTabsStore.setState(emptyTabsState());
 }
 
 /** Opens one tab per file or place, left to right, and activates the one at `active`. */

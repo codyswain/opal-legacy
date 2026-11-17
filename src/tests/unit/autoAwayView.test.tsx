@@ -23,6 +23,7 @@ import { autoDigest, autoSnapshot, autoThread, digestEntry, installAutoApi, type
 import { installCollectionsApi } from '@/tests/helpers/collectionsApi';
 import { entry as diskEntry, installDiskApi } from '@/tests/helpers/diskApi';
 import { openTabs } from '@/tests/helpers/tabs';
+import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 
 /*
  * What is put away, in the tab: the archive, a thread waiting on a reply,
@@ -181,6 +182,21 @@ afterEach(() => {
 });
 
 describe('what is put away, one row and a page', () => {
+  it('offers Open to the side on the row’s right-click, which takes the Auto tab to the other pane', async () => {
+    // A page beside the Auto tab, so the tab has a pane to leave.
+    openTabs([browseAuto().location, '/Vault/Notes.md'], 0);
+    await open();
+    await userEvent.setup().pointer({ keys: '[MouseRight]', target: screen.getByTestId('auto-away-row') });
+    const menu = await screen.findByTestId('auto-away-menu-row');
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Open to the side']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Open to the side' }));
+    await screen.findByTestId('auto-away-page');
+    const tabs = useTabsStore.getState();
+    expect(tabs.panes).toHaveLength(2);
+    expect(tabs.activePaneId).toBe(tabs.panes[1].id);
+    expect(tabs.panes.map((pane) => pane.tabs.length)).toEqual([1, 1]);
+  });
+
   it('keeps one row at the foot of Threads that counts what is waiting and snoozed, never the archive, and opens the three groups', async () => {
     await open();
     expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);

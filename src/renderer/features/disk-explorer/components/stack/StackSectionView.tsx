@@ -10,6 +10,7 @@ import { MarkdownEditor } from '../editor/MarkdownEditor';
 import type { MarkdownSaveState } from '../editor/useMarkdownDocument';
 import type { OpenNote } from '../editor/wikiLinks';
 import { TouchedList, type TouchedDay } from './TouchedList';
+import { EditorSlot } from '../../panes/EditorSlot';
 
 /** What a section asks of its stack. One object for the life of the stack, so sections stay memoized. */
 export interface SectionActions {
@@ -169,19 +170,22 @@ export const StackSectionView = memo(function StackSectionView({
       {open ? (
         <div className="opal-stack-body" data-live={live ? '' : undefined}>
           {live ? (
-            <MarkdownEditor
-              path={section.path}
-              layout="section"
-              autoFocusEmpty={autoFocusEmpty}
-              openNote={actions.openNote}
-              propertiesShown={propertiesShown}
-              onToggleProperties={actions.togglePropertiesFor(section.path)}
-              onView={actions.onViewFor(section.path)}
-              restoreState={actions.keptStateFor(section.path)}
-              onLoaded={actions.onLoadedFor(section.path)}
-              extensions={actions.extensions(section.path)}
-              loadingHeight={height}
-            />
+            // Only this section shows the line while the other pane has its page live.
+            <EditorSlot path={section.path} className="opal-stack-column py-2" onLine={actions.onLoadedFor(section.path)}>
+              <MarkdownEditor
+                path={section.path}
+                layout="section"
+                autoFocusEmpty={autoFocusEmpty}
+                openNote={actions.openNote}
+                propertiesShown={propertiesShown}
+                onToggleProperties={actions.togglePropertiesFor(section.path)}
+                onView={actions.onViewFor(section.path)}
+                restoreState={actions.keptStateFor(section.path)}
+                onLoaded={actions.onLoadedFor(section.path)}
+                extensions={actions.extensions(section.path)}
+                loadingHeight={height}
+              />
+            </EditorSlot>
           ) : (
             <div aria-busy="true" aria-label={`${fileName}, not drawn yet`} className="opal-stack-placeholder" style={{ height }} />
           )}

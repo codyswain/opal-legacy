@@ -28,6 +28,9 @@ import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
 
 const DRAG_TYPE = 'application/x-opal-auto-thread';
 
+/** Option+click and "Open to the side" show it in the other pane. */
+export type ShowHow = { side?: boolean };
+
 interface RowProps {
   thread: AutoThread;
   now: number;
@@ -35,7 +38,7 @@ interface RowProps {
   /** This row is the list's one Tab stop. */
   tabStop: boolean;
   /** Shows the thread in the Auto tab. */
-  show: (pane: string) => void;
+  show: (pane: string, how?: ShowHow) => void;
   drop?: 'above' | 'below' | null;
   dragging?: boolean;
   drag?: {
@@ -214,7 +217,7 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
                   title={title}
                   // The first click of a double-click opens the thread; the second leaves it as it is.
                   onClick={(event) => {
-                    if (event.detail < 2) show(thread.id);
+                    if (event.detail < 2) show(thread.id, { side: event.altKey });
                   }}
                   onDoubleClick={() => useThreadStore.getState().startRename(thread.id, 'row')}
                   onKeyDown={onKeyDown}
@@ -259,23 +262,27 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
 }
 
 /** What a row's right-click menu offers for a thread that is not archived, in the sidebar or on the Put away page. */
-export function RowMenuItems({ thread, now, snoozed, marked, mark, show, from }: { thread: AutoThread; now: number; snoozed: boolean; marked: boolean; mark: () => void; show: (pane: string) => void; from: From }) {
+export function RowMenuItems({ thread, now, snoozed, marked, mark, show, from }: { thread: AutoThread; now: number; snoozed: boolean; marked: boolean; mark: () => void; show: (pane: string, how?: ShowHow) => void; from: From }) {
   const digestEntry = fromDigest(thread);
   return (
     <>
       {/* Only a row of the sidebar is renamed in place; a row of the Put away page is not renamed.
           Radix runs onSelect while the menu still holds focus, so the row's field opens once it has closed. */}
       {from === 'row' ? (
-        <ContextMenuItem
-          onSelect={() =>
-            window.setTimeout(() => {
-              show(thread.id);
-              useThreadStore.getState().startRename(thread.id, 'row');
-            }, 0)
-          }
-        >
-          Rename
-        </ContextMenuItem>
+        <>
+          <ContextMenuItem
+            onSelect={() =>
+              window.setTimeout(() => {
+                show(thread.id);
+                useThreadStore.getState().startRename(thread.id, 'row');
+              }, 0)
+            }
+          >
+            Rename
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => show(thread.id, { side: true })}>Open to the side</ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
       ) : null}
       {snoozed ? (
         <ContextMenuItem onSelect={() => void snoozeThread(thread, null, { from })}>
@@ -316,7 +323,7 @@ interface GroupProps {
   now: number;
   openId: string | null;
   tabStop: string;
-  show: (pane: string) => void;
+  show: (pane: string, how?: ShowHow) => void;
 }
 
 /** One group of rows. A movable group's rows drag to a new place among themselves. */
@@ -390,7 +397,7 @@ function GroupRows({ group, apart, now, openId, tabStop, show }: GroupProps) {
 const fadeClear = (): number => 1.5 * parseFloat(getComputedStyle(document.documentElement).fontSize || '16');
 
 /** The digest, as a queue. Not a thread: it does not drag or snooze. Its menu and E archive it, with Undo. */
-function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop: boolean; show: (pane: string) => void; next: () => string | null }) {
+function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop: boolean; show: (pane: string, how?: ShowHow) => void; next: () => string | null }) {
   const digest = useDigestStore((state) => state.latest);
   const { openVault } = useVaultLinks();
   const archive = () => {
@@ -411,7 +418,7 @@ function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop
             tabIndex={tabStop ? 0 : -1}
             aria-current={current || undefined}
             aria-keyshortcuts={digest ? 'E' : undefined}
-            onClick={() => show(DIGEST_QUEUE)}
+            onClick={(event) => show(DIGEST_QUEUE, { side: event.altKey })}
             onKeyDown={(event) => {
               if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'e' || !digest) return;
               event.preventDefault();
@@ -432,6 +439,8 @@ function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop
             <ContextMenuShortcut aria-hidden>E</ContextMenuShortcut>
           </ContextMenuItem>
           {digest.path ? <ContextMenuItem onSelect={() => openVault(digest.path, false)}>Open the digest</ContextMenuItem> : null}
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { side: true })}>Open to the side</ContextMenuItem>
         </ContextMenuContent>
       ) : null}
     </ContextMenu>
@@ -445,7 +454,7 @@ function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop
  * It is one Tab stop; the arrow keys move between rows. A click shows the
  * thread in the Auto tab.
  */
-export function ThreadList({ show, inFront }: { show: (pane: string) => void; inFront: boolean }) {
+export function ThreadList({ show, inFront }: { show: (pane: string, how?: ShowHow) => void; inFront: boolean }) {
   const threads = useAutoStore((state) => state.threads);
   const focusRow = useAutoStore((state) => state.focusRow);
   const openNow = useThreadStore((state) => state.openId);
@@ -611,30 +620,37 @@ export function ThreadList({ show, inFront }: { show: (pane: string) => void; in
       {/* What is put away, one row that is always in view: its page holds the threads waiting on a reply, the snoozed ones and the archive.
           The count is of what comes back by itself, never of the archive. */}
       <div className="shrink-0 px-sidebar-inset pt-0.5">
-        <button
-          type="button"
-          data-auto-row
-          data-row-id={AWAY}
-          data-testid="auto-away-row"
-          tabIndex={tabStop === AWAY ? 0 : -1}
-          aria-current={awayMarked || undefined}
-          onClick={() => {
-            // By a key the keyboard goes onto the page's first row, also when the page already shows.
-            if (byKey()) useAutoStore.getState().requestPageFocus(PAGE_FIRST);
-            show(AWAY);
-          }}
-          className={cn(
-            rowButton,
-            'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui transition-hover',
-            awayMarked ? 'bg-sidebar-selected font-sidebar-active text-foreground' : 'font-sidebar-label text-foreground-tertiary hover:bg-surface-hover hover:text-foreground'
-          )}
-        >
-          <span className="flex w-sidebar-icon shrink-0 justify-center">
-            <Archive aria-hidden className="h-3.5 w-3.5" />
-          </span>
-          <span className="min-w-0 flex-1 truncate">Put away</span>
-          {awayCount > 0 ? <span data-testid="auto-away-count" className="shrink-0 text-metadata tabular-nums text-sidebar-time">{awayCount}</span> : null}
-        </button>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <button
+              type="button"
+              data-auto-row
+              data-row-id={AWAY}
+              data-testid="auto-away-row"
+              tabIndex={tabStop === AWAY ? 0 : -1}
+              aria-current={awayMarked || undefined}
+              onClick={(event) => {
+                // By a key the keyboard goes onto the page's first row, also when the page already shows.
+                if (byKey()) useAutoStore.getState().requestPageFocus(PAGE_FIRST);
+                show(AWAY, { side: event.altKey });
+              }}
+              className={cn(
+                rowButton,
+                'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui transition-hover',
+                awayMarked ? 'bg-sidebar-selected font-sidebar-active text-foreground' : 'font-sidebar-label text-foreground-tertiary hover:bg-surface-hover hover:text-foreground'
+              )}
+            >
+              <span className="flex w-sidebar-icon shrink-0 justify-center">
+                <Archive aria-hidden className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">Put away</span>
+              {awayCount > 0 ? <span data-testid="auto-away-count" className="shrink-0 text-metadata tabular-nums text-sidebar-time">{awayCount}</span> : null}
+            </button>
+          </ContextMenuTrigger>
+          <ContextMenuContent data-testid="auto-away-menu-row" onCloseAutoFocus={(event) => focusRowAfterClose(event, AWAY)}>
+            <ContextMenuItem onSelect={() => show(AWAY, { side: true })}>Open to the side</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
     </nav>
   );

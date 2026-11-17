@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import { useTabsStore } from '../store/tabsStore';
+import { findTab, useTabsStore } from '../store/tabsStore';
 
 /** Stops waiting for a page to grow tall enough to restore its scroll. */
 const RESTORE_TIMEOUT_MS = 1500;
@@ -41,9 +41,7 @@ export function useTabScroll(
   useEffect(() => {
     const element = container.current;
     if (!element || !tabId || !page) return;
-    const entry = useTabsStore
-      .getState()
-      .tabs.find((tab) => tab.id === tabId)?.history[index];
+    const entry = findTab(useTabsStore.getState(), tabId)?.history[index];
     const target = entry?.scrollTop ?? 0;
     let last = target;
     let restoring = target > 0;
@@ -98,7 +96,7 @@ export function useTabScroll(
       if (!entry) return;
       // Pruning an earlier entry moves this one left; a rename swaps it for a
       // copy in the same place. Find it by identity, then by position.
-      const history = useTabsStore.getState().tabs.find((tab) => tab.id === tabId)?.history;
+      const history = findTab(useTabsStore.getState(), tabId)?.history;
       const at = history?.indexOf(entry) ?? -1;
       useTabsStore.getState().saveView(tabId, at === -1 ? index : at, { scrollTop: last });
     };

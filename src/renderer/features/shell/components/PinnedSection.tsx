@@ -25,6 +25,7 @@ import {
   ContextMenuTrigger,
 } from '@/renderer/shared/ui';
 import { cn, fadeOf, type Fade } from '@/renderer/shared/utils';
+import { openHowFor, type OpenHow } from '@/renderer/features/disk-explorer/navigation/openHow';
 import { useShell } from '../context/ShellContext';
 
 /** How many pins show before the rest scroll. */
@@ -93,13 +94,13 @@ export function PinnedSection({ onNavigate }: PinnedSectionProps) {
   /** The folder whose pins a dragged file is placed among. */
   const rootOf = (path: string) => rows.find((row) => row.path === path)?.root ?? pinRoot(byRoot, path);
 
-  const open = (path: string, newTab: boolean) => {
+  const open = (path: string, how: OpenHow) => {
     if (missing.includes(path)) {
       toast.error(`"${pinLabel(path, roots)}" is not in the vault.`);
       return;
     }
     recordOpened(path);
-    navigateFiles(focusFile(path), { newTab });
+    navigateFiles(focusFile(path), how);
     onNavigate?.();
   };
 
@@ -184,9 +185,9 @@ export function PinnedSection({ onNavigate }: PinnedSectionProps) {
                   aria-disabled={gone || undefined}
                   data-pin-path={path}
                   data-testid={`pinned-${path}`}
-                  onClick={(event) => open(path, event.metaKey || event.ctrlKey)}
+                  onClick={(event) => open(path, openHowFor(event))}
                   onAuxClick={(event) => {
-                    if (event.button === 1) open(path, true);
+                    if (event.button === 1) open(path, { newTab: true });
                   }}
                   onDragStart={(event) => {
                     event.dataTransfer.setData(PIN_DRAG_TYPE, path);
@@ -218,8 +219,11 @@ export function PinnedSection({ onNavigate }: PinnedSectionProps) {
                 </button>
               </ContextMenuTrigger>
               <ContextMenuContent data-testid="pinned-menu">
-                <ContextMenuItem disabled={gone} onSelect={() => open(path, true)}>
+                <ContextMenuItem disabled={gone} onSelect={() => open(path, { newTab: true })}>
                   Open in new tab
+                </ContextMenuItem>
+                <ContextMenuItem disabled={gone} onSelect={() => open(path, { side: true })}>
+                  Open to the side
                 </ContextMenuItem>
                 <ContextMenuItem onSelect={() => usePinsStore.getState().unpin(path)}>
                   Unpin

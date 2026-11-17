@@ -757,7 +757,7 @@ describe('archiving the digest', () => {
     await waitFor(() => expect(screen.getByTestId('auto-digest-row')).toBeInTheDocument());
     await userEvent.setup().pointer({ keys: '[MouseRight]', target: digestRow() });
     const menu = await screen.findByTestId('auto-digest-menu-row');
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Archive the digestE', 'Open the digest']);
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Archive the digestE', 'Open the digest', 'Open to the side']);
     fireEvent.click(within(menu).getByRole('menuitem', { name: /Archive the digest/ }));
     await waitFor(() => expect(screen.queryByTestId('auto-digest-row')).toBeNull());
     await waitFor(() => expect(auto.asked('digest-archive').map((route) => route.archived)).toEqual([true, false, true]));

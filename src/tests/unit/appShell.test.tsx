@@ -268,7 +268,7 @@ describe('AppShell', () => {
     const user = userEvent.setup();
     renderShell();
     const page = screen.getByTestId('workspace-surface');
-    const column = page.parentElement as HTMLElement;
+    const column = page.closest('section') as HTMLElement;
     expect(screen.getByTestId('day-sidebar')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-sidebar')).toHaveClass('bg-chrome');
     expect(screen.getByTestId('day-sidebar')).toHaveClass('bg-chrome');
@@ -344,7 +344,7 @@ describe('AppShell', () => {
     expect(
       screen.getByRole('button', { name: 'Hide sidebar' })
     ).toBeInTheDocument();
-    const workspace = screen.getByTestId('workspace-surface').parentElement;
+    const workspace = screen.getByTestId('workspace-surface').closest('section');
     expect(workspace).toHaveAttribute('inert');
     expect(workspace).toHaveAttribute('aria-hidden', 'true');
     await waitFor(() =>
@@ -408,7 +408,7 @@ describe('AppShell', () => {
     const overlay = screen.getByRole('dialog', { name: 'Day sidebar' });
     expect(within(overlay).getByTestId('day-sidebar')).toBeInTheDocument();
     expect(within(overlay).queryByRole('separator')).toBeNull();
-    const workspace = screen.getByTestId('workspace-surface').parentElement;
+    const workspace = screen.getByTestId('workspace-surface').closest('section');
     expect(workspace).toHaveAttribute('inert');
     await waitFor(() => expect(within(overlay).getByRole('button', { name: 'Previous day' })).toHaveFocus());
 

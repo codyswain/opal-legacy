@@ -14,7 +14,8 @@ import { useDiskStore } from '../../store/diskStore';
 import { hasProblem, hasUnsavedChanges, useDocumentStatusStore } from '../../store/documentStatusStore';
 import { usePagePropertiesStore } from '../../store/pagePropertiesStore';
 import { sectionOpen, useStackFoldsStore, useStackStore, type StackMove } from '../../store/stackStore';
-import { useTabsStore, type StackViewState, type TabEntry } from '../../store/tabsStore';
+import { useIsActivePane } from '../../panes/PaneContext';
+import { findTab, useTabsStore, type StackViewState, type TabEntry } from '../../store/tabsStore';
 import { placeCaret, sectionKeys, type SectionEdge } from './stackKeys';
 import { StackSectionView, type SectionActions } from './StackSectionView';
 import { StackToolbar, ToolbarBinding } from './StackToolbar';
@@ -277,7 +278,7 @@ export const StackView: React.FC<StackViewProps> = ({ tabId, index, location }) 
   // An empty head takes the caret when the stack first opens, unless the stack returns to a saved place.
   const autoFocusHead = useRef<boolean | null>(null);
   if (autoFocusHead.current === null) {
-    const saved = useTabsStore.getState().tabs.find((tab) => tab.id === tabId)?.history[index]?.stack;
+    const saved = findTab(useTabsStore.getState(), tabId)?.history[index]?.stack;
     autoFocusHead.current = !saved || (saved.anchor === head && saved.offset === 0);
   }
   const viewedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -700,20 +701,20 @@ export const StackView: React.FC<StackViewProps> = ({ tabId, index, location }) 
     const known = entry.current;
     if (!view || !known) return;
     const tabs = useTabsStore.getState();
-    const history = tabs.tabs.find((tab) => tab.id === tabId)?.history;
+    const history = findTab(tabs, tabId)?.history;
     if (!history) return;
     // Pruning an earlier entry moves this one left; a rename swaps it for a copy. Find it by identity, then by position.
     const found = history.indexOf(known);
     const at = found === -1 ? index : found;
     if (history[at]?.location.mode !== 'stack') return;
     tabs.saveView(tabId, at, { stack: view });
-    entry.current = useTabsStore.getState().tabs.find((tab) => tab.id === tabId)?.history[at] ?? known;
+    entry.current = findTab(useTabsStore.getState(), tabId)?.history[at] ?? known;
   }, [index, rememberPlace, tabId]);
 
   // --- Mount and unmount ----------------------------------------------------
 
   useEffect(() => {
-    const known = useTabsStore.getState().tabs.find((tab) => tab.id === tabId)?.history[index] ?? null;
+    const known = findTab(useTabsStore.getState(), tabId)?.history[index] ?? null;
     entry.current = known;
     if (known?.stack && !(known.stack.anchor === head && known.stack.offset === 0)) {
       restore.current = { view: known.stack, started: performance.now(), settled: 0, sections: 0, shown: 0, answers: 1 };
@@ -1037,7 +1038,10 @@ export const StackView: React.FC<StackViewProps> = ({ tabId, index, location }) 
   }, [kind, runRestore]);
 
   // View > Next Section and Previous Section, which work while an editor has focus.
+  // The menu's section commands go to the active pane's stack.
+  const activePane = useIsActivePane();
   useEffect(() => {
+    if (!activePane) return;
     const move = (direction: StackMove): boolean => {
       const element = scroller.current;
       if (!element) return false;
@@ -1056,7 +1060,7 @@ export const StackView: React.FC<StackViewProps> = ({ tabId, index, location }) 
     return () => {
       if (useStackStore.getState().move === move) useStackStore.getState().setMove(null);
     };
-  }, [focusSection, isOpen, neighbour, scrollTo, sectionAt, settle]);
+  }, [activePane, focusSection, isOpen, neighbour, scrollTo, sectionAt, settle]);
 
   // --- What sections ask of the stack ---------------------------------------------
 

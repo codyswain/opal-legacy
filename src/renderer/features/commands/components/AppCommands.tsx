@@ -31,6 +31,7 @@ import { useSettingsStore } from "@/renderer/features/settings/store/settingsSto
 import { useUpdatesStore, useUpdatesSync } from "@/renderer/features/updates";
 import { commentTarget, openCommentBox, selectionCrossesPages, useCommentSync } from "@/renderer/features/comment";
 import { openAutoTab, useAutoSync } from "@/renderer/features/auto";
+import { closePane, focusOtherPane, moveTabToOtherPane, splitRight } from "@/renderer/features/disk-explorer/panes/focusPane";
 import { commandRegistry, type Command } from "../services/commandRegistry";
 import { usePaletteStore } from "../store/paletteStore";
 
@@ -76,6 +77,8 @@ export const AppCommands: React.FC = () => {
   useCommentSync();
   // The Auto row counts the threads that wait, and the tab follows the service's list while it is open.
   useAutoSync();
+  // Focus Other Pane and Close Pane are there only with two panes.
+  const twoPanes = useTabsStore((state) => state.panes.length > 1);
   const updateReady = useUpdatesStore((state) => state.state?.available != null);
   const canRollBack = useUpdatesStore((state) => state.state?.canRollBack === true);
 
@@ -211,9 +214,10 @@ export const AppCommands: React.FC = () => {
         shortcut: ["CmdOrCtrl+W"],
         keywords: ["tab", "close"],
         perform: () => {
-          // With no tab left, Cmd+W closes the window, as in Safari.
-          const { activeId } = tabs();
+          // With no tab left, Cmd+W closes an empty pane beside another, else the window, as in Safari.
+          const { activeId, activePaneId, panes } = tabs();
           if (activeId) tabs().close(activeId);
+          else if (panes.length > 1) closePane(activePaneId);
           else window.systemAPI.closeWindow();
         },
       },
@@ -286,6 +290,42 @@ export const AppCommands: React.FC = () => {
         keywords: ["pane", "toggle", "right", "day", "log", "chats", "recordings", "digest"],
         perform: () => toggleDaySidebar(),
       },
+      {
+        id: COMMAND_IDS.splitRight,
+        name: "Split Right",
+        type: "action",
+        // Cmd+\ hides the sidebar, and a page's editor uses it.
+        shortcut: ["Ctrl+Cmd+\\"],
+        keywords: ["split", "pane", "side by side", "two pages", "column"],
+        perform: splitRight,
+      },
+      {
+        id: COMMAND_IDS.moveTabToOtherPane,
+        name: "Move Tab to Other Pane",
+        type: "action",
+        shortcut: ["Ctrl+Shift+Cmd+Right", "Ctrl+Shift+Cmd+Left"],
+        keywords: ["split", "pane", "move", "tab", "side"],
+        perform: () => moveTabToOtherPane(),
+      },
+      ...(twoPanes
+        ? [
+          {
+            id: COMMAND_IDS.focusOtherPane,
+            name: "Focus Other Pane",
+            type: "navigation",
+            shortcut: ["Ctrl+Cmd+Right", "Ctrl+Cmd+Left"],
+            keywords: ["split", "pane", "switch", "side"],
+            perform: focusOtherPane,
+          } satisfies Command,
+          {
+            id: COMMAND_IDS.closePane,
+            name: "Close Pane",
+            type: "action",
+            keywords: ["split", "pane", "close", "unsplit"],
+            perform: () => closePane(tabs().activePaneId),
+          } satisfies Command,
+        ]
+        : []),
       {
         id: COMMAND_IDS.collapseAllFolders,
         name: "Collapse All Folders",
@@ -419,7 +459,7 @@ export const AppCommands: React.FC = () => {
     return () => {
       commands.forEach((command) => commandRegistry.unregisterCommand(command));
     };
-  }, [navigateFiles, toggleSidebar, propertiesOpen, stackShown, fileOpen, pagePinned, hiddenShown, updateReady, canRollBack]);
+  }, [navigateFiles, toggleSidebar, propertiesOpen, stackShown, fileOpen, pagePinned, hiddenShown, updateReady, canRollBack, twoPanes]);
 
   // Cmd+K and Cmd+P open the palette; Cmd+Shift+P opens it in command mode.
   // Cmd+O is Go to File, a menu accelerator, so it works while the editor has focus.

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { recordOpened } from '@/renderer/features/disk-explorer/activity/recordActivity';
 import { filesLocationKey, focusFile } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
-import { canonical, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
+import { allTabs, canonical, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { useShell } from '@/renderer/features/shell/context/ShellContext';
 import type { MarkdownLinks } from './markdown/Markdown';
 import { autoApi } from './store/autoStore';
@@ -32,7 +32,7 @@ export function useVaultLinks(): MarkdownLinks {
         const intent = focusFile(result.data.path);
         const key = filesLocationKey(canonical(intent.location));
         const tabs = useTabsStore.getState();
-        const shown = tabs.tabs.find((tab) => filesLocationKey(tabLocation(tab)) === key);
+        const shown = allTabs(tabs).find((tab) => filesLocationKey(tabLocation(tab)) === key);
         if (shown) tabs.activate(shown.id);
         else navigateFiles(intent, { newTab: true });
       });

@@ -7,6 +7,7 @@ import {
   focusFile,
 } from '@/renderer/features/disk-explorer/navigation';
 import {
+  allTabs,
   canonical,
   tabLocation,
   useTabsStore,
@@ -35,7 +36,7 @@ export function PageLinks(): null {
       const intent = focusFile(request.path);
       const key = filesLocationKey(canonical(intent.location));
       const tabs = useTabsStore.getState();
-      const shown = tabs.tabs.find((tab) => filesLocationKey(tabLocation(tab)) === key);
+      const shown = allTabs(tabs).find((tab) => filesLocationKey(tabLocation(tab)) === key);
       if (shown) tabs.activate(shown.id);
       else navigate.current(intent, { newTab: true });
     });

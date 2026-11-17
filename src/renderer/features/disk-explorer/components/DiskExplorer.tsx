@@ -11,20 +11,20 @@ import { MarkdownEditor } from './editor/MarkdownEditor';
 import { StackView } from './stack/StackView';
 import { useTabScroll } from '../hooks/useTabScroll';
 import { filesLocationKey, isAutoLocation } from '../navigation/filesLocation';
-import {
-  selectActiveTab,
-  selectCurrentLocation,
-  selectOpenedPath,
-  useTabsStore,
-} from '../store/tabsStore';
+import { tabFile, tabLocation } from '../store/tabsStore';
+import { usePaneTab } from '../panes/PaneContext';
+import { EditorSlot } from '../panes/EditorSlot';
 
-/** The main pane: the active tab's file, stack, Recent or Auto. Tabs and the tree live in the shell. */
+/**
+ * One pane's page: its open tab's file, stack, Recent or Auto. Tabs and the
+ * tree live in the shell. It reads its own pane's tab, never the active one's.
+ */
 export const DiskExplorer: React.FC = () => {
   const listings = useDiskStore((state) => state.listings);
   const error = useDiskStore((state) => state.loading.error);
-  const openedPath = useTabsStore(selectOpenedPath);
-  const activeTab = useTabsStore(selectActiveTab);
-  const location = useTabsStore(selectCurrentLocation);
+  const activeTab = usePaneTab();
+  const openedPath = activeTab ? tabFile(activeTab) : null;
+  const location = activeTab ? tabLocation(activeTab) : null;
   const stack = location?.mode === 'stack' ? location : null;
   const shownPath = stack?.file ?? openedPath;
   const hidden = useHiddenStore((state) => (shownPath ? state.blocked[shownPath] === true : false));
@@ -123,7 +123,10 @@ export const DiskExplorer: React.FC = () => {
         <div ref={page} data-testid="files-focus" className="min-h-0 flex-1">
           {focusedEntry?.path === openedPath && focusedEntry.entry ? (
             focusedEntry.entry.kind === 'markdown' ? (
-              <MarkdownEditor key={focusedEntry.entry.path} path={focusedEntry.entry.path} />
+              // A page live in the other pane shows a line here instead of a second editor.
+              <EditorSlot key={focusedEntry.entry.path} path={focusedEntry.entry.path} className="p-8">
+                <MarkdownEditor path={focusedEntry.entry.path} />
+              </EditorSlot>
             ) : (
               <FileViewer entry={focusedEntry.entry} />
             )

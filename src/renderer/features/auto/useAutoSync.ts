@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { isAutoLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
-import { tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
+import { allTabs, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { autoApi, useAutoStore } from './store/autoStore';
 import { dispatchStream } from './store/streams';
 import { useThreadStore } from './store/threadStore';
@@ -22,7 +22,7 @@ const RETRY_AWAY_MS = 30_000;
  * useAutoReread reads the list again when the app may have missed a change.
  */
 export function useAutoSync(): void {
-  const hasTab = useTabsStore((state) => state.tabs.some((tab) => isAutoLocation(tabLocation(tab))));
+  const hasTab = useTabsStore((state) => allTabs(state).some((tab) => isAutoLocation(tabLocation(tab))));
   const address = useAutoStore((state) => state.address);
   const reachable = useAutoStore((state) => state.reachable);
   useAutoCommands();

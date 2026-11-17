@@ -288,6 +288,7 @@ export async function startStandIn(options = {}) {
     down: false,
     slowMs: 0,
     slow: 0, // ms every answer but a stream's waits
+    lagList: 0, // ms the list stream's events trail the answers
     holds: new Map(),
     usage: fixtureUsage(options.usage ?? 'default'),
     usageMissing: options.usage === 'missing',
@@ -457,10 +458,14 @@ export async function startStandIn(options = {}) {
 
   function emitList(kind, data) {
     list.n += 1;
-    const event = { n: list.n, kind, data };
+    const event = { n: list.n, kind, data, at: Date.now() };
     list.events.push(event);
     if (list.events.length > 1000) list.events.shift();
-    for (const client of list.clients) write(client, event);
+    for (const client of list.clients) {
+      // A lagging stream: its events reach the client later than the answers sent meanwhile, in their order.
+      if (state.lagList > 0) setTimeout(() => !client.destroyed && write(client, event), state.lagList);
+      else write(client, event);
+    }
   }
 
   function emitThread(thread, kind, data) {
@@ -956,11 +961,12 @@ export async function startStandIn(options = {}) {
       return;
     }
     const path = url.pathname.slice(mount.length);
+    const arrived = Date.now();
     const isWrite = request.method === 'POST';
     const data = isWrite ? await body(request) : undefined;
     // A slow network: every answer but a stream's waits this long.
     if (state.slow > 0 && !path.endsWith('/events')) await new Promise((resolve) => setTimeout(resolve, state.slow));
-    requests.push({ method: request.method, path: `${path}${url.search}`, headers: request.headers, body: data });
+    requests.push({ method: request.method, path: `${path}${url.search}`, headers: request.headers, body: data, arrived, at: Date.now() });
 
     if (isWrite) {
       if (!(request.headers['content-type'] ?? '').includes('application/json')) return refuse(response, 415, 'bad_type', 'Send JSON.');
@@ -1288,6 +1294,8 @@ export async function startStandIn(options = {}) {
     port,
     url: `http://127.0.0.1:${port}${mount}`,
     requests,
+    /** The list stream's events, each with when it happened (`at`), the oldest first. */
+    listEvents: () => list.events,
     /** Digest boxes ticked by a Done. */
     ticks,
     thread: (id) => threads.get(id),
@@ -1325,6 +1333,10 @@ export async function startStandIn(options = {}) {
     /** Every answer but a stream's waits this many ms, as on a slow network; 0 stops it. */
     slow(ms) {
       state.slow = ms;
+    },
+    /** The list stream's events reach clients this many ms after they happen, as when the Mac is busy; 0 stops it. */
+    lagList(ms) {
+      state.lagList = ms;
     },
     /**
      * Changes the plan's usage and says so on the list stream. `limits`

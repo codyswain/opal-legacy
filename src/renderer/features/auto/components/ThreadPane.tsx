@@ -30,6 +30,8 @@ import { BoxFrame, boxField, paneHeader, SendButton, StopButton } from './Box';
 import { EntryCardView, GrantCard, PermissionCard, QuestionCard } from './Cards';
 import { focusRowNow, rowElement } from './focus';
 import { SnoozeButton } from './SnoozeMenu';
+import { usePaneId } from '@/renderer/features/disk-explorer/panes';
+import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { UsageRing } from './UsageRing';
 
 const quiet = 'text-control text-foreground-tertiary';
@@ -661,6 +663,7 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   const view = useThreadStore((state) => state.view);
   const pending = useThreadStore((state) => state.pending);
   const boxFocus = useThreadStore((state) => state.boxFocus);
+  const paneId = usePaneId();
   const key = draftKey(openId);
   const draft = useThreadStore((state) => state.box.drafts[key] ?? '');
   const notSent = useThreadStore((state) => (state.notSent?.thread === key ? state.notSent.text : null));
@@ -679,8 +682,10 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   useGrow(box, draft);
 
   // A thread opens with the caret in its box, and the keyboard comes back to it after an answer, Stop or a rename.
-  // A box drawn while the title is being renamed leaves the caret in the title's field.
+  // A box drawn while the title is being renamed leaves the caret in the title's field, and a
+  // thread in the pane he is not using leaves the keyboard where it is.
   React.useEffect(() => {
+    if (useTabsStore.getState().activePaneId !== paneId) return;
     if (!useThreadStore.getState().renaming) box.current?.focus({ preventScroll: true });
   }, [boxFocus]);
 
