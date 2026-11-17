@@ -6,7 +6,7 @@ import { search, searchKeymap } from '@codemirror/search';
 import { ChangeSet, EditorSelection, EditorState, Transaction, type ChangeSpec, type Extension, type Line, type StateCommand } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
-import { GFM } from '@lezer/markdown';
+import { GFM, type MarkdownConfig } from '@lezer/markdown';
 import { isDocFile } from '@/common/fileKind';
 import { isDailyLog, isLogPage, readOnlyActivityLog, readOnlyLogPage } from './activityLog';
 import { blockGuards } from './blockGuards';
@@ -267,6 +267,26 @@ export function editingSetup(path: string): EditingSetup {
   return isLogPage(path) || isDailyLog(path) ? 'plain' : 'note';
 }
 
+function isAsciiLetterOrDigit(code: number): boolean {
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+// After the Markdown parsers have declined the start of a word, the rest of
+// its ASCII letters and digits are plain text. GFM autolinks cannot begin
+// inside a word. Leave punctuation, spaces and non-ASCII characters to the parsers.
+const wordText: MarkdownConfig = {
+  parseInline: [{
+    name: 'WordText',
+    after: 'Autolink',
+    parse(context, next, pos) {
+      if (!isAsciiLetterOrDigit(next)) return -1;
+      let end = pos + 1;
+      while (end < context.end && isAsciiLetterOrDigit(context.char(end))) end++;
+      return end;
+    },
+  }],
+};
+
 /**
  * The page editor's setup. The document is the Markdown body exactly as read:
  * only "\n" splits lines, so a stray "\r" stays a character and `toString()`
@@ -280,7 +300,7 @@ export function markdownEditorExtensions(path: string, openNote: OpenNote = () =
     EditorView.clipboardInputFilter.of((text) => text.replace(/\r\n?/g, '\n')),
     pageContext.of({ path, openNote }),
     history(),
-    markdown({ extensions: [GFM, wikiLinkSyntax, linkMarkStyle, mathSyntax], completeHTMLTags: false, addKeymap: false }),
+    markdown({ extensions: [GFM, wikiLinkSyntax, linkMarkStyle, mathSyntax, wordText], completeHTMLTags: false, addKeymap: false }),
     syntaxHighlighting(highlight),
     wikiLinks,
     fileInserts,
