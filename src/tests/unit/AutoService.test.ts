@@ -104,6 +104,15 @@ describe('the address', () => {
 });
 
 describe('requests', () => {
+  it('does not transfer an image to a different Auto service when the address changes', async () => {
+    const auto = await connected();
+    const expectedAddress = standIn.url;
+    await auto.setAddress(expectedAddress + '/other');
+    const result = await auto.request({ kind: 'upload-image', expectedAddress, mime: 'image/png', data: 'YWJj' });
+    expect(result).toMatchObject({ success: false, error: { kind: 'invalid' } });
+    expect(asked).toHaveLength(0);
+  });
+
   it('reads the status, the list and a thread into its own shapes', async () => {
     const auto = await connected();
     const status = await auto.request({ kind: 'status' });

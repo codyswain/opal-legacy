@@ -226,6 +226,9 @@ export class AutoService {
   async request(route: AutoRoute): Promise<AutoResult<unknown>> {
     const base = await this.base();
     if (!base) return fail('no-address', 'No address is set for Auto.');
+    if ((route.kind === 'upload-image' || route.kind === 'image') && route.expectedAddress !== base) {
+      return fail('invalid', 'The Auto service changed. Reopen the conversation and try again.');
+    }
     const answer = await this.send(buildRequest(base, route), base);
     if (!answer.success) return answer;
     const data = shape(route.kind, answer.data);

@@ -115,6 +115,8 @@ export function useImagePaste(key: string, read: () => readonly string[], add: (
       return;
     }
     const generation = serviceGeneration;
+    const address = useAutoStore.getState().address;
+    if (!address) return;
     mark(key, { pending: current.pending + files.length });
     // Keep two consecutive pastes in order. The user can keep typing during the uploads.
     const upload = async () => {
@@ -124,7 +126,7 @@ export function useImagePaste(key: string, read: () => readonly string[], add: (
         try {
           const image = await imageBytes(file);
           if (generation !== serviceGeneration) return;
-          const result = await autoApi()?.request({ kind: 'upload-image', ...image });
+          const result = await autoApi()?.request({ kind: 'upload-image', expectedAddress: address, ...image });
           if (generation !== serviceGeneration) return;
           if (!result?.success) throw new Error(result?.error.message || 'Auto could not attach the image. Paste it again.');
           remember(result.data.id, `data:${image.mime};base64,${image.data}`);
@@ -166,9 +168,9 @@ function Attachment({ id, label, compact }: { id: string; label: string; compact
     const generation = serviceGeneration;
     let started = false;
     const load = async () => {
-      if (started) return;
+      if (started || !address) return;
       started = true;
-      const result = await autoApi()?.request({ kind: 'image', id }).catch(() => null);
+      const result = await autoApi()?.request({ kind: 'image', id, expectedAddress: address }).catch(() => null);
       if (!live || serviceGeneration !== generation) return;
       const url = result?.success ? `data:${result.data.mime};base64,${result.data.data}` : null;
       if (url) remember(id, url);

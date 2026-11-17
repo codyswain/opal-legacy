@@ -298,8 +298,8 @@ export type AutoRoute =
   /** The threads he archived, newest archived first; the first `limit` of them, or all with null. */
   | { kind: 'archived'; limit: number | null }
   | { kind: 'thread'; id: string }
-  | { kind: 'upload-image'; mime: AutoImageMime; data: string }
-  | { kind: 'image'; id: string }
+  | { kind: 'upload-image'; expectedAddress: string; mime: AutoImageMime; data: string }
+  | { kind: 'image'; expectedAddress: string; id: string }
   | { kind: 'create'; text: string; model: string; cid: string; images?: string[] }
   | { kind: 'message'; id: string; text: string; cid: string; images?: string[] }
   | { kind: 'stop'; id: string }

@@ -864,7 +864,7 @@ describe('the box', () => {
     fireEvent.click(screen.getByTestId('auto-new-thread'));
     expect(pasteFiles(box(), [screenshot()]).defaultPrevented).toBe(true);
     await waitFor(() => expect(screen.getByTestId('auto-send')).toBeEnabled());
-    expect(last('upload-image')).toEqual({ kind: 'upload-image', mime: 'image/png', data: PNG_DATA });
+    expect(last('upload-image')).toEqual({ kind: 'upload-image', expectedAddress: useAutoStore.getState().address, mime: 'image/png', data: PNG_DATA });
     expect(auto.asked('create')).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: 'Remove image 1' }));
     expect(screen.getByTestId('auto-send')).toBeDisabled();

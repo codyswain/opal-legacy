@@ -69,8 +69,8 @@ describe('the address rule', () => {
 
 /** Every route, with the request it must become. */
 const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
-  [{ kind: 'upload-image', mime: 'image/png', data: 'YWJj' }, 'POST', '/api/images', { mime: 'image/png', data: 'YWJj' }],
-  [{ kind: 'image', id: image }, 'GET', `/api/images/${image}`, undefined],
+  [{ kind: 'upload-image', expectedAddress: BASE, mime: 'image/png', data: 'YWJj' }, 'POST', '/api/images', { mime: 'image/png', data: 'YWJj' }],
+  [{ kind: 'image', expectedAddress: BASE, id: image }, 'GET', `/api/images/${image}`, undefined],
   [{ kind: 'create', text: '', model: '', cid: 'a1', images: [image] }, 'POST', '/api/threads', { text: '', model: '', cid: 'a1', images: [image] }],
   [{ kind: 'message', id: ID, text: 'Look here', cid: 'a2', images: [image] }, 'POST', `/api/threads/${ID}/messages`, { text: 'Look here', cid: 'a2', images: [image] }],
   [{ kind: 'digest-thread', date: '2026-11-13', id: 'item-1', words: null, cid: 'a1', images: [image] }, 'POST', '/api/digest/thread', { date: '2026-11-13', id: 'item-1', cid: 'a1', images: [image] }],
@@ -125,10 +125,10 @@ describe('the request builder', () => {
     for (const images of [[], 42, ['x'], [image, image], [image, ''], Array(5).fill(image)]) {
       expect(validRoute({ ...message, images })).toBeNull();
     }
-    expect(validRoute({ kind: 'image', id: '../images/' })).toBeNull();
-    expect(validRoute({ kind: 'upload-image', mime: 'image/svg+xml', data: 'YWJj' })).toBeNull();
+    expect(validRoute({ kind: 'image', expectedAddress: BASE, id: '../images/' })).toBeNull();
+    expect(validRoute({ kind: 'upload-image', expectedAddress: BASE, mime: 'image/svg+xml', data: 'YWJj' })).toBeNull();
     for (const data of ['', 'a', '==ab', 'YW J', 'a'.repeat(6990508)]) {
-      expect(validRoute({ kind: 'upload-image', mime: 'image/png', data })).toBeNull();
+      expect(validRoute({ kind: 'upload-image', expectedAddress: BASE, mime: 'image/png', data })).toBeNull();
     }
   });
 

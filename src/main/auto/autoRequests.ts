@@ -249,10 +249,10 @@ export function validRoute(value: unknown): AutoRoute | null {
       return { kind: route.kind };
     case 'upload-image': {
       const image = toAutoImage(route.mime, route.data);
-      return image ? { kind: 'upload-image', ...image } : null;
+      return image && words(route.expectedAddress, 2000) ? { kind: 'upload-image', expectedAddress: route.expectedAddress, ...image } : null;
     }
     case 'image':
-      return validImageId(route.id) ? { kind: 'image', id: route.id } : null;
+      return validImageId(route.id) && words(route.expectedAddress, 2000) ? { kind: 'image', id: route.id, expectedAddress: route.expectedAddress } : null;
     case 'create':
       return validMessage(route.text, route.images) && validModel(route.model) && validCid(route.cid)
         ? { kind: 'create', text: route.text, model: route.model, cid: route.cid, ...imageFields(route.images) }
