@@ -87,3 +87,41 @@ export function codeTarget(text: string, context: LinkContext): LinkTarget | nul
   if (!written.startsWith('/') && !context.tops.has(written.split('/')[0])) return null;
   return vaultTarget(written, context, false);
 }
+
+/** Whether a vault path names a page: a Markdown file, or a path with no kind, which is read as one. */
+export function isPagePath(path: string): boolean {
+  const name = path.split('/').pop() ?? '';
+  return PAGE.test(name) || !/\.[A-Za-z0-9]{1,8}$/.test(name);
+}
+
+/** A page's file name, tidied: no folder and no extension. */
+export function tidyName(path: string): string {
+  const name = path.split('/').filter(Boolean).pop() ?? path;
+  return name.replace(PAGE, '') || name;
+}
+
+const comparable = (value: string): string => {
+  let text = value.trim();
+  try {
+    text = decodeURIComponent(text);
+  } catch {
+    // As written.
+  }
+  return text.replace(/^<|>$/g, '').replace(/^\.?\/+/, '').toLowerCase();
+};
+
+/**
+ * Whether a link's words are its own, and not only its address said again:
+ * the path or the address as written, the path without its extension, or the
+ * file's name. A wiki link with no words is given the file's name by the
+ * parser, so for one that name counts as no words too.
+ */
+export function ownWords(words: string, written: string, path: string, kind: 'link' | 'wiki' | 'code'): boolean {
+  if (kind === 'code') return false;
+  const said = comparable(words);
+  if (!said) return false;
+  const file = path.split('/').pop() ?? path;
+  const same = [written, path, path.replace(PAGE, ''), file].map(comparable);
+  if (kind === 'wiki') same.push(comparable(tidyName(path)), comparable(written.split('/').pop() ?? ''));
+  return !same.includes(said);
+}

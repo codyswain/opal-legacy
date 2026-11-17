@@ -36,7 +36,12 @@
 // working, words before a digest thread, what Undo leaves behind, words
 // begun before a card arrived, the queue's own keys, and a new day's digest
 // that no event announced, read when the window comes back to the front. Then the
-// plan usage ring in each box and its popover. Saves light and
+// plan usage ring in each box and its popover. Then links to pages in a
+// reply, with the vault a checkout of a temp bare remote and a second clone
+// that pushes: a page only the remote has opens after one fast-forward, a
+// turn's end brings the next page before any click, a page no remote has
+// says so at the link, a local change in another file stays, and a long path
+// shows as a name inside the column. Saves light and
 // dark screenshots of each at 1500 x 933 for people to look at; nothing
 // compares them. Run from the repository root after the Vite bundles are built (see
 // README.md here):
@@ -47,7 +52,8 @@
 // the keyboard: it hides once shown and shows again without being made
 // active.
 import { _electron as electron } from '@playwright/test';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'fs/promises';
+import { execFileSync } from 'child_process';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { startStandIn } from '../../src/tests/fixtures/auto/standIn.mjs';
@@ -87,6 +93,24 @@ const FEEDER = '5b0000000002';
 await mkdir(outDir, { recursive: true });
 const errors = [];
 
+/*
+ * Git here runs only on temp repos on this Mac: the vault is a checkout of a
+ * bare remote in the temp folder, and a second clone pushes to it. Neither
+ * the person's nor the system's git settings are read, by this script or by
+ * the app.
+ */
+const GIT_ENV = {
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_AUTHOR_NAME: 'Test',
+  GIT_AUTHOR_EMAIL: 'test@example.com',
+  GIT_COMMITTER_NAME: 'Test',
+  GIT_COMMITTER_EMAIL: 'test@example.com',
+};
+const git = (cwd, ...gitArgs) => execFileSync('git', gitArgs, { cwd, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8' }).trim();
+const LONG_PAGE = 'Library/notes/A very long page name about the north beds, the rain gauge on the shed and the compost bins by the fence.md';
+
 async function tour() {
   const userData = await mkdtemp(path.join(os.tmpdir(), 'opal-auto-userdata-'));
   const vaultParent = await mkdtemp(path.join(os.tmpdir(), 'opal-auto-vault-'));
@@ -107,6 +131,17 @@ async function tour() {
   await put('Projects/Kitchen/Pantry.md', '# Pantry\n\nStrong white flour, 3 kg.\n');
   await put('Projects/Kitchen/Tap.md', '# Tap\n\nThe hot side drips.\n');
   await put('Notes/Ideas.md', '# Ideas\n\nA rain gauge on the shed.\n');
+  await put(LONG_PAGE, 'No heading here, so its link shows the file name.\n');
+  // The vault is a checkout of a temp remote; Elsewhere is a second clone that pushes, as another machine would.
+  const remote = path.join(vaultParent, 'remote.git');
+  const elsewhere = path.join(vaultParent, 'Elsewhere');
+  git(vaultParent, 'init', '-q', '--bare', '-b', 'main', remote);
+  git(vault, 'init', '-q', '-b', 'main');
+  git(vault, 'add', '-A');
+  git(vault, 'commit', '-q', '-m', 'The vault');
+  git(vault, 'remote', 'add', 'origin', remote);
+  git(vault, 'push', '-q', '-u', 'origin', 'main');
+  git(vaultParent, 'clone', '-q', remote, elsewhere);
   await writeFile(path.join(userData, 'disk-roots.json'), JSON.stringify({ version: 1, roots: [vault] }, null, 2));
   if (side === 'b') await writeFile(path.join(userData, 'variants.json'), JSON.stringify({ version: 1, sides: { roomy: 'b' } }, null, 2));
 
@@ -114,7 +149,7 @@ async function tour() {
   // Every thread snoozed and every digest entry resolved; then a service with no thread and no digest.
   const emptyService = await startStandIn({ fixture: 'empty', digests: 'done', retryMs: 500 });
   const bareService = await startStandIn({ fixture: 'none', digests: 'none', retryMs: 500 });
-  const app = await electron.launch({ args: [process.cwd()], env: { ...process.env, OPAL_TEST_USER_DATA_DIR: userData } });
+  const app = await electron.launch({ args: [process.cwd()], env: { ...process.env, ...GIT_ENV, OPAL_TEST_USER_DATA_DIR: userData } });
   const watchdog = setTimeout(() => {
     console.log('FAIL the run stopped answering after 35 minutes');
     void app.close().finally(() => process.exit(1));
@@ -2390,6 +2425,100 @@ async function tour() {
     await entry('item-2').locator('[data-auto-entry]').click();
     await entry('item-2').getByTestId('auto-entry-new-thread').click();
     check('New thread instead still makes a new thread, and the line is gone after', await until(async () => JSON.stringify(posts('/api/digest/thread').at(-1)) === JSON.stringify({ date: NEW_DAY, id: 'item-2', start: false }) && service.entries().some((thread) => thread.title === 'Net the peas') && service.digest(NEW_DAY)?.sections[0].entries.find((each) => each.id === 'item-2')?.continues === null && !(await continuesLines()).includes('item-2')) && posts('/api/digest/continue').length === noMatchBefore + 1, JSON.stringify(posts('/api/digest/thread').at(-1)));
+
+    // --- Links to pages in a reply. The vault is a checkout of a temp remote, and Elsewhere a clone that pushes.
+    const IDEAS_HERE = '# Ideas\n\nA rain gauge on the shed, and a second one by the gate.\n';
+    await writeFile(path.join(vault, 'Notes/Ideas.md'), IDEAS_HERE);
+    const pushPage = async (relative, text) => {
+      await mkdir(path.dirname(path.join(elsewhere, relative)), { recursive: true });
+      await writeFile(path.join(elsewhere, relative), text);
+      git(elsewhere, 'add', '-A');
+      git(elsewhere, 'commit', '-q', '-m', `Add ${relative}`);
+      git(elsewhere, 'push', '-q', 'origin', 'main');
+    };
+    const inVault = (relative) => stat(path.join(vault, relative)).then(() => true, () => false);
+    const fastForwards = () => git(vault, 'reflog', '--format=%gs').split('\n').filter((line) => line.includes('Fast-forward')).length;
+    const pageLinkAt = (relative) => talk.locator(`[data-vault-path="${relative}"]`).last();
+    const missingLine = (relative) => pageLinkAt(relative).locator('xpath=..').getByTestId('auto-page-missing');
+    const MISSING = 'This file is not on this Mac yet.';
+    // The foot of the sidebar may still hold the last section's line; a link puts nothing of its own there.
+    const footQuiet = async () => !/not on this Mac|Could not find|could not open|first-page|never-written/i.test(await saidText());
+    await toAuto();
+    await newThread.click();
+    await say('Write the new pages');
+    check('a reply names pages, with each link to a page drawn as one', await until(async () => (await pageLinkAt('Library/notes/first-page.md').count()) === 1 && (await pageLinkAt(LONG_PAGE).count()) === 1, 15_000));
+    const pagesThread = await openRow();
+    await atRest(pagesThread);
+    const endedAt = Date.now();
+    check('a page only the remote will have is not in the tree yet', !(await inVault('Library/notes/first-page.md')));
+    // The run the turn's end asked for has gone by, and the ten seconds after it.
+    await wait(Math.max(0, endedAt + 11_000 - Date.now()));
+    const forwardsBefore = fastForwards();
+    await pushPage('Library/notes/first-page.md', '# Planting plan for spring\n\nBeans first.\n');
+    await pageLinkAt('Library/notes/first-page.md').click();
+    const firstTab = page.getByTestId(`tab-${path.join(vault, 'Library/notes/first-page.md')}`);
+    check('a click on a page only the remote has opens it after one fast-forward', await until(async () => (await firstTab.count()) === 1 && (await firstTab.getAttribute('aria-selected')) === 'true', 20_000) && (await inVault('Library/notes/first-page.md')) && git(vault, 'rev-parse', 'HEAD') === git(elsewhere, 'rev-parse', 'HEAD') && fastForwards() === forwardsBefore + 1, `${fastForwards() - forwardsBefore} fast-forwards`);
+    check('and said nothing at the foot of the sidebar', await footQuiet(), await saidText());
+    await toAuto();
+    check('after the update the link shows the page’s heading', await until(async () => ((await pageLinkAt('Library/notes/first-page.md').textContent()) ?? '') === 'Planting plan for spring', 5_000), (await pageLinkAt('Library/notes/first-page.md').textContent()) ?? '');
+
+    // A page no remote has: the working mark while the folder is brought up to date (it waits out the ten seconds), then the line at the link.
+    await pageLinkAt('Library/notes/never-written.md').click();
+    check('a link to a missing page shows the working mark in place of its icon', await until(async () => (await pageLinkAt('Library/notes/never-written.md').getAttribute('data-working')) === 'true' && (await pageLinkAt('Library/notes/never-written.md').locator('.auto-spin').count()) === 1, 3_000));
+    await shot(100, 'page-link-working', () => pageLinkAt('Library/notes/never-written.md').hover(), ['light', 'dark'], false);
+    check('a page that no remote has shows the line at the link', await until(async () => ((await missingLine('Library/notes/never-written.md').textContent()) ?? '') === MISSING, 20_000), (await missingLine('Library/notes/never-written.md').textContent()) ?? '');
+    check('the line is a status a screen reader announces, and there is no line at the foot of the sidebar', (await missingLine('Library/notes/never-written.md').getAttribute('role')) === 'status' && (await footQuiet()), await saidText());
+    await shot(101, 'page-link-missing', null, ['light'], false);
+    await page.mouse.click(WIDTH - 40, 40);
+    check('the next click anywhere takes the line away', await until(async () => ((await missingLine('Library/notes/never-written.md').textContent()) ?? '') === '', 2_000));
+    await pageLinkAt('Library/notes/never-written.md').click();
+    await until(async () => ((await missingLine('Library/notes/never-written.md').textContent()) ?? '') === MISSING, 20_000);
+    await shot(101, 'page-link-missing', null, ['dark'], false);
+    check('and it goes on its own after a few seconds', await until(async () => ((await missingLine('Library/notes/never-written.md').textContent()) ?? '') === '', 8_000));
+
+    // A turn's end brings the next page before any click.
+    await wait(10_500);
+    const forwardsBeforeEnd = fastForwards();
+    await pushPage('Library/notes/second-page.md', '# Second page\n');
+    await say('Thanks, that is all');
+    await atRest(pagesThread);
+    check('a reply’s turn ends and the second new page is in the tree before any click', await until(() => inVault('Library/notes/second-page.md'), 25_000) && fastForwards() === forwardsBeforeEnd + 1, `${fastForwards() - forwardsBeforeEnd} fast-forwards`);
+    check('a local change in another file is still there after all of it', (await readFile(path.join(vault, 'Notes/Ideas.md'), 'utf8')) === IDEAS_HERE && git(vault, 'status', '--porcelain', '--', 'Notes/Ideas.md') === 'M Notes/Ideas.md', git(vault, 'status', '--porcelain', '--', 'Notes/Ideas.md'));
+
+    // The look: a path shows as a name with the icon, cut inside the column, with the path on hover.
+    const longLink = pageLinkAt(LONG_PAGE);
+    await longLink.scrollIntoViewIfNeeded();
+    const linkLook = await longLink.evaluate((link) => {
+      const words = link.querySelector('.auto-page-words');
+      const column = link.closest('.auto-column') ?? link.closest('.auto-md');
+      const box = link.getBoundingClientRect();
+      const line = parseFloat(getComputedStyle(link).lineHeight);
+      return {
+        text: words?.textContent ?? '',
+        title: link.getAttribute('title'),
+        icon: !!link.querySelector('svg.auto-page-icon'),
+        cut: !!words && words.scrollWidth > words.clientWidth,
+        ellipsis: words ? getComputedStyle(words).textOverflow : '',
+        inside: !!column && box.right <= column.getBoundingClientRect().right + 0.5 && box.left >= column.getBoundingClientRect().left - 0.5,
+        oneLine: box.height <= line * 1.2,
+        colour: getComputedStyle(words ?? link).color === getComputedStyle(link.closest('p') ?? link).color,
+        // The full stop written right after the link, and whether its box sits on the link's line.
+        stop: (() => {
+          const after = link.closest('.auto-vault-link')?.nextSibling;
+          if (!after || after.nodeType !== Node.TEXT_NODE || !after.textContent?.startsWith('.')) return 'none';
+          const range = document.createRange();
+          range.setStart(after, 0);
+          range.setEnd(after, 1);
+          const mark = range.getBoundingClientRect();
+          return Math.abs((mark.top + mark.bottom) / 2 - (box.top + box.bottom) / 2) < line / 2 && mark.right <= (column?.getBoundingClientRect().right ?? Infinity) + 0.5 ? 'same line' : `own line (${Math.round(mark.top)} against ${Math.round(box.top)})`;
+        })(),
+      };
+    });
+    check('a link written as a long path shows as a name with the icon, inside the column, on one line, with the path on hover', linkLook.text === LONG_PAGE.split('/').pop().replace(/\.md$/, '') && linkLook.icon && linkLook.cut && linkLook.ellipsis === 'ellipsis' && linkLook.inside && linkLook.oneLine && linkLook.colour && linkLook.title === LONG_PAGE, JSON.stringify(linkLook));
+    check('the full stop right after a long link stays on the link’s line', linkLook.stop === 'same line', linkLook.stop);
+    check('a link with words of its own keeps them, with the icon', ((await pageLinkAt('Projects/Garden/Seeds.md').textContent()) ?? '') === 'the seed plan' && (await pageLinkAt('Projects/Garden/Seeds.md').locator('svg.auto-page-icon').count()) === 1, (await pageLinkAt('Projects/Garden/Seeds.md').textContent()) ?? '');
+    check('a bare wiki link shows the page’s name, then its heading once the page is here', await until(async () => ((await pageLinkAt('Library/notes/second-page').textContent()) ?? '') === 'Second page', 5_000), (await pageLinkAt('Library/notes/second-page').textContent()) ?? '');
+    await shot(99, 'page-links', () => longLink.hover());
 
     // --- What Opal asked the service for, over the whole run.
     const paths = service.requests.filter((request) => request.headers['x-auto-client'] !== 'phone').map((request) => request.path);

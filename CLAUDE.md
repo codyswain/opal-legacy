@@ -373,7 +373,23 @@ not exist.
   commands and every thread's title in the palette, archived ones too once
   the archive has been read. A vault path in a step,
   a reply or an entry is looked up by `autoPages.ts` through `RootRegistry`
-  and opens as a page in its own tab; a page opened while the Auto tab is
+  and opens as a click in the sidebar opens it (`navigateFiles`, through
+  the tab store's `open`): in the active pane, or where the other pane's
+  open tab shows it. A link to a page in a reply shows a
+  small page icon and the page's name (its own words if it has any, else the
+  page's first heading, which `resolvePage` answers, else the file's name),
+  cut inside the column, with the path on hover. A page that is not found
+  brings the opened folders up to date and is looked up again; still missing,
+  a quiet line at the link says "This file is not on this Mac yet." The same
+  update runs when a thread's turn ends on the list stream, and never at any
+  other time. `FolderUpdates` in `src/main/fs` does it for each opened folder
+  that is a git checkout with an upstream: `git fetch` of that upstream, then
+  `git merge --ff-only`, one run at a time per checkout and at most one every
+  10 s, giving up on any refusal. A fetch past its limit is asked to stop and
+  killed 2 s later; a merge is never killed (past its limit the page hears
+  `refused` and the checkout stays busy until git closes) and runs with
+  `GIT_LFS_SKIP_SMUDGE=1`, so LFS files arrive as pointers. The page asks through `autoAPI.updateFolders()`,
+  with no arguments, and hears `updated`, `current`, `refused` or `none`. A page opened while the Auto tab is
   in front goes to the tab that shows it or to a new one (`tabsStore.ts`),
   never into the Auto tab. A small ring by the message box, right after the
   model in a thread's box and at the left of a digest entry's box, shows how

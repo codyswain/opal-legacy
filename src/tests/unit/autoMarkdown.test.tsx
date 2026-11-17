@@ -303,9 +303,9 @@ describe('a reply, drawn', () => {
     const page = screen.getByRole('link', { name: 'Bread' });
     expect(page.getAttribute('href')).toBeNull();
     fireEvent.click(page);
-    expect(openVault).toHaveBeenLastCalledWith('Recipes/Bread.md', false);
+    expect(openVault).toHaveBeenLastCalledWith('Recipes/Bread.md', false, expect.objectContaining({ atLink: true }));
     fireEvent.click(container.querySelector('[data-vault-path="Projects/Kitchen/Pantry.md"]') as HTMLElement);
-    expect(openVault).toHaveBeenLastCalledWith('Projects/Kitchen/Pantry.md', false);
+    expect(openVault).toHaveBeenLastCalledWith('Projects/Kitchen/Pantry.md', false, expect.objectContaining({ atLink: true }));
     fireEvent.keyDown(page, { key: 'Enter' });
     expect(openVault).toHaveBeenCalledTimes(3);
   });
