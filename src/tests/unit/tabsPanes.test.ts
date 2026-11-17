@@ -229,6 +229,17 @@ describe('opening to the side', () => {
     expect(panePaths()).toEqual([[A], [B]]);
     expect(activePaneIndex()).toBe(0);
   });
+
+  it('takes the active pane’s own page, even when a tab behind the other pane’s open one has it too', () => {
+    openTabs([A, B], 0);
+    state().splitRight();
+    open(B);
+    // Left: A open, B behind it. Right: B, all it has.
+    open(B, { side: true });
+    expect(panePaths()).toEqual([[A, B], [B]]);
+    expect(activePaneIndex()).toBe(1);
+    expect(paneOpen(0)).toBe(A);
+  });
 });
 
 describe('the divider', () => {

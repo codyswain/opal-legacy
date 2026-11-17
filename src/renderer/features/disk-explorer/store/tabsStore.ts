@@ -575,7 +575,10 @@ function moveState(state: TabsState, id: string, paneId?: string, at?: number): 
 /** Opens a place in the other pane, making it if needed; a tab that shows it already goes there instead. */
 function openBesideState(state: TabsState, location: FilesLocation): Partial<TabsState> {
   const key = filesLocationKey(location);
-  const shown = tabShowing(state.panes, key);
+  // What the active pane shows now goes to the side, or only comes forward when it is all that pane has.
+  const here = selectPane(state, state.activePaneId);
+  const hereTab = here ? selectActiveTab(here) : null;
+  const shown = here && hereTab && filesLocationKey(tabLocation(hereTab)) === key ? { pane: here, tab: hereTab } : tabShowing(state.panes, key);
   if (shown && shown.pane.id !== state.activePaneId) return activateIn(state, shown.pane, shown.tab.id);
   if (shown) {
     // Shown in this pane: the tab itself goes to the side, unless it is all this pane has, which would end the split

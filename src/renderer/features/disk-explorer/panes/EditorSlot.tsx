@@ -2,7 +2,7 @@ import * as React from 'react';
 import { pageName } from '@/common/fileKind';
 import { cn } from '@/renderer/shared/utils';
 import { selectPaneTab, tabLocation, useTabsStore } from '../store/tabsStore';
-import { focusActivePane } from './focusPane';
+import { focusActivePane, focusQuietly } from './focusPane';
 import { useLiveEditors } from './liveEditors';
 import { usePaneId } from './PaneContext';
 
@@ -63,7 +63,7 @@ function focusWhenLive(path: string, paneId: string, frames = 60): void {
     const editor = [...(column?.querySelectorAll<HTMLElement>('[data-live-editor]') ?? [])]
       .find((element) => element.getAttribute('data-live-editor') === path)
       ?.querySelector<HTMLElement>('.cm-content[contenteditable="true"]');
-    if (editor) editor.focus({ preventScroll: true });
+    if (editor) focusQuietly(editor);
     else if (frames > 0) focusWhenLive(path, paneId, frames - 1);
     else focusActivePane();
   });

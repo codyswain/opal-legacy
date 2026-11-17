@@ -39,19 +39,26 @@ export function useIsActivePane(): boolean {
 export interface AddressMemory {
   written: string | null;
   pending: boolean;
+  /**
+   * Addresses written that the router has not reported back yet. A press in
+   * the other pane makes it active, and its route writes its open page,
+   * before the click brings one of its other tabs forward and the address is
+   * written again: the first write, reported late, is not a link to follow.
+   */
+  inFlight: string[];
 }
 
 const AddressContext = React.createContext<AddressMemory | null>(null);
 
 export function AddressProvider({ children }: { children: React.ReactNode }) {
-  const memory = React.useRef<AddressMemory>({ written: null, pending: false });
+  const memory = React.useRef<AddressMemory>({ written: null, pending: false, inFlight: [] });
   return <AddressContext.Provider value={memory.current}>{children}</AddressContext.Provider>;
 }
 
 /** The shell's shared memory of the address, or one of this caller's own outside the shell. */
 export function useAddressMemory(): AddressMemory {
   const shared = React.useContext(AddressContext);
-  const own = React.useRef<AddressMemory>({ written: null, pending: false });
+  const own = React.useRef<AddressMemory>({ written: null, pending: false, inFlight: [] });
   return shared ?? own.current;
 }
 

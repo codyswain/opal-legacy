@@ -9,15 +9,28 @@ import { selectPaneTab, tabFile, tabLocation, useTabsStore } from '../store/tabs
  * would scroll today's page into view and take his typing.
  */
 
-/** The element that last had the keyboard, per pane. */
-const lastFocus = new Map<string, HTMLElement>();
+/** The element that last had the keyboard, per pane, with the tab and the page it was in then. */
+const lastFocus = new Map<string, { element: HTMLElement; tabId: string | null; path: string | null }>();
+const pathOf = (element: Element): string | null => element.closest('[data-live-editor]')?.getAttribute('data-live-editor') ?? null;
 /** Where the caret was, per tab: the page and the selection, for an editor drawn again. */
-const carets = new Map<string, { path: string; anchor: number; head: number }>();
+const carets = new Map<string, { path: string; anchor: number; head: number; doc: string }>();
 
 const columnOf = (paneId: string): HTMLElement | null =>
   document.querySelector<HTMLElement>(`[data-pane-column="${CSS.escape(paneId)}"]`);
 
 const EDITOR = '.cm-content[contenteditable="true"]';
+
+/**
+ * Puts the keyboard in an element without scrolling. An editor is focused
+ * through its view, which also puts the page's selection in place at once:
+ * focused as a plain element, a freshly drawn editor has no caret on the
+ * page until a frame later, and the first key typed in that frame is lost.
+ */
+export function focusQuietly(element: HTMLElement): void {
+  const view = element.matches(EDITOR) ? EditorView.findFromDOM(element) : null;
+  if (view) view.focus();
+  else element.focus({ preventScroll: true });
+}
 
 /** Remembers where a tab's caret is, when the keyboard is in one of its page's editors. */
 function noteCaret(paneId: string, element: Element | null): void {
@@ -27,7 +40,7 @@ function noteCaret(paneId: string, element: Element | null): void {
   const view = EditorView.findFromDOM(element);
   if (!path || !tab || !view) return;
   const { anchor, head } = view.state.selection.main;
-  carets.set(tab.id, { path, anchor, head });
+  carets.set(tab.id, { path, anchor, head, doc: view.state.doc.toString() });
 }
 
 /**
@@ -36,7 +49,9 @@ function noteCaret(paneId: string, element: Element | null): void {
  * not where he was working.
  */
 export function noteFocus(paneId: string, target: EventTarget | null): void {
-  if (target instanceof HTMLElement && target.closest('[data-testid="workspace-surface"]')) lastFocus.set(paneId, target);
+  if (!(target instanceof HTMLElement) || !target.closest('[data-testid="workspace-surface"]')) return;
+  const tab = selectPaneTab(useTabsStore.getState(), paneId);
+  lastFocus.set(paneId, { element: target, tabId: tab?.id ?? null, path: pathOf(target) });
 }
 
 /** For the pane column's focusout: the caret of the editor the keyboard leaves. */
@@ -57,8 +72,13 @@ export function forgetPaneFocus(): void {
   carets.clear();
 }
 
-/** The tab's editor for the page its caret was in, with that caret put back. */
-function editorWithCaret(column: HTMLElement, tabId: string): HTMLElement | null {
+/**
+ * The tab's editor for the page its caret was in, with that caret put back.
+ * An editor drawn again reads the file, and its text can change once more
+ * when the words typed just before reach the disk: until it holds the text
+ * the caret was in, it is not ready, and keys typed then would be lost.
+ */
+function editorWithCaret(column: HTMLElement, tabId: string, last: boolean): HTMLElement | null {
   const caret = carets.get(tabId);
   if (!caret) return null;
   const editor = [...column.querySelectorAll<HTMLElement>('[data-live-editor]')]
@@ -66,6 +86,7 @@ function editorWithCaret(column: HTMLElement, tabId: string): HTMLElement | null
     ?.querySelector<HTMLElement>(EDITOR);
   const view = editor ? EditorView.findFromDOM(editor) : null;
   if (!editor || !view) return null;
+  if (!last && view.state.doc.toString() !== caret.doc) return null;
   const length = view.state.doc.length;
   const anchor = Math.min(caret.anchor, length);
   const head = Math.min(caret.head, length);
@@ -80,7 +101,7 @@ function editorWithCaret(column: HTMLElement, tabId: string): HTMLElement | null
  * editor once it is up, with the tab's caret where it was; else in the first
  * editor, or the page card itself. Never scrolls.
  */
-export function focusPaneKeyboard(paneId: string, frames = 60): void {
+export function focusPaneKeyboard(paneId: string, frames = 120): void {
   window.requestAnimationFrame(() => {
     const state = useTabsStore.getState();
     // Another pane was made active meanwhile: that one's own call puts the keyboard there.
@@ -91,15 +112,20 @@ export function focusPaneKeyboard(paneId: string, frames = 60): void {
       return;
     }
     if (column.contains(document.activeElement)) return;
-    const remembered = lastFocus.get(paneId);
-    if (remembered?.isConnected && column.contains(remembered) && !remembered.closest('[inert]')) {
-      remembered.focus({ preventScroll: true });
+    const tab = selectPaneTab(state, paneId);
+    // Only while it still shows what it showed then: an editor drawn again for another page or tab is not where he was.
+    const last = lastFocus.get(paneId);
+    const remembered = last?.element;
+    if (
+      last && remembered?.isConnected && column.contains(remembered) && !remembered.closest('[inert]') &&
+      last.tabId === (tab?.id ?? null) && pathOf(remembered) === last.path
+    ) {
+      focusQuietly(remembered);
       if (document.activeElement === remembered) return;
     }
-    const tab = selectPaneTab(state, paneId);
-    const withCaret = tab ? editorWithCaret(column, tab.id) : null;
+    const withCaret = tab ? editorWithCaret(column, tab.id, frames === 0) : null;
     if (withCaret) {
-      withCaret.focus({ preventScroll: true });
+      focusQuietly(withCaret);
       return;
     }
     // A page is still being read and drawn: its editor comes up in a few frames. The editor the tab's caret was in
@@ -110,7 +136,7 @@ export function focusPaneKeyboard(paneId: string, frames = 60): void {
     const caretShown = !!tab && !!caret && (location?.mode === 'stack' || tabFile(tab) === caret.path);
     const editor = column.querySelector<HTMLElement>(EDITOR);
     if (editor && (!caretShown || frames === 0)) {
-      editor.focus({ preventScroll: true });
+      focusQuietly(editor);
       return;
     }
     if (waits && frames > 0) {

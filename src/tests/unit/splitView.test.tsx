@@ -213,6 +213,21 @@ describe('where the keyboard and a click end up', () => {
     expect(state().panes.map((pane) => pane.tabs.map(tabFile))).toEqual([[LEFT, OTHER], [RIGHT]]);
   });
 
+  it('a tab behind the other pane’s open one, clicked, comes forward showing its own page', async () => {
+    twoPanes();
+    renderShell();
+    const left = columns()[0];
+    await waitFor(() => expect(within(columns()[1]).getByTestId('text-viewer')).toHaveTextContent(`text of ${RIGHT}`));
+    const behind = rowOf(left).getByRole('tab', { name: 'left.txt' });
+    // The press makes the left pane active, and its route writes its open page, before the click brings this one forward.
+    fireEvent.pointerDown(behind);
+    fireEvent.click(behind);
+    await waitFor(() => expect(within(left).getByTestId('text-viewer')).toHaveTextContent(`text of ${LEFT}`));
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 50))));
+    expect(state().panes[0].tabs.map(tabFile)).toEqual([LEFT, OTHER]);
+    expect(within(left).getByTestId('text-viewer')).toHaveTextContent(`text of ${LEFT}`);
+  });
+
   it('an empty pane takes a tab dropped anywhere on its row', () => {
     openTabs([LEFT, OTHER]);
     act(() => state().splitRight());

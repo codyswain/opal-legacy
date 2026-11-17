@@ -40,13 +40,22 @@ export function FilesRoute() {
     const active = selectCurrentLocation(useTabsStore.getState());
     const next = active ? serializeFilesLocation(active) : '';
     memory.written = next;
-    if (search.current !== next)
+    // What the address will say once the router has caught up with this window's own writes.
+    if ((memory.inFlight.at(-1) ?? search.current) !== next) {
+      memory.inFlight = [...memory.inFlight, next].slice(-8);
       navigate({ pathname: FILES_ROUTE_PATH, search: next }, { replace: true });
+    }
   }, [memory, navigate]);
 
   // A link, a reload or a test can set the URL; it shows in the active tab.
   React.useEffect(() => {
-    if (!keeps || location.search === memory.written) return;
+    if (!keeps) return;
+    if (location.search === memory.written) {
+      memory.inFlight = [];
+      return;
+    }
+    // One of this window's own writes, overtaken by a later one: not an address to open.
+    if (memory.inFlight.includes(location.search)) return;
     memory.pending = location.search !== '' && roots.length === 0;
     if (memory.pending) return;
     const target = parseFilesLocation(location.search, roots);
