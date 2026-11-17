@@ -1,6 +1,6 @@
 import { history, historyKeymap, defaultKeymap, indentWithTab, isolateHistory } from '@codemirror/commands';
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown } from '@codemirror/lang-markdown';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { ensureSyntaxTree, HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { diff } from '@codemirror/merge';
 import { search, searchKeymap } from '@codemirror/search';
 import { ChangeSet, EditorSelection, EditorState, Transaction, type ChangeSpec, type Extension, type Line, type StateCommand } from '@codemirror/state';
@@ -185,6 +185,16 @@ export const insertNewlineInList: StateCommand = ({ state, dispatch }) => {
   const { main } = state.selection;
   const line = state.doc.lineAt(main.head);
   if (state.selection.ranges.length === 1 && main.empty && main.head === line.to && LONE_NUMBER.test(line.text)) return false;
+  // The Markdown command reads the tree attached to its state. Publish the
+  // parse through the last caret before it decides whether Enter is in a list.
+  const last = state.selection.ranges[state.selection.ranges.length - 1];
+  const upto = Math.min(state.doc.length, last.to + 1);
+  if (syntaxTree(state).length < upto) {
+    if (!ensureSyntaxTree(state, upto, 50)) return false;
+    const parsed = state.update({});
+    dispatch(parsed);
+    state = parsed.state;
+  }
   let unchanged = false;
   const handled = continueMarkup({
     state,
