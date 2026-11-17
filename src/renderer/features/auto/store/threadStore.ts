@@ -19,7 +19,7 @@ import { groupOf, type Hold } from '../model/listModel';
 import { forgetPlaces } from '../model/places';
 import { answerNo, answerPicks, answerTyped, isSingle, mayAnswer, picksReady, type Picks } from '../model/questionModel';
 import { applyEvent, fromSnapshot, unconfirmed, type PendingMessage, type ThreadView } from '../model/threadModel';
-import { autoApi, unconfirmedThreads, undoneArchives, useAutoStore } from './autoStore';
+import { autoApi, forgetListWorking, unconfirmedThreads, undoneArchives, useAutoStore } from './autoStore';
 import { useSaidStore } from './saidStore';
 
 /*
@@ -569,6 +569,7 @@ useAutoStore.subscribe((state, before) => {
     useSaidStore.getState().clear();
     unconfirmedThreads.clear();
     undoneArchives.clear();
+    forgetListWorking();
   }
   if ((state.reachable && !before.reachable) || (state.reachable && state.refreshedAt !== before.refreshedAt)) useThreadStore.getState().recover();
   if (state.threads === before.threads) return;

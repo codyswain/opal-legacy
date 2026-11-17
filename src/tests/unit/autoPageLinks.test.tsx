@@ -334,6 +334,18 @@ describe('following a link to a page in the app', () => {
     expect(auto.api.updateFolders).toHaveBeenCalledTimes(1);
   });
 
+  it('forgets what one service’s list stream said when the address changes', async () => {
+    useAutoStore.setState({ configured: true, address: 'http://127.0.0.1:1/a', threads: [{ ...NOTES, status: 'idle' }], listToken: 7 });
+    const list = (status: 'working' | 'idle') =>
+      useAutoStore.getState().handle({ token: 7, type: 'event', stream: 'list', event: { kind: 'thread', thread: { ...NOTES, status } }, cursor: null });
+    act(() => list('working'));
+    // Another service, whose thread of the same id is idle and was never said to work.
+    act(() => useAutoStore.setState({ address: 'http://127.0.0.1:2/b', threads: [{ ...NOTES, status: 'idle' }], listToken: 7 }));
+    act(() => list('idle'));
+    await sleep(TURN_END_SETTLE_MS + 100);
+    expect(window.autoAPI.updateFolders).not.toHaveBeenCalled();
+  });
+
   it('asks nothing with no address set', async () => {
     installAutoApi({ url: null });
     useAutoStore.setState({ configured: true, address: null, threads: [{ ...NOTES, status: 'working' }], listToken: 7 });

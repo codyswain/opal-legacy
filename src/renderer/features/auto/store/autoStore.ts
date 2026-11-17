@@ -258,6 +258,7 @@ export const useAutoStore = create<AutoStore>((set, get) => {
       // Another address is another service: nothing of the old one stays.
       unconfirmedThreads.clear();
       undoneArchives.clear();
+      listWorking.clear();
       heldPlaces.clear();
       set({ archive: NO_ARCHIVE });
       set({ address: result.data.url, editing: false, loaded: false, reachable: false, problem: null, threads: [], status: null, listToken: null });

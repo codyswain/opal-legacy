@@ -299,12 +299,13 @@ describe('bringing an opened folder up to date', () => {
   }, 15_000);
 
   it('never kills a merge that has started: answers refused at its limit, and starts nothing in that checkout until the merge has closed', async () => {
-    // A file whose checkout is slow: the merge writes it through a filter that takes two seconds.
+    // A file whose checkout is slow: the merge writes it through a filter that takes a second, past the merge's limit
+    // but inside the bound on how long a second request waits.
     await push('.gitattributes', '*.slow filter=slow\n');
     git(vault, 'fetch', '-q', 'origin');
     git(vault, 'merge', '-q', '--ff-only', 'origin/main');
     const pidFile = path.join(dir, 'filter.pid');
-    git(vault, 'config', 'filter.slow.smudge', `echo $$ > '${pidFile}'; sleep 2; cat`);
+    git(vault, 'config', 'filter.slow.smudge', `echo $$ > '${pidFile}'; sleep 1; cat`);
     git(vault, 'config', 'filter.slow.clean', 'cat');
     await push('Notes/Big.slow', 'slow bytes\n');
     await push('Notes/Plain.md', '# Plain\n');
@@ -314,7 +315,7 @@ describe('bringing an opened folder up to date', () => {
     let second = false;
     const seen: { filterAlive: boolean; lock: boolean }[] = [];
     const service = updates({
-      limits: { gapMs: 0, mergeMs: 300 },
+      limits: { gapMs: 0, mergeMs: 800 },
       onCommand: (args, _cwd, envAdded) => {
         commands.push([...args]);
         added.push({ ...envAdded });
@@ -323,7 +324,7 @@ describe('bringing an opened folder up to date', () => {
     });
     const started = Date.now();
     expect(await service.update()).toBe('refused');
-    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(Date.now() - started).toBeLessThan(1_000);
     // Given up on, but still at work: its filter runs and git holds the index.
     expect(alive(Number(readPid(pidFile)))).toBe(true);
     expect(existsSync(path.join(vault, '.git/index.lock'))).toBe(true);
@@ -333,7 +334,7 @@ describe('bringing an opened folder up to date', () => {
     second = true;
     const ran = commands.length;
     const next = service.update();
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(commands.length).toBe(ran);
     expect(await next).toBe('current');
     expect(seen.length).toBeGreaterThan(0);
@@ -345,6 +346,43 @@ describe('bringing an opened folder up to date', () => {
     expect(await readFile(path.join(vault, 'Notes/Big.slow'), 'utf8')).toBe('slow bytes\n');
     expect(await readFile(path.join(vault, 'Notes/Plain.md'), 'utf8')).toBe('# Plain\n');
     expect(existsSync(path.join(vault, '.git/index.lock'))).toBe(false);
+  }, 20_000);
+
+  it('bounds a request’s wait for a merge that outlives everything: it answers refused and starts nothing, and a later request runs once the merge has closed', async () => {
+    await push('.gitattributes', '*.slow filter=slow\n');
+    git(vault, 'fetch', '-q', 'origin');
+    git(vault, 'merge', '-q', '--ff-only', 'origin/main');
+    // A checkout that writes until it is let go.
+    const pidFile = path.join(dir, 'filter.pid');
+    const release = path.join(dir, 'release');
+    git(vault, 'config', 'filter.slow.smudge', `echo $$ > '${pidFile}'; while [ ! -f '${release}' ]; do sleep 0.05; done; cat`);
+    git(vault, 'config', 'filter.slow.clean', 'cat');
+    await push('Notes/Big.slow', 'slow bytes\n');
+    const head = git(other, 'rev-parse', 'HEAD');
+    const service = updates({ limits: { gapMs: 0, mergeMs: 300 } });
+
+    let started = Date.now();
+    expect(await service.update()).toBe('refused');
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(alive(Number(readPid(pidFile)))).toBe(true);
+
+    // The second request waits no longer than the merge's limit, then gives up having started nothing.
+    const ran = commands.length;
+    started = Date.now();
+    expect(await service.update()).toBe('refused');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(280);
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(commands.length).toBe(ran);
+    expect(alive(Number(readPid(pidFile)))).toBe(true);
+
+    // Let go, the merge finishes; a third request runs as usual.
+    await writeFile(release, '');
+    for (let tries = 0; tries < 100 && existsSync(path.join(vault, '.git/index.lock')); tries += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await service.update()).toBe('current');
+    expect(commands.length).toBeGreaterThan(ran);
+    expect(git(vault, 'rev-parse', 'HEAD')).toBe(head);
+    expect(git(vault, 'status', '--porcelain=v1', '--untracked-files=all')).toBe('');
+    expect(await readFile(path.join(vault, 'Notes/Big.slow'), 'utf8')).toBe('slow bytes\n');
   }, 20_000);
 
   it('runs the merge, and only the merge, with LFS downloads off', async () => {

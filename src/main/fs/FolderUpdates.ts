@@ -201,9 +201,13 @@ export class FolderUpdates {
     }
     const own = lane;
     if (own.queued) return own.queued;
-    const queued = (async () => {
+    const queued: Promise<FolderUpdateOutcome> = (async () => {
       // Always a step later than now, so `own.queued` is this run until it starts.
-      await this.idle(own);
+      if (!(await this.idle(own))) {
+        // Still writing past the bound: this request gives up and starts nothing; a later one tries again.
+        if (own.queued === queued) own.queued = null;
+        return 'refused';
+      }
       const left = own.lastStart + this.limits.gapMs - this.now();
       if (left > 0) await this.wait(left);
       own.queued = null;
@@ -220,10 +224,26 @@ export class FolderUpdates {
     return queued;
   }
 
-  /** Until the run going now has answered and every command it started has closed: a merge given up on still writes the tree. */
-  private async idle(lane: Lane): Promise<void> {
+  /**
+   * Waits until the run going now has answered and every command it started
+   * has closed: a merge given up on still writes the tree. The wait for those
+   * commands is bounded by the merge's limit, so a request never waits
+   * without end; false when they are still open then.
+   */
+  private async idle(lane: Lane): Promise<boolean> {
     if (lane.running) await lane.running;
-    while (lane.open.size > 0) await Promise.all([...lane.open]);
+    const until = Date.now() + this.limits.mergeMs;
+    while (lane.open.size > 0) {
+      const left = until - Date.now();
+      if (left <= 0) return false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, left);
+      });
+      await Promise.race([Promise.all([...lane.open]), late]);
+      clearTimeout(timer);
+    }
+    return true;
   }
 
   private git(lane: Lane, args: readonly string[], cwd: string, timeoutMs: number, how: { stop?: Stop; output?: boolean; env?: Record<string, string> } = {}): Promise<GitAnswer> {
