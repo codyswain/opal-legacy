@@ -429,11 +429,13 @@ describe('what is his', () => {
     expect(yes.status).toBe(403);
     expect(standIn.unsigned).toEqual([{ thread: BREAD, client: 'elsewhere' }]);
     // The plain no, and then his words as an ordinary message, which waits behind the turn.
+    standIn.hold('grant-reply');
     const no = await auto.request({ kind: 'answer', id: BREAD, answer: { id: question?.id ?? '', allow: false } });
     expect(no.success).toBe(true);
     expect(standIn.requests.at(-1)).toMatchObject({ path: `/api/threads/${BREAD}/answer`, body: { id: question?.id, allow: false } });
     const words = await auto.request({ kind: 'message', id: BREAD, text: 'Not this week', cid: 'a1b2c4' });
     expect(words.success && words.data).toMatchObject({ queued: true });
+    standIn.release('grant-reply');
     await until(() => kinds('thread').filter((kind) => kind === 'end').length === 2, 'both turns to end');
     const written = events('thread').flatMap((message) => (message.event.kind === 'append' ? [message.event.text] : [])).join('');
     // The turn hears that it was not allowed, and folds the question to "Not allowed". His words get an answer of their own.

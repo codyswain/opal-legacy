@@ -671,6 +671,7 @@ export async function startStandIn(options = {}) {
       });
       ctx.activity('Writing');
       // Whatever came with a no is not read: the turn hears only that it was not allowed.
+      await ctx.gate('grant-reply');
       await ctx.say(answer.allow === true ? 'Sent.' : 'Nothing was sent.');
       return [];
     }
