@@ -68,6 +68,16 @@ describe('inline code', () => {
     expect(text(view)).toBe(doc);
   });
 
+  it('updates multiline code in each paragraph touched by a bulk edit', () => {
+    const doc = 'first xone\ntwox paragraph\n\nsecond xthree\nfourx paragraph';
+    const view = mount(doc);
+    const changes = [...doc.matchAll(/x/g)].map(({ index }) => ({ from: index, to: index + 1, insert: '`' }));
+    act(() => { view.dispatch({ changes }); });
+    expect([...view.contentDOM.querySelectorAll('.cm-line')].map((line) => line.textContent)).toEqual([
+      'first one two paragraph', '', 'second three four paragraph',
+    ]);
+  });
+
   it('writes delimiters one longer than the longest run inside, padded when needed', () => {
     expect(codeSpan('a')).toBe('`a`');
     expect(codeSpan('a`b')).toBe('``a`b``');

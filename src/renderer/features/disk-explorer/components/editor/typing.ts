@@ -769,9 +769,10 @@ export function literalText(state: EditorState, from: number, to: number, insert
  * page once, so the cost does not grow with the number of edits.
  */
 export function literalTexts(state: EditorState, edits: readonly LiteralEdit[]): string[] {
-  const lines: Written[][] = edits.map((edit) => {
+  const raw = edits.map((edit) => rawAt(state, edit.from) || inWikiLink(state, edit.from));
+  const lines: Written[][] = edits.map((edit, index) => {
     const written = edit.insert.split('\n').map((text) => ({ text, ours: [...text].map(() => false) }));
-    if (rawAt(state, edit.from) || inWikiLink(state, edit.from)) return written;
+    if (raw[index]) return written;
     if (edit.table) for (const line of written) escapeAll(line, CELL_PIPE);
     // A backslash just before the text would escape its first character.
     if (PUNCTUATION_IN.test(written[0].text[0] ?? '') && charBefore(state, edit.from) === '\\' && charBefore(state, edit.from - 1) !== '\\') escapeIn(written[0], 0);
@@ -780,7 +781,7 @@ export function literalTexts(state: EditorState, edits: readonly LiteralEdit[]):
   });
   const texts = () => edits.map((edit, index) => join(lines[index].map((line) => line.text), edit.prefix ?? ''));
   // Edits that can still read as Markdown, grouped by the lines they touch, since edits on one line affect each other.
-  const open = edits.map((edit, index) => !rawAt(state, edit.from) && !inWikiLink(state, edit.from) && lines[index].some((line) => PUNCTUATION_IN.test(line.text)));
+  const open = lines.map((written, index) => !raw[index] && written.some((line) => PUNCTUATION_IN.test(line.text)));
   const groups: { from: number; to: number; members: number[] }[] = [];
   edits.forEach((edit, index) => {
     const from = state.doc.lineAt(edit.from).from;
