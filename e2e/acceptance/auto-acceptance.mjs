@@ -1116,7 +1116,13 @@ async function tour() {
     service.sendWaiting(INSPECTION);
     check('a send waiting on the phone is one line, with no control', await until(async () => ((await page.getByTestId('auto-send-waiting').textContent().catch(() => '')) ?? '') === 'A send is waiting on your phone.') && (await page.getByTestId('auto-send-waiting').getByRole('button').count()) === 0);
     service.sendWent(INSPECTION);
-    check('a message that went out is one line', await until(async () => ((await talk.textContent()) ?? '').includes('Sent to club@example.com: Plot inspection')));
+    await page.getByRole('button', { name: 'Sent messages' }).click();
+    const receipts = page.getByRole('dialog', { name: 'Sent messages' });
+    check('a message that went out has a dated receipt in the header', await until(async () =>
+      ((await receipts.textContent()) ?? '').includes('Sent to club@example.com: Plot inspection') &&
+      (await receipts.locator('time[datetime]').count()) === 1 &&
+      !((await talk.textContent()) ?? '').includes('Sent to club@example.com: Plot inspection')));
+    await page.keyboard.press('Escape');
 
     // --- A post that fails: the words return to the box under "Not sent".
     service.failWrites('refuse');

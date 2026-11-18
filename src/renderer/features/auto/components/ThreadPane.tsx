@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, ArrowDown, Check, ChevronDown, ChevronRight, Clock, Undo2 } from 'lucide-react';
+import { Archive, ArrowDown, Check, ChevronDown, ChevronRight, Clock, MailCheck, Undo2 } from 'lucide-react';
 import type { AutoItem, AutoStep, AutoThread } from '@/types/auto';
 import {
   Button,
@@ -13,11 +13,15 @@ import {
   MenuContent,
   MenuItem,
   MenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
 import { archivedWord, awayDetail, heardLine, isWaitingOnReply, returnsLine, waitLine, waitUrl } from '../model/awayModel';
-import { clockTime, fromDigest, listView } from '../model/listModel';
+import { clockTime, shortDate } from '../model/clock';
+import { fromDigest, listView } from '../model/listModel';
 import { AWAY, NEW_THREAD, paneThread } from '../model/pane';
 import { keepPlace, placeIn, placeOf, threadPlace } from '../model/places';
 import { failure, parseEntry, sentLine, showsNext, stepLines, stepsSummary, turnRuns, turnStart, waitingToGo } from '../model/threadModel';
@@ -302,18 +306,6 @@ function Talk({ scroller }: { scroller: React.RefObject<HTMLDivElement> }) {
     if (failed) rows.push({ key: 'failed', quiet: false, node: <p role="alert" data-testid="auto-failed" className="text-ui text-foreground-secondary">{failed}</p> });
     // A message sent at rest shows at once; the turn it starts takes its place.
     if (!view.live) for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, his: true, node: <Bubble text={message.text} faded /> });
-    view.sent.forEach((sent, at) => {
-      rows.push({
-        key: `sent${at}`,
-        quiet: true,
-        node: (
-          <p className={quiet}>
-            {sentLine(sent)}
-            {sent.at ? <span className="tabular-nums"> at {clockTime(sent.at)}</span> : null}
-          </p>
-        ),
-      });
-    });
     if (view.sendWaiting) rows.push({ key: 'send-waiting', quiet: true, node: <p data-testid="auto-send-waiting" className={quiet}>A send is waiting on your phone.</p> });
     if (showsNext(view, pending.length)) {
       rows.push({
@@ -512,6 +504,44 @@ function useShownThread(): { isNew: boolean; thread: AutoThread | null; ghost: b
   return { isNew, thread: isNew ? null : ghost?.thread ?? entry ?? view?.thread ?? null, ghost: ghost !== null };
 }
 
+function SentMessages({ threadId }: { threadId: string }) {
+  const sent = useThreadStore((state) => state.view?.thread.id === threadId ? state.view.sent : undefined);
+  if (!sent?.length) return null;
+  const now = Date.now();
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <IconButton label="Sent messages" className="data-[state=open]:bg-surface-active">
+          <MailCheck aria-hidden className="h-3.5 w-3.5" />
+        </IconButton>
+      </PopoverTrigger>
+      <PopoverContent
+        aria-label="Sent messages"
+        align="end"
+        className="max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw-16px)] overflow-y-auto"
+      >
+        <h2 className="font-medium">Sent messages</h2>
+        <ul className="mt-2 divide-y divide-border-subtle">
+          {[...sent].reverse().map((receipt, index) => {
+            const date = new Date(receipt.at * 1000);
+            return (
+              <li key={`${receipt.at}-${index}`} className="break-words py-2 first:pt-0 last:pb-0">
+                <p>{sentLine(receipt)}</p>
+                {receipt.at && Number.isFinite(date.getTime()) ? (
+                  <time className={quiet} dateTime={date.toISOString()}>
+                    {shortDate(receipt.at, now)} at {clockTime(receipt.at)}
+                  </time>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ThreadHeader() {
   const openId = useThreadStore((state) => state.openId);
   const renaming = useThreadStore((state) => (state.renaming?.at === 'header' ? state.renaming.id : null));
@@ -526,7 +556,12 @@ function ThreadHeader() {
         ) : (
           <Title key={openId} id={thread?.id ?? null} title={thread?.title ?? ''} menu={menu} editing={renaming !== null && renaming === thread?.id && menu !== null} />
         )}
-        <div className="flex shrink-0 items-center gap-0.5">{thread && !ghost ? <ThreadActions thread={thread} /> : null}</div>
+        {thread && !ghost ? (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <SentMessages key={thread.id} threadId={thread.id} />
+            <ThreadActions thread={thread} />
+          </div>
+        ) : null}
       </div>
     </header>
   );
