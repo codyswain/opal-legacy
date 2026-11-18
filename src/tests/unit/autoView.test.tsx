@@ -768,17 +768,49 @@ describe('a thread', () => {
   });
 
   it('shows a send that waits on the phone as one line, with nothing to press', async () => {
-    await open({ snapshots: { bread: autoSnapshot(BREAD, { items: [user('Draft it'), reply('Drafted.')], sendWaiting: true, sent: [{ at: 1_794_000_000, to: ['club@example.com'], subject: 'Plot inspection' }] }) } });
+    await open({ snapshots: { bread: autoSnapshot(BREAD, { items: [user('Draft it'), reply('Drafted.')], sendWaiting: true }) } });
     await openThread('bread');
     const line = screen.getByTestId('auto-send-waiting');
     expect(line.textContent).toBe('A send is waiting on your phone.');
     expect(within(line).queryByRole('button')).toBeNull();
-    expect(screen.getByTestId('auto-talk').textContent).toContain('Sent to club@example.com: Plot inspection');
     act(() => auto.thread({ kind: 'send', waiting: false, sent: null }));
     expect(screen.queryByTestId('auto-send-waiting')).toBeNull();
     // Nothing in the tab starts or confirms a send.
     const names = screen.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent ?? '');
     expect(names.filter((name) => /send|confirm/i.test(name))).toEqual(['Send to Auto']);
+  });
+
+  it('shows dated send receipts in the header during a later turn', async () => {
+    const sentAt = new Date(2026, 10, 14, 10, 11);
+    await open({ snapshots: {
+      bread: autoSnapshot(BREAD, {
+        items: [user('Draft it'), reply('Drafted.')],
+        live: { items: [user('New question')], activity: 'Searching vault…', state: 'working', question: null },
+        sent: [{ at: sentAt.getTime() / 1000, to: ['club@example.com'], subject: 'Plot inspection' }],
+      }),
+      seeds: autoSnapshot(SEEDS),
+    } });
+    await openThread('bread');
+    const talk = within(screen.getByTestId('auto-talk'));
+    expect(talk.getByText('Searching vault…')).toBeInTheDocument();
+    expect(talk.queryByText(/Plot inspection/)).toBeNull();
+    const header = within(screen.getByTestId('auto-thread-header'));
+    await userEvent.setup().click(header.getByRole('button', { name: 'Sent messages' }));
+    const receipts = within(screen.getByRole('dialog', { name: 'Sent messages' }));
+    expect(receipts.queryByRole('button')).toBeNull();
+    const oldReceipt = receipts.getByRole('listitem');
+    expect(oldReceipt).toHaveTextContent('Sent to club@example.com: Plot inspection');
+    expect(within(oldReceipt).getByText(/Nov 14.* at 10:11 am/)).toHaveAttribute('datetime', sentAt.toISOString());
+
+    act(() => auto.thread({ kind: 'send', waiting: false, sent: {
+      at: sentAt.getTime() / 1000 + 300, to: ['club@example.com'], subject: 'Updated inspection',
+    } }));
+    expect(receipts.getAllByRole('listitem')[0]).toHaveTextContent('Updated inspection');
+    expect(talk.queryByText(/Updated inspection/)).toBeNull();
+
+    await openThread('seeds');
+    expect(screen.queryByRole('dialog', { name: 'Sent messages' })).toBeNull();
+    expect(header.queryByRole('button', { name: 'Sent messages' })).toBeNull();
   });
 
   it('renames from the title’s menu, and picks the model from the box’s foot', async () => {
