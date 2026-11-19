@@ -98,8 +98,8 @@ const post = (base: string, path: string, body: Record<string, unknown>): BuiltR
 export const allowSendRequest = (base: string, thread: string, question: string, signature: string): BuiltRequest =>
   post(base, `/api/threads/${thread}/answer`, { id: question, allow: true, signature });
 
-/** Which keys the service trusts, by their codes. */
-export const sendKeyRequest = (base: string): BuiltRequest => get(base, '/api/phone-key');
+/** The code of the key the service trusts for this Mac (`paired`), if any. */
+export const sendKeyRequest = (base: string): BuiltRequest => get(base, '/api/phone-key?device=macbook-pro');
 
 /** Offers this Mac's public key; it is trusted only once pair-phone.sh is run on the Mini with its code. */
 export const offerKeyRequest = (base: string, key: string, device: string): BuiltRequest => post(base, '/api/phone-key', { key, device });
