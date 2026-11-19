@@ -30,7 +30,7 @@ import {
 
 const THREAD: AutoThread = {
   id: '5a0000000002', title: 'Sourdough timings', status: 'idle', last: 'Start at 8.', activity: '', ask: null, unread: false, model: '',
-  created: 1, updated: 2, error: null, queued: 0, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null, digest: null, waits: false, desk: null, yours: '',
+  created: 1, updated: 2, error: null, queued: 0, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null, digest: null, waits: false, desk: null, yours: '', parent: null, mode: '', agentsModel: '',
 };
 const user = (text: string, cid: string | null = null): AutoItem => ({ role: 'user', text, cid });
 const reply = (text: string, open = false): AutoItem => ({ role: 'assistant', text, open });
@@ -273,9 +273,9 @@ describe('steps', () => {
     const step = (g: string, text = 'x', path: string | null = null) => ({ g, text, path });
     expect(stepsSummary([step('read'), step('read'), step('read'), step('search')])).toBe('Read 3 files, searched');
     expect(stepsSummary([step('search'), step('websearch'), step('read'), step('change'), step('change')])).toBe('Searched, searched the web, read 1 file, changed 2 files');
-    expect(stepsSummary([step('agent'), step('skill:garden'), step('run'), step('fetch')])).toBe('A helper, a skill, 2 more steps');
+    expect(stepsSummary([step('agent'), step('skill:garden'), step('run'), step('fetch')])).toBe('Started an agent, a skill, 2 more steps');
     expect(stepsSummary([step('run'), step('run'), step('mcp:weather')])).toBe('3 steps');
-    expect(stepsSummary([step('search'), step('search'), step('websearch'), step('websearch'), step('agent'), step('agent'), step('run')])).toBe('Searched 2 times, searched the web 2 times, 2 helpers, 1 more step');
+    expect(stepsSummary([step('search'), step('search'), step('websearch'), step('websearch'), step('agent'), step('agent'), step('run')])).toBe('Searched 2 times, searched the web 2 times, started 2 agents, 1 more step');
   });
 
   it('are their own line when there is one, and nothing when all are plumbing', () => {

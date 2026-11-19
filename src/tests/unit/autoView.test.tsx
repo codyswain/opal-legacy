@@ -446,7 +446,7 @@ describe('a thread', () => {
     expect(within(foot).getByTestId('auto-model')).toBeInTheDocument();
     act(() => auto.thread({ kind: 'turn', items: [user('Sort the seeds', 'a1')], state: 'working', activity: '' }));
     const buttons = within(foot).getAllByRole('button');
-    expect(buttons.map((button) => button.getAttribute('data-testid'))).toEqual(['auto-model', 'auto-stop', 'auto-send']);
+    expect(buttons.map((button) => button.getAttribute('data-testid'))).toEqual(['auto-model', 'auto-mode', 'auto-stop', 'auto-send']);
   });
 
   it('draws Send grey with no words and filled once there are words', async () => {
@@ -830,6 +830,58 @@ describe('a thread', () => {
     await userEvent.setup().click(screen.getByTestId('auto-model'));
     fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Small' }));
     await waitFor(() => expect(last('model')).toEqual({ kind: 'model', id: 'bread', model: 'small' }));
+  });
+
+  it('picks the mode from the box’s foot, and the agents’ model under Orchestrate, for the thread and for a new one', async () => {
+    await open();
+    await openThread('bread');
+    expect(screen.getByTestId('auto-mode')).toHaveTextContent('Solo');
+    expect(screen.queryByTestId('auto-agents')).toBeNull();
+    await userEvent.setup().click(screen.getByTestId('auto-mode'));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Orchestrate' }));
+    await waitFor(() => expect(last('mode')).toEqual({ kind: 'mode', id: 'bread', mode: 'orchestrate', agentsModel: '' }));
+    act(() => auto.list({ kind: 'thread', thread: { ...BREAD, mode: 'orchestrate' } }));
+    await waitFor(() => expect(screen.getByTestId('auto-mode')).toHaveTextContent('Orchestrate'));
+    expect(screen.getByTestId('auto-agents')).toHaveTextContent('Agents: Any model');
+    await userEvent.setup().click(screen.getByTestId('auto-agents'));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Small' }));
+    await waitFor(() => expect(last('mode')).toEqual({ kind: 'mode', id: 'bread', mode: 'orchestrate', agentsModel: 'small' }));
+    // A new thread remembers the mode on this Mac and starts in it.
+    fireEvent.click(screen.getByTestId('auto-new-thread'));
+    await waitFor(() => expect(screen.getByTestId('auto-mode')).toHaveTextContent('Solo'));
+    await userEvent.setup().click(screen.getByTestId('auto-mode'));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Orchestrate' }));
+    await waitFor(() => expect(screen.getByTestId('auto-agents')).toBeInTheDocument());
+    await type('Plan the open day');
+    await waitFor(() => expect(last('create')).toMatchObject({ kind: 'create', text: 'Plan the open day', mode: 'orchestrate', agentsModel: '' }));
+  });
+
+  it('draws a sub-agent under its parent with a ring while it works, opens it from the step that started it, and leads back from its header', async () => {
+    const SOIL = autoThread('soil', { title: 'Soil types', parent: 'bread', status: 'working', activity: 'Reading the soil notes', model: 'small' });
+    await open({
+      threads: [BEDS, BREAD, SOIL, SEEDS],
+      snapshots: {
+        bread: autoSnapshot(BREAD, { items: [user('Fan out the research'), { role: 'steps', steps: [{ g: 'agent', text: 'Started Soil types on Small', path: null, thread: 'soil' }] }, reply('Two agents are working.')] }),
+        soil: autoSnapshot(SOIL, { items: [user('Read the soil notes for each bed.')], live: { items: [], activity: 'Reading the soil notes', state: 'working', question: null } }),
+      },
+    });
+    // The child sits right under its parent, one step in, and never drags on its own.
+    const ids = [...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
+    expect(ids.indexOf('soil')).toBe(ids.indexOf('bread') + 1);
+    expect(row('soil')).toHaveAttribute('data-nested', 'true');
+    expect(row('soil')).not.toHaveAttribute('draggable');
+    expect(row('bread')).toHaveAttribute('draggable', 'true');
+    expect(within(row('soil')).getByTestId('auto-row-working-soil')).toHaveAttribute('aria-label', 'Working');
+    expect(within(row('bread')).queryByTestId('auto-row-working-bread')).toBeNull();
+    await openThread('bread');
+    const step = await screen.findByTestId('auto-step-agent');
+    expect(step).toHaveTextContent('Started Soil types on Small');
+    fireEvent.click(step);
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('soil'));
+    const back = screen.getByTestId('auto-parent-link');
+    expect(back).toHaveTextContent('Agent of Sourdough timings');
+    fireEvent.click(back);
+    await waitFor(() => expect(auto.followed.thread?.id).toBe('bread'));
   });
 
   it('opens the next thread when the open one is archived, and none when it is archived somewhere else', async () => {

@@ -41,7 +41,10 @@
 // that pushes: a page only the remote has opens after one fast-forward, a
 // turn's end brings the next page before any click, a page no remote has
 // says so at the link, a local change in another file stays, and a long path
-// shows as a name inside the column. Saves light and
+// shows as a name inside the column. Then sub-agents: the mode picked in
+// the box, a turn that fans out to two agents as threads under their parent,
+// each opened from its step line and stopped from its own header, the ring
+// while they work, and the family archived and brought back together. Saves light and
 // dark screenshots of each at 1500 x 933 for people to look at; nothing
 // compares them. Run from the repository root after the Vite bundles are built (see
 // README.md here):
@@ -484,7 +487,7 @@ async function tour() {
     check('one list item follows the last by 4 px, a paragraph by 11 px', look.itemGap === 4 && Math.round(look.paragraphGap) === 11, `${look.itemGap}/${look.paragraphGap}`);
     check(`one-line thread rows sit ${side === 'b' ? 32 : 30} px apart`, look.rowPitch === (side === 'b' ? 32 : 30), String(look.rowPitch));
     check('the box has 16 px corners, a shadow, and is as wide as the text', look.radius === '16px' && look.shadow && Math.abs(look.boxWidth - look.columnWidth) <= 1, `${look.radius} ${look.boxWidth}/${look.columnWidth}`);
-    check('the box’s controls sit on a row at its foot: the model at the left, the usage ring beside it, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-usage-ring,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
+    check('the box’s controls sit on a row at its foot: the model at the left, then the mode, the usage ring beside them, Send at the right', look.footAfterField && look.footHolds === 'auto-model,auto-mode,auto-usage-ring,auto-send' && look.modelLeft && look.sendRight && !look.modelInHeader, look.footHolds);
     check('a hairline runs under the header, the width of the pane', look.hairline);
     check('the title’s words end in a chevron that opens the thread’s menu', (await page.getByTestId('auto-thread-menu').locator('[data-testid="auto-title-chevron"]').count()) === 1 && (await textOf('auto-title')) === 'Sourdough timings');
     await talk.evaluate((element) => { element.scrollTop = 0; });
@@ -1525,10 +1528,16 @@ async function tour() {
     await entry('item-3').locator('[data-auto-entry]').click();
     await entry('item-3').locator('[data-vault-path="Projects/Kitchen/Tap.md"]').click();
     check('a vault link in an entry opens the page in Opal', await until(async () => (await page.getByTestId(`tab-${path.join(vault, 'Projects/Kitchen/Tap.md')}`).count()) === 1));
-    await toAuto();
+    // The queue has a tab of its own: the page opened from it goes in front, and the Digest tab brings the queue back.
+    const toDigest = async () => {
+      if ((await page.getByTestId('tab-digest').count()) === 1) await page.getByTestId('tab-digest').click();
+      else await digestRow.click();
+      await page.getByTestId('auto-queue-pane').waitFor({ timeout: 10_000 });
+    };
+    await toDigest();
     await page.getByRole('button', { name: 'Open the digest' }).click();
     check('Open the digest opens the digest’s file as a page', await until(async () => (await page.getByTestId(`tab-${path.join(vault, 'Library/digests/2026-11-13 digest.md')}`).count()) === 1));
-    await toAuto();
+    await toDigest();
     check('the queue is still open beside the list, with the entry he had open', (await page.getByTestId('auto-queue-pane').count()) === 1 && (await entry('item-3').getAttribute('data-open')) === 'true');
     await entry('item-3').locator('[data-auto-entry]').click({ position: { x: 8, y: 8 } });
 
@@ -2535,6 +2544,61 @@ async function tour() {
     check('no request marked a message as a send', !service.requests.some((request) => JSON.stringify(request.body ?? {}).includes('sends')));
     check('nothing in the run tried to allow a send: every answer to one was a no', service.unsigned.length === 0);
     check('every write named the client and carried no Origin', service.requests.filter((request) => request.method === 'POST' && request.headers['x-auto-client'] !== 'phone').every((request) => request.headers['x-auto-client'] === 'opal' && request.headers.origin === undefined && request.headers['content-type'] === 'application/json'));
+
+    // --- Sub-agents: a mode picked in the box, a turn that fans out to two agents, each a thread under its parent,
+    // opened from the step that started it, with a ring while it works, stopped from its own header, and the way back.
+    await newThread.click();
+    await box.waitFor({ timeout: 10_000 });
+    const modeButton = () => page.locator('[data-testid="auto-thread"] [data-testid="auto-mode"]');
+    const agentsButton = () => page.locator('[data-testid="auto-thread"] [data-testid="auto-agents"]');
+    check('a new thread offers the mode in the box’s foot, Solo by default, with no agents picker', await until(async () => (await modeButton().count()) === 1) && ((await modeButton().textContent()) ?? '').trim() === 'Solo' && (await agentsButton().count()) === 0, (await modeButton().textContent()) ?? '');
+    await modeButton().click();
+    await page.getByRole('menuitemradio', { name: 'Orchestrate' }).click();
+    check('Orchestrate brings the agents picker beside it, on Any model', await until(async () => (await agentsButton().count()) === 1 && ((await agentsButton().textContent()) ?? '').trim() === 'Agents: Any model'), (await agentsButton().textContent()) ?? '');
+    await agentsButton().click();
+    await page.getByRole('menuitemradio', { name: 'Small' }).click();
+    check('the agents’ model is picked', await until(async () => ((await agentsButton().textContent()) ?? '').trim() === 'Agents: Small'));
+    await shot(100, 'agents-mode-picked');
+    service.hold('agents-started');
+    service.hold('agent-hold');   // the second agent keeps searching until the run lets it go
+    await say('Fan out the research on the beds');
+    const parentId = await (async () => { await until(() => service.entries().some((thread) => thread.title.startsWith('Fan out'))); return service.entries().find((thread) => thread.title.startsWith('Fan out'))?.id; })();
+    check('the new thread starts in Orchestrate with Small for its agents', !!parentId && JSON.stringify(posts('/api/threads').at(-1)).includes('"mode":"orchestrate","agentsModel":"small"') && service.thread(parentId)?.mode === 'orchestrate', JSON.stringify(posts('/api/threads').at(-1)));
+    const children = () => service.entries().filter((thread) => thread.parent === parentId);
+    check('the turn starts two agents, each a thread under the parent on its own model', await until(() => children().length === 2) && children().map((thread) => `${thread.title}/${thread.model}`).sort().join() === 'Frost dates/large,Soil types/small', children().map((thread) => thread.title).join());
+    const soilId = children().find((thread) => thread.title === 'Soil types')?.id;
+    const frostId = children().find((thread) => thread.title === 'Frost dates')?.id;
+    check('the sidebar nests both under the parent, one step in, the parent first', await until(async () => { const ids = await listedIds(); const under = [ids[ids.indexOf(parentId) + 1], ids[ids.indexOf(parentId) + 2]].sort().join(); return under === [soilId, frostId].sort().join(); }) && (await row(soilId).getAttribute('data-nested')) === 'true' && (await row(parentId).getAttribute('data-nested')) === null, (await listedIds()).join());
+    check('a ring turns on the parent and on each agent while they work', await until(async () => (await row(parentId).getByTestId(`auto-row-working-${parentId}`).count()) === 1 && (await row(frostId).getByTestId(`auto-row-working-${frostId}`).count()) === 1));
+    // Two steps fold to one line, "Started 2 agents", which opens to a line per agent.
+    const stepsFold = page.locator('[data-testid="auto-thread"] [data-testid="auto-steps"] button[aria-expanded]');
+    check('the parent’s steps fold to one line that says it started two agents', await until(async () => (await stepsFold.count()) === 1 && ((await stepsFold.textContent()) ?? '').trim() === 'Started 2 agents'), (await stepsFold.textContent().catch(() => '')) ?? '');
+    await stepsFold.click();
+    check('open, it shows a step line per agent that reads as a sentence', await until(async () => (await page.getByTestId('auto-step-agent').count()) === 2) && (await page.getByTestId('auto-step-agent').allTextContents()).join('|') === 'Started Soil types on Small|Started Frost dates on Large', (await page.getByTestId('auto-step-agent').allTextContents()).join('|'));
+    await shot(101, 'agents-working');
+    service.release('agents-started');
+    check('the parent waits for the first agent, says so on its row, and answers once it is done', await until(async () => (await textOf(`auto-row-${parentId}`)).includes('Waiting for agent Soil types') || service.thread(parentId)?.status === 'idle') && await until(() => service.thread(parentId)?.status === 'idle' && service.thread(soilId)?.status === 'idle', 15_000) && (service.thread(parentId)?.last ?? '').startsWith('Two agents are working'), service.thread(parentId)?.last);
+    check('a finished agent is never unread for him: its parent read it', service.thread(soilId)?.unread === false && (await row(soilId).locator('[aria-label="Unread"]').count()) === 0);
+    // The turn's end draws the steps folded again.
+    if ((await stepsFold.getAttribute('aria-expanded')) !== 'true') await stepsFold.click();
+    await page.getByTestId('auto-step-agent').first().click();
+    check('the step that started an agent opens that agent’s thread, with the way back in its header', await until(async () => (await textOf('auto-title')) === 'Soil types') && (await textOf('auto-parent-link')) === 'Agent of Fan out the research on the beds', await textOf('auto-title'));
+    check('the agent’s thread holds its brief and its reply', ((await talk.textContent()) ?? '').includes('Read the soil notes for each bed') && ((await talk.textContent()) ?? '').includes('Lime bed 1 in the autumn.'));
+    await shot(102, 'agent-thread');
+    await page.getByTestId('auto-parent-link').click();
+    check('Agent of leads back to the parent', await until(async () => (await textOf('auto-title')) === 'Fan out the research on the beds'));
+    // The second agent is still searching: it is stopped from its own thread, as any thread is.
+    await row(frostId).locator('[data-auto-row]').click();
+    await page.getByTestId('auto-stop').waitFor({ timeout: 10_000 });
+    await page.getByTestId('auto-stop').click();
+    check('an agent is stopped from its own thread, and its ring goes', await until(() => service.thread(frostId)?.status === 'stopped') && await until(async () => (await row(frostId).getByTestId(`auto-row-working-${frostId}`).count()) === 0));
+    service.release('agent-hold');
+    check('a child never drags on its own, while its parent still does', (await row(frostId).getAttribute('draggable')) === null && (await row(parentId).getAttribute('draggable')) === 'true');
+    await fromMenu(parentId, 'Archive');
+    check('archiving the parent takes its agents with it', await until(async () => !(await listedIds()).includes(parentId) && !(await listedIds()).includes(soilId) && !(await listedIds()).includes(frostId)), (await listedIds()).join());
+    await said.getByRole('button', { name: 'Undo' }).click();
+    check('and Undo brings the family back, nested as before', await until(async () => { const ids = await listedIds(); const under = [ids[ids.indexOf(parentId) + 1], ids[ids.indexOf(parentId) + 2]].sort().join(); return ids.includes(parentId) && under === [soilId, frostId].sort().join(); }), (await listedIds()).join());
+    await shot(103, 'agents-done');
 
     // --- The empty list, on a service where every thread is snoozed.
     await threadsHeading.click({ button: 'right' });

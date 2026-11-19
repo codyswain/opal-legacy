@@ -8,7 +8,9 @@ import {
   isFresh,
   isYours,
   listSummary,
+  isNested,
   listView,
+  moveBy,
   moveTarget,
   moved,
   needsCount,
@@ -20,6 +22,7 @@ import {
   snoozeDate,
   snoozeDateRange,
   snoozedUntil,
+  topLevel,
   upsertThread,
 } from '@/renderer/features/auto/model/listModel';
 
@@ -31,7 +34,7 @@ function thread(id: string, fields: Partial<AutoThread> = {}): AutoThread {
   return {
     id, title: `Thread ${id}`, status: 'idle', last: `Last of ${id}`, activity: '', ask: null, unread: false, model: '',
     created: at(2026, 11, 13, 9), updated: at(2026, 11, 14, 14, 0), error: null, queued: 0, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null,
-    digest: null, waits: false, desk: null, yours: '', ...fields,
+    digest: null, waits: false, desk: null, yours: '', parent: null, mode: '', agentsModel: '', ...fields,
   };
 }
 
@@ -296,6 +299,36 @@ describe('a row', () => {
     expect(fromDigest(thread('a', { digest: { date: '2026-11-13', id: 'item-3' } }))).toBe(true);
     expect(fromDigest(thread('a', { digest: { date: '2026-11-13', id: 'text-garden-3d20bff3' } }))).toBe(true);
     expect(fromDigest(thread('a'))).toBe(false);
+  });
+});
+
+describe('sub-agents in the list', () => {
+  const threads = [thread('a'), thread('b'), thread('a1', { parent: 'a', status: 'working' }), thread('c', { status: 'waiting', ask }), thread('a2', { parent: 'a', unread: true })];
+
+  it('puts each child under its parent, in the service’s order, whatever group it alone would fall in', () => {
+    const view = listView(threads);
+    expect(view.groups.map((group) => [group.key, ids(group.threads)])).toEqual([
+      ['needs', ['c']],
+      ['rest', ['a', 'a1', 'a2', 'b']],
+    ]);
+    expect(isNested(threads, threads[2])).toBe(true);
+    expect(isNested(threads, threads[0])).toBe(false);
+    // A child whose parent is put away stands on its own.
+    expect(isNested([thread('p', { snoozed: at(2026, 11, 20, 8) }), thread('k', { parent: 'p' })], thread('k', { parent: 'p' }))).toBe(false);
+    expect(ids(listView([thread('k', { parent: 'gone' })]).groups[0].threads)).toEqual(['k']);
+  });
+
+  it('moves a parent among the top-level rows, with its children, and never a child on its own', () => {
+    expect(ids(topLevel(listView(threads).groups[1].threads))).toEqual(['a', 'b']);
+    expect(moveBy(threads, 'a', 1)).toEqual({ id: 'a', before: null });
+    expect(moveBy(threads, 'b', -1)).toEqual({ id: 'b', before: 'a' });
+    expect(moveBy(threads, 'a1', 1)).toBeNull();
+    expect(moveBy(threads, 'a2', -1)).toBeNull();
+  });
+
+  it('counts a child that asks him, and reads nothing else of it as his', () => {
+    expect(attentionCount(threads)).toBe(2);
+    expect(listSummary(threads)).toBe('1 needs you, 1 new, 1 working');
   });
 });
 

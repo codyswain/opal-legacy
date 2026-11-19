@@ -1,4 +1,4 @@
-import type { AutoModelChoice } from '@/types/auto';
+import type { AutoModeChoice, AutoModelChoice } from '@/types/auto';
 import { replyChoice } from '@/common/autoReplyModel';
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import { NEW_THREAD } from './pane';
@@ -13,7 +13,7 @@ export { NEW_THREAD };
  * Drafts, the words typed and not yet sent, are kept per thread beside it.
  */
 
-export interface OutboxEntry extends AutoModelChoice {
+export interface OutboxEntry extends AutoModelChoice, Partial<AutoModeChoice> {
   /** The client's id for this message; the service drops a second copy with the same one. */
   cid: string;
   /** The thread it goes to, or null for a message that starts a new one. */

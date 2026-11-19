@@ -1,4 +1,4 @@
-import { readModelOptions, replyChoice, validModel, visibleModel } from './autoReplyModel';
+import { readModelOptions, replyChoice, validMode, validModel, visibleModel } from './autoReplyModel';
 import type {
   AutoAsk,
   AutoContinues,
@@ -68,7 +68,7 @@ export const RESOLVE_LIMIT = 200;
 export const validThreadId = (value: unknown): value is string => typeof value === 'string' && ID.test(value);
 export const validCursor = (value: unknown): value is string => typeof value === 'string' && CURSOR.test(value);
 export const validCid = (value: unknown): value is string => typeof value === 'string' && CID.test(value);
-export { validModel } from './autoReplyModel';
+export { validModel, validMode } from './autoReplyModel';
 export const validDate = (value: unknown): value is string => typeof value === 'string' && DATE.test(value);
 export const validEntryId = (value: unknown): value is string => typeof value === 'string' && ENTRY_ID.test(value);
 
@@ -183,6 +183,9 @@ export function toThread(value: unknown): AutoThread | null {
     desk: desk ? { at: time(desk.at) ?? 0, by: text(desk.by, 40) } : null,
     // The service keeps it to 80 characters; a longer one is cut, never trusted.
     yours: text(thread.yours, YOURS_LIMIT).trim(),
+    parent: validThreadId(thread.parent) && thread.parent !== thread.id ? thread.parent : null,
+    mode: validMode(thread.mode) ? thread.mode : '',
+    agentsModel: validModel(thread.agentsModel) ? thread.agentsModel : '',
   };
 }
 
@@ -207,7 +210,7 @@ export function toThreads(value: unknown): AutoThread[] {
 function toStep(value: unknown): AutoStep | null {
   const step = fields(value);
   if (!step || typeof step.g !== 'string') return null;
-  return { g: step.g.slice(0, 200), text: text(step.text, LINE_LIMIT), path: optional(step.path, 1_024) };
+  return { g: step.g.slice(0, 200), text: text(step.text, LINE_LIMIT), path: optional(step.path, 1_024), thread: validThreadId(step.thread) ? step.thread : null };
 }
 
 /** One item of a thread, or null for a role Opal does not know. */
@@ -364,6 +367,15 @@ export function toSnapshot(value: unknown): AutoSnapshot | null {
   };
 }
 
+/** The service's modes: '' is Solo, each other key a short word. */
+function toModes(value: Fields): Record<string, string> {
+  const modes: Record<string, string> = {};
+  for (const [key, label] of Object.entries(value).slice(0, OPTIONS_LIMIT)) {
+    if (validMode(key) && typeof label === 'string' && label !== '') modes[key] = label.slice(0, 40);
+  }
+  return modes;
+}
+
 export function toStatus(value: unknown): AutoStatus | null {
   const status = fields(value);
   const auth = status ? fields(status.auth) : null;
@@ -385,6 +397,7 @@ export function toStatus(value: unknown): AutoStatus | null {
     models,
     ...(fields(status.modelOptions) ? { modelOptions: Object.fromEntries(Object.keys(models)
       .map((key) => [key, readModelOptions(fields(status.modelOptions)?.[key])])) } : {}),
+    ...(fields(status.modes) ? { modes: toModes(fields(status.modes) as Fields) } : {}),
   };
 }
 

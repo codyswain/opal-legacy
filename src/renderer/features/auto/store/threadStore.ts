@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { replyChoice, visibleModel } from '@/common/autoReplyModel';
+import { modeChoice, replyChoice, visibleModel } from '@/common/autoReplyModel';
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
-import type { AutoAnswer, AutoModelChoice, AutoQuestion, AutoStreamMessage } from '@/types/auto';
+import type { AutoAnswer, AutoModeChoice, AutoModelChoice, AutoQuestion, AutoStreamMessage } from '@/types/auto';
 import {
   NEW_THREAD,
   cidFor,
@@ -111,6 +111,8 @@ export interface ThreadStore {
   cardProblem: string | null;
   /** The model a new thread starts with. */
   newModel: AutoModelChoice;
+  /** The mode a new thread starts with: Solo, or Orchestrate with a default model for its agents. */
+  newMode: AutoModeChoice;
   /** What shows was opened from the Put away page: the sidebar's Put away row stays marked, and it leads back there. */
   fromAway: boolean;
   /** The open thread keeps the group it was in when it was opened, until another opens or he leaves the tab. */
@@ -150,6 +152,8 @@ export interface ThreadStore {
   /** Posts a new title for a thread, the open one unless `id` names another. An empty or unchanged title posts nothing. */
   rename: (title: string, id?: string) => Promise<void>;
   setModel: (model: AutoModelChoice) => Promise<void>;
+  /** Posts the open thread's mode, to apply from its next turn; for a new thread it is remembered on this Mac. */
+  setMode: (mode: AutoModeChoice) => Promise<void>;
   /** Sends again what a closed app left on its way, and gives the rest back to its box. */
   flush: () => void;
 }
@@ -179,6 +183,7 @@ export function forgetViews(): void {
 export const draftKey = (openId: string | null): string => openId ?? NEW_THREAD;
 
 const MODEL_PREF = 'auto.reply-model';
+const MODE_PREF = 'auto.mode';
 
 /** The next new thread or digest reply starts with the last model picked on this Mac. */
 export function rememberReplyModel(model: AutoModelChoice): void {
@@ -189,6 +194,7 @@ export function rememberReplyModel(model: AutoModelChoice): void {
 export const useThreadStore = create<ThreadStore>((set, get) => {
   const saved = readPref<string | AutoModelChoice | null>(MODEL_PREF, '');
   const preferred = replyChoice(typeof saved === 'string' ? { model: saved } : saved ?? {});
+  const savedMode = modeChoice(readPref<Partial<AutoModeChoice> | null>(MODE_PREF, null) ?? {});
   const keep = (box: BoxState) => {
     writeBox(box);
     set({ box });
@@ -240,7 +246,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     }
     const result = !ready ? null : entry.thread
       ? await api.request({ kind: 'message', id: entry.thread, text: entry.text, cid: entry.cid }).catch((): null => null)
-      : await api.request({ kind: 'create', text: entry.text, model: entry.model, effort: entry.effort, speed: entry.speed, cid: entry.cid }).catch((): null => null);
+      : await api.request({ kind: 'create', text: entry.text, model: entry.model, effort: entry.effort, speed: entry.speed, ...(entry.mode ? { mode: entry.mode, agentsModel: entry.agentsModel ?? '' } : {}), cid: entry.cid }).catch((): null => null);
     onTheirWay.delete(entry.cid);
     if (result?.success) {
       keep(drop(get().box, entry.cid));
@@ -284,6 +290,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     picks: {},
     cardProblem: null,
     newModel: preferred && visibleModel(preferred.model) ? preferred : { model: '' },
+    newMode: savedMode ?? { mode: '', agentsModel: '' },
     fromAway: false,
     hold: null,
 
@@ -480,7 +487,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       }
       const thread = key === NEW_THREAD ? null : key;
       const entry: OutboxEntry = {
-        cid: cidFor(get().failed, thread, words), thread, text: words, ...(thread ? { model: '' } : get().newModel), at: Date.now(),
+        cid: cidFor(get().failed, thread, words), thread, text: words, ...(thread ? { model: '' } : { ...get().newModel, ...(get().newMode.mode ? get().newMode : {}) }), at: Date.now(),
         ...(thread && modelChanges.has(thread) ? { awaitingModel: true } : {}),
       };
       keep(typed ? setDraft(put(get().box, entry), key, '') : put(get().box, entry));
@@ -584,6 +591,21 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       modelChanges.set(id, change);
       // Keep a failed choice until he picks again. Replies never silently use the previous model.
       if (await change && modelChanges.get(id) === change) modelChanges.delete(id);
+    },
+
+    setMode: async (mode) => {
+      const id = paneThread(get().openId);
+      if (!id) {
+        writePref(MODE_PREF, mode);
+        set({ newMode: mode });
+        return;
+      }
+      const result = await autoApi()?.request({ kind: 'mode', id, ...mode }).catch((): null => null);
+      if (!result?.success) {
+        useSaidStore.getState().refuse(result?.error.message ?? "Couldn't change the mode.");
+        return;
+      }
+      useAutoStore.getState().upsert(result.data.thread);
     },
 
     flush: () => {

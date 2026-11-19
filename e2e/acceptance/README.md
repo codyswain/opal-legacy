@@ -18,6 +18,7 @@ npm run test:e2e
 Then, from the repository root:
 
 ```bash
+node e2e/acceptance/auto-agents-acceptance.mjs [--out dir] [--sides a,b] # Sub-agents in the Auto tab against the stand-in: the mode picker, a turn that fans out to two child threads, the step that opens one, the ring, Stop, archive and Undo
 node e2e/acceptance/editor-acceptance.mjs        # Markdown editing: autosave, external edits, conflicts, new note
 node e2e/acceptance/stack-stress-acceptance.mjs  # The daily stream with 100 daily pages: frame times, memory, editor count, drift, Back and relaunch
 node e2e/acceptance/git-autostash-acceptance.mjs # Autosave during vault-pull.sh's `git merge --autostash` in a 3,000-file repo: 30 runs, no saved, typed or upstream line lost

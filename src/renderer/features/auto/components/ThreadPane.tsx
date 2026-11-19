@@ -36,6 +36,7 @@ import { usePaneId } from '@/renderer/features/disk-explorer/panes';
 import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { UsageRing } from './UsageRing';
 import { ReplyModelPicker } from './ReplyModelPicker';
+import { showAutoPane } from '../openAutoTab';
 
 const quiet = 'text-control text-foreground-tertiary';
 /** A folded line of what Auto did: the reply's size, in grey. */
@@ -58,12 +59,17 @@ function Steps({ steps }: { steps: AutoStep[] }) {
   const lines = stepLines(steps);
   if (lines.length === 0) return null;
   const line = (at: number) => {
-    const { lead, text, path } = lines[at];
+    const { lead, text, path, thread } = lines[at];
     return (
       <div key={at} className="truncate">
         {lead}
         {path ? (
           <button type="button" title={path} onClick={(event) => openVault(path, event.metaKey || event.ctrlKey)} className={stepLink}>
+            {text}
+          </button>
+        ) : thread ? (
+          // A step that started a sub-agent opens that agent's thread.
+          <button type="button" data-testid="auto-step-agent" onClick={(event) => showAutoPane(thread, { side: event.altKey })} className={stepLink}>
             {text}
           </button>
         ) : (
@@ -542,6 +548,22 @@ function SentMessages({ threadId }: { threadId: string }) {
   );
 }
 
+/** For a sub-agent: the thread that started it, as one quiet button that opens it. */
+function ParentLink({ parent }: { parent: string }) {
+  const title = useAutoStore((state) => state.threads.find((thread) => thread.id === parent)?.title ?? state.archive.threads.find((thread) => thread.id === parent)?.title);
+  return (
+    <button
+      type="button"
+      data-testid="auto-parent-link"
+      title="The thread that started this agent"
+      onClick={(event) => showAutoPane(parent, { side: event.altKey })}
+      className={cn(quiet, 'min-w-0 shrink truncate rounded-sm px-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus')}
+    >
+      Agent of {title || 'a thread'}
+    </button>
+  );
+}
+
 function ThreadHeader() {
   const openId = useThreadStore((state) => state.openId);
   const renaming = useThreadStore((state) => (state.renaming?.at === 'header' ? state.renaming.id : null));
@@ -556,6 +578,7 @@ function ThreadHeader() {
         ) : (
           <Title key={openId} id={thread?.id ?? null} title={thread?.title ?? ''} menu={menu} editing={renaming !== null && renaming === thread?.id && menu !== null} />
         )}
+        {thread?.parent && !ghost ? <ParentLink parent={thread.parent} /> : null}
         {thread && !ghost ? (
           <div className="flex shrink-0 items-center gap-0.5">
             <SentMessages key={thread.id} threadId={thread.id} />
@@ -661,6 +684,7 @@ const capital = (words: string): string => (words ? words.charAt(0).toUpperCase(
 function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   const openId = useThreadStore((state) => state.openId);
   const preferredModel = useThreadStore((state) => state.newModel);
+  const preferredMode = useThreadStore((state) => state.newMode);
   const view = useThreadStore((state) => state.view);
   const pending = useThreadStore((state) => state.pending);
   const boxFocus = useThreadStore((state) => state.boxFocus);
@@ -744,6 +768,8 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
                   choice={thread ?? preferredModel}
                   lastModel={thread?.lastModel}
                   onChange={(model) => useThreadStore.getState().setModel(model)}
+                  mode={thread ?? preferredMode}
+                  onMode={(mode) => useThreadStore.getState().setMode(mode)}
                   field={box}
                 />
               )}

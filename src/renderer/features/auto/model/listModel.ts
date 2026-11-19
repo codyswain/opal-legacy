@@ -85,6 +85,16 @@ export function groupOf(threads: readonly AutoThread[], id: string): string | nu
   return GROUPS.find((rule) => rule.takes(thread))?.key ?? null;
 }
 
+/**
+ * A sub-agent's row sits under its parent's, one step in, whatever group the
+ * child alone would fall in. True when the thread's parent is in the list.
+ */
+export const isNested = (threads: readonly AutoThread[], thread: AutoThread): boolean =>
+  thread.parent !== null && threads.some((parent) => parent.id === thread.parent && !parent.archived && parent.snoozed === null);
+
+/** A group's rows that are not sub-agents: the ones a drag or Option+arrows move among. */
+export const topLevel = (group: readonly AutoThread[]): AutoThread[] => group.filter((thread) => !group.some((parent) => parent.id === thread.parent));
+
 export function listView(threads: readonly AutoThread[], hold: Hold | null = null): ListView {
   const shown = threads.filter((thread) => !thread.archived && thread.snoozed === null);
   const away = threads
@@ -97,11 +107,15 @@ export function listView(threads: readonly AutoThread[], hold: Hold | null = nul
       const held = GROUPS.findIndex((rule) => rule.key === hold.group);
       if (held !== -1) at = held;
     }
-    if (at !== -1) groups[at].threads.push(thread);
+    if (at !== -1 && !isNested(shown, thread)) groups[at].threads.push(thread);
   }
   GROUPS.forEach((rule, at) => {
     if (rule.newestFirst) groups[at].threads.sort((left, right) => right.updated - left.updated);
   });
+  // Each sub-agent goes under its parent, in the service's order, so the family reads as one.
+  for (const group of groups) {
+    group.threads = group.threads.flatMap((thread) => [thread, ...shown.filter((child) => child.parent === thread.id)]);
+  }
   return {
     groups: groups.filter((group) => group.threads.length > 0),
     waiting: away.filter(isWaitingOnReply),
@@ -169,9 +183,11 @@ export function nextAfter(order: readonly string[], id: string): string | null {
 export function moveBy(threads: readonly AutoThread[], id: string, delta: -1 | 1): { id: string; before: string | null } | null {
   const group = listView(threads).groups.find((each) => each.movable && each.threads.some((thread) => thread.id === id));
   if (!group) return null;
-  const at = group.threads.findIndex((thread) => thread.id === id);
-  if (delta === -1 ? at === 0 : at === group.threads.length - 1) return null;
-  return moveTarget(group.threads, id, delta === -1 ? at - 1 : at + 2);
+  // A sub-agent moves with its parent, never on its own.
+  const tops = topLevel(group.threads);
+  const at = tops.findIndex((thread) => thread.id === id);
+  if (at === -1 || (delta === -1 ? at === 0 : at === tops.length - 1)) return null;
+  return moveTarget(tops, id, delta === -1 ? at - 1 : at + 2);
 }
 
 /** A new or changed entry: replaced where it is, added on top, or taken out once archived. */

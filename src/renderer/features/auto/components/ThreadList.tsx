@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, Newspaper } from 'lucide-react';
+import { Archive, Loader2, Newspaper } from 'lucide-react';
 import type { AutoThread } from '@/types/auto';
 import { openHowFor, type OpenHow } from '@/renderer/features/disk-explorer/navigation/openHow';
 import {
@@ -14,7 +14,7 @@ import {
 } from '@/renderer/shared/ui';
 import { useNow } from '@/renderer/shared/hooks/useNow';
 import { cn } from '@/renderer/shared/utils';
-import { emptyList, fromDigest, isMarked, isYours, listView, moveBy, moveTarget, needsLine, rowTime, type ListGroup } from '../model/listModel';
+import { emptyList, fromDigest, isMarked, isWorking, isYours, listView, moveBy, moveTarget, needsLine, rowTime, topLevel, type ListGroup } from '../model/listModel';
 import { leftWord } from '../model/digestModel';
 import { AWAY, DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { LIST_PLACE, keepPlace, placeIn, placeOf } from '../model/places';
@@ -33,6 +33,8 @@ interface RowProps {
   thread: AutoThread;
   now: number;
   current: boolean;
+  /** A sub-agent under its parent's row: one step in, and not dragged on its own. */
+  nested?: boolean;
   /** This row is the list's one Tab stop. */
   tabStop: boolean;
   /** Shows the thread in the Auto tab. */
@@ -127,7 +129,7 @@ function RowTitleField({ thread, className }: { thread: AutoThread; className: s
   );
 }
 
-function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging = false, drag }: RowProps) {
+function ThreadRow({ thread, now, current, tabStop, show, nested = false, drop = null, dragging = false, drag }: RowProps) {
   const [snoozing, setSnoozing] = React.useState(false);
   const container = React.useRef<HTMLDivElement>(null);
   const digestEntry = fromDigest(thread);
@@ -136,6 +138,8 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
   const time = rowTime(thread, now);
   // The dot before the title, as on the phone: a reply he has not read, or a thread back from snooze. Not on the one he is reading.
   const dot = isMarked(thread) && !current;
+  // A turning ring in the dot's place while Auto works on the thread (Cody, 2026-11-16: "some sort of icon if the thread is currently being actively moved").
+  const working = isWorking(thread);
   // The heavier title is for the rows the heading's count takes in: a question, unread, back from snooze, his move.
   const heavy = dot || thread.status === 'waiting' || isYours(thread);
   const title = thread.title || 'Untitled';
@@ -186,12 +190,13 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
             style={{ '--auto-row-hide': `${icons * 1.75 - 0.5}rem` } as React.CSSProperties}
             data-drop={drop ?? undefined}
             data-renaming={renaming || undefined}
-            // While its title is a field the row does not drag: a press in the field selects text.
-            draggable={drag && !renaming ? true : undefined}
-            onDragStart={drag && !renaming ? (event) => drag.onStart(event, thread.id) : undefined}
+            data-nested={nested || undefined}
+            // While its title is a field the row does not drag: a press in the field selects text. A sub-agent moves with its parent.
+            draggable={drag && !renaming && !nested ? true : undefined}
+            onDragStart={drag && !renaming && !nested ? (event) => drag.onStart(event, thread.id) : undefined}
             onDragOver={drag ? (event) => drag.onOver(event, thread.id) : undefined}
             onDragEnd={drag?.onEnd}
-            className={cn('auto-row group relative rounded-sidebar-row transition-hover', rowFill(current), dragging && 'opacity-50')}
+            className={cn('auto-row group relative rounded-sidebar-row transition-hover', rowFill(current), dragging && 'opacity-50', nested && 'ml-[calc(var(--sidebar-icon-size)+var(--sidebar-icon-gap))]')}
           >
             {renaming ? (
               // The same box as the row's button, so nothing on the row moves; it is not a row the keys or the arrows reach.
@@ -223,7 +228,11 @@ function ThreadRow({ thread, now, current, tabStop, show, drop = null, dragging 
                 >
                   <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
                     <span className="flex w-sidebar-icon shrink-0 justify-center">
-                      {dot ? <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 rounded-full bg-foreground" /> : null}
+                      {working ? (
+                        <Loader2 role="img" aria-label="Working" data-testid={`auto-row-working-${thread.id}`} className="h-3 w-3 animate-spin text-foreground-tertiary" />
+                      ) : dot ? (
+                        <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 rounded-full bg-foreground" />
+                      ) : null}
                     </span>
                     <span data-heavy={heavy || undefined} data-testid={`auto-row-title-${thread.id}`} className={cn('min-w-0 flex-1 truncate text-ui', titleClass)}>
                       {title}
@@ -359,11 +368,16 @@ function GroupRows({ group, apart, now, openId, tabStop, show }: GroupProps) {
     setDrop(null);
     if (!id || !target) return;
     event.preventDefault();
-    const at = group.threads.findIndex((thread) => thread.id === target.id);
-    if (at === -1) return;
-    const moving = moveTarget(group.threads, id, target.edge === 'above' ? at : at + 1);
+    // Rows move among the group's top-level threads; a drop on a sub-agent lands beside its parent.
+    const tops = topLevel(group.threads);
+    const dropped = group.threads.find((thread) => thread.id === target.id);
+    const top = dropped && !tops.includes(dropped) ? tops.find((thread) => thread.id === dropped.parent) : dropped;
+    const at = top ? tops.indexOf(top) : -1;
+    if (at === -1 || !tops.some((thread) => thread.id === id)) return;
+    const moving = moveTarget(tops, id, target.edge === 'above' ? at : at + 1);
     if (moving) void move(moving.id, moving.before);
   };
+  const nested = new Set(group.threads.filter((thread) => group.threads.some((parent) => parent.id === thread.parent)).map((thread) => thread.id));
 
   return (
     <section aria-label={group.heading ?? undefined} data-testid={`auto-group-${group.key}`} className={apart ? 'pt-2' : undefined}>
@@ -381,6 +395,7 @@ function GroupRows({ group, apart, now, openId, tabStop, show }: GroupProps) {
             current={thread.id === openId}
             tabStop={tabStop === thread.id}
             show={show}
+            nested={nested.has(thread.id)}
             drag={drag}
             dragging={dragging === thread.id}
             drop={drop?.id === thread.id && dragging !== thread.id ? drop.edge : null}

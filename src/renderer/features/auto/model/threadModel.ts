@@ -166,6 +166,8 @@ export interface StepLine {
   lead: string;
   text: string;
   path: string | null;
+  /** The sub-agent's thread the step started, which the line opens. */
+  thread: string | null;
 }
 
 const STEP_LEAD: Record<string, string> = {
@@ -181,9 +183,11 @@ export function stepLines(steps: readonly AutoStep[]): StepLine[] {
   return steps
     .filter((step) => step.g !== 'quiet')
     .map((step) => ({
-      lead: STEP_LEAD[step.g] ?? (step.g.startsWith('skill:') ? 'Skill: ' : ''),
+      // A step that started an agent already reads as a sentence ("Started Soil types on Sonnet").
+      lead: step.thread ? '' : STEP_LEAD[step.g] ?? (step.g.startsWith('skill:') ? 'Skill: ' : ''),
       text: step.path ?? step.text,
       path: step.path,
+      thread: step.thread ?? null,
     }));
 }
 
@@ -210,7 +214,7 @@ export function stepsSummary(steps: readonly AutoStep[]): string {
     if (kind === 'change') return `changed ${count(many, '1 file', 'files')}`;
     if (kind === 'search') return many === 1 ? 'searched' : `searched ${many} times`;
     if (kind === 'websearch') return many === 1 ? 'searched the web' : `searched the web ${many} times`;
-    if (kind === 'agent') return count(many, 'a helper', 'helpers');
+    if (kind === 'agent') return `started ${count(many, 'an agent', 'agents')}`;
     if (kind === 'skill') return count(many, 'a skill', 'skills');
     return kinds.size === 1 ? `${many} steps` : count(many, '1 more step', 'more steps');
   });
