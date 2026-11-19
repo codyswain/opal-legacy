@@ -83,9 +83,13 @@ const run: ExecFile = (file, args, options, input) =>
     child.stdin?.end(input ?? undefined);
   });
 
-/** The helper in native/opal-signer: in the app's Resources when packaged, in build/native when run from a checkout. */
-export function signerPath(packaged: boolean, resources: string, appPath: string): string {
-  return packaged ? path.join(resources, 'opal-signer') : path.join(appPath, 'build', 'native', 'opal-signer');
+/**
+ * The helper in native/opal-signer, at build/native under the app's folder. The packaged app copies
+ * the whole folder (asar is off, and package.json's forge config takes no extra resources), so the
+ * same path holds packaged and from a checkout.
+ */
+export function signerPath(_packaged: boolean, _resources: string, appPath: string): string {
+  return path.join(appPath, 'build', 'native', 'opal-signer');
 }
 
 const firstLine = (text: string): string => text.trim().split('\n')[0]?.slice(0, 300) ?? '';

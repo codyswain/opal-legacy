@@ -83,7 +83,7 @@ describe('this Mac’s key', () => {
   });
 
   it('is run from the app’s Resources when packaged, and from the checkout’s build otherwise', () => {
-    expect(signerPath(true, '/Applications/Opal.app/Contents/Resources', '/x')).toBe('/Applications/Opal.app/Contents/Resources/opal-signer');
+    expect(signerPath(true, '/Applications/Opal.app/Contents/Resources', '/Applications/Opal.app/Contents/Resources/app')).toBe('/Applications/Opal.app/Contents/Resources/app/build/native/opal-signer');
     expect(signerPath(false, '/r', '/code/opal')).toBe('/code/opal/build/native/opal-signer');
   });
 
