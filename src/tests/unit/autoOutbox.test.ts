@@ -10,6 +10,7 @@ import {
   put,
   readBox,
   setDraft,
+  setDraftImages,
   writeBox,
   type BoxState,
   type OutboxEntry,
@@ -19,6 +20,9 @@ import { useThreadStore } from '@/renderer/features/auto/store/threadStore';
 import { autoSnapshot, autoThread, installAutoApi } from '@/tests/helpers/autoApi';
 
 const NOW = 1_800_000_000_000;
+const ADDRESS = 'https://host.example/agent';
+const IMAGE = 'a'.repeat(64);
+const OTHER_IMAGE = 'b'.repeat(64);
 const EMPTY: BoxState = { outbox: [], drafts: {} };
 const entry = (cid: string, fields: Partial<OutboxEntry> = {}): OutboxEntry => ({ cid, thread: 'bread', text: `Message ${cid}`, model: '', at: NOW, ...fields });
 
@@ -40,6 +44,15 @@ describe('the outbox', () => {
     writeBox(setDraft(put(EMPTY, entry('a1')), 'bread', 'Half a thought'));
     expect(readBox()).toEqual({ outbox: [entry('a1')], drafts: { bread: 'Half a thought' } });
     expect(readBox().outbox[0]).not.toBe(entry('a1'));
+  });
+
+  it('claims text drafts from the previous version once and keeps image references with each service', () => {
+    writeBox(setDraft(EMPTY, 'bread', 'Older draft'));
+    expect(readBox(ADDRESS).drafts.bread).toBe('Older draft');
+    const box = setDraftImages(put(readBox(ADDRESS), entry('a1', { images: [IMAGE], text: '' })), NEW_THREAD, [OTHER_IMAGE]);
+    writeBox(box, ADDRESS);
+    expect(readBox(ADDRESS)).toEqual(box);
+    expect(readBox('https://another.example/agent')).toEqual(EMPTY);
   });
 
   it('reads nothing it does not know from storage', () => {
@@ -77,6 +90,8 @@ describe('the outbox', () => {
     expect(cidFor(failed, 'bread', 'Move it please')).not.toBe('a1b2c3d4e5');
     expect(cidFor(failed, 'beds', 'Move it')).not.toBe('a1b2c3d4e5');
     expect(cidFor(null, 'bread', 'Move it')).toMatch(/^[0-9a-f]{10}$/);
+    expect(cidFor({ ...failed, images: [IMAGE] }, 'bread', 'Move it', [IMAGE])).toBe(failed.cid);
+    expect(cidFor({ ...failed, images: [IMAGE] }, 'bread', 'Move it', [OTHER_IMAGE])).not.toBe(failed.cid);
   });
 });
 
@@ -85,11 +100,70 @@ describe('the box’s store', () => {
 
   function start(box: BoxState = EMPTY) {
     const auto = installAutoApi({ threads: [BREAD], snapshots: { bread: autoSnapshot(BREAD) } });
-    useAutoStore.setState({ ...useAutoStore.getInitialState(), configured: true, address: 'https://host.example/agent', loaded: true, reachable: true, threads: [BREAD] }, true);
+    useAutoStore.setState({ ...useAutoStore.getInitialState(), configured: true, address: ADDRESS, loaded: true, reachable: true, threads: [BREAD] }, true);
     useThreadStore.setState({ ...useThreadStore.getInitialState(), box, openId: 'bread' }, true);
     return auto;
   }
-  const stored = () => readBox();
+  const stored = () => readBox(ADDRESS);
+
+  it('sends an image by itself and keeps new images in their own draft after a retry', async () => {
+    const auto = start();
+    const store = useThreadStore.getState();
+    auto.state.failWrites = { kind: 'unreachable', message: "Can't reach Auto." };
+    store.setDraftImages('bread', [IMAGE]);
+    const sending = store.send('');
+    expect(stored().outbox[0]).toMatchObject({ text: '', images: [IMAGE] });
+    expect(useThreadStore.getState().pending[0].images).toEqual([IMAGE]);
+    store.setDraftImages('bread', [OTHER_IMAGE]);
+    store.setDraft('More');
+    expect(await sending).toBe(false);
+    expect(stored().drafts.bread).toBe('More');
+    expect(stored().images?.bread).toEqual([IMAGE, OTHER_IMAGE]);
+    auto.state.failWrites = null;
+    expect(await store.send('More')).toBe(true);
+    expect(auto.asked('message')[1]).toMatchObject({ text: 'More', images: [IMAGE, OTHER_IMAGE] });
+    expect(stored().images?.bread).toBeUndefined();
+  });
+
+  it('never sends a draft image with a suggested follow-up', async () => {
+    const auto = start();
+    const store = useThreadStore.getState();
+    store.setDraftImages('bread', [IMAGE]);
+    expect(await store.send('Follow up', false)).toBe(true);
+    expect(auto.asked('message')[0]).not.toHaveProperty('images');
+    expect(stored().images?.bread).toEqual([IMAGE]);
+  });
+
+  it('puts images from a stopped queue and an unsent turn back in the original draft', async () => {
+    const auto = start();
+    const store = useThreadStore.getState();
+    auto.state.snapshots.bread = autoSnapshot(BREAD, { unsent: '', unsentImages: [IMAGE] });
+    await store.load();
+    expect(stored().images?.bread).toEqual([IMAGE]);
+    store.setDraft('New caption');
+    auto.state.snapshots.bread = autoSnapshot(BREAD, { queue: [{ cid: 'queued', text: '', images: [OTHER_IMAGE] }] });
+    await store.stop();
+    expect(stored().drafts.bread).toBe('New caption');
+    expect(stored().images?.bread).toEqual([IMAGE, OTHER_IMAGE]);
+  });
+
+  it('restores a failed upload reference to the service it came from even after switching', async () => {
+    const auto = start();
+    const store = useThreadStore.getState();
+    let finish!: () => void;
+    auto.state.gate = new Promise<void>((resolve) => { finish = resolve; });
+    store.setDraftImages('bread', [IMAGE]);
+    const sending = store.send('First service');
+    useAutoStore.setState({ address: 'https://second.example/agent' });
+    store.setDraftImages('bread', [OTHER_IMAGE]);
+    auto.state.failWrites = { kind: 'unreachable', message: 'Disconnected' };
+    finish();
+    expect(await sending).toBe(false);
+    expect(useThreadStore.getState().box.images?.bread).toEqual([OTHER_IMAGE]);
+    expect(stored().drafts.bread).toBe('First service');
+    expect(stored().images?.bread).toEqual([IMAGE]);
+    expect(stored().outbox).toEqual([]);
+  });
 
   it('holds a message in the outbox while it is on its way, and drops it once it is there', async () => {
     const auto = start();

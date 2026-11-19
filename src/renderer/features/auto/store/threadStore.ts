@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { MAX_AUTO_IMAGES } from '@/common/autoImages';
 import { modeChoice, replyChoice, visibleModel } from '@/common/autoReplyModel';
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import type { AutoAnswer, AutoModeChoice, AutoModelChoice, AutoQuestion, AutoStreamMessage } from '@/types/auto';
@@ -11,6 +12,7 @@ import {
   put,
   readBox,
   setDraft,
+  setDraftImages,
   writeBox,
   type BoxState,
   type Failed,
@@ -42,7 +44,7 @@ const answering = new Set<string>();
  */
 function begunBefore(earlier: Record<string, string>, box: BoxState, thread: string, question: AutoQuestion | null): Record<string, string> {
   const next = { ...earlier };
-  if (question && (box.drafts[thread] ?? '').trim()) next[thread] = question.id;
+  if (question && ((box.drafts[thread] ?? '').trim() || box.images?.[thread]?.length)) next[thread] = question.id;
   else delete next[thread];
   return next;
 }
@@ -136,6 +138,7 @@ export interface ThreadStore {
   setWatching: (watching: boolean) => void;
   handle: (message: AutoStreamMessage) => void;
   setDraft: (text: string) => void;
+  setDraftImages: (key: string, ids: string[], beforeQuestion?: boolean) => void;
   /**
    * Sends words as his message; `typed` says they came from the box, which is
    * then emptied. While a question waits, words typed in the box are his
@@ -196,7 +199,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
   const preferred = replyChoice(typeof saved === 'string' ? { model: saved } : saved ?? {});
   const savedMode = modeChoice(readPref<Partial<AutoModeChoice> | null>(MODE_PREF, null) ?? {});
   const keep = (box: BoxState) => {
-    writeBox(box);
+    writeBox(box, useAutoStore.getState().address);
     set({ box });
   };
 
@@ -244,10 +247,16 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       // Once confirmed, this message may be replayed normally if Opal closes during the post.
       keep(put(get().box, { ...entry, awaitingModel: false }));
     }
+    const attachments = entry.images?.length ? { images: entry.images } : {};
     const result = !ready ? null : entry.thread
-      ? await api.request({ kind: 'message', id: entry.thread, text: entry.text, cid: entry.cid }).catch((): null => null)
-      : await api.request({ kind: 'create', text: entry.text, model: entry.model, effort: entry.effort, speed: entry.speed, ...(entry.mode ? { mode: entry.mode, agentsModel: entry.agentsModel ?? '' } : {}), cid: entry.cid }).catch((): null => null);
+      ? await api.request({ kind: 'message', id: entry.thread, text: entry.text, cid: entry.cid, ...attachments }).catch((): null => null)
+      : await api.request({ kind: 'create', text: entry.text, model: entry.model, effort: entry.effort, speed: entry.speed, ...(entry.mode ? { mode: entry.mode, agentsModel: entry.agentsModel ?? '' } : {}), cid: entry.cid, ...attachments }).catch((): null => null);
     onTheirWay.delete(entry.cid);
+    if (useAutoStore.getState().address !== address) {
+      const old = readBox(address);
+      writeBox(result?.success ? drop(old, entry.cid) : giveBack(old, entry), address);
+      return null;
+    }
     if (result?.success) {
       keep(drop(get().box, entry.cid));
       // The service answers: a thread that could not be read is read now.
@@ -263,7 +272,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     const thread = draftKey(entry.thread);
     set({
       pending: get().pending.filter((message) => message.cid !== entry.cid),
-      failed: { thread: entry.thread, text: entry.text, cid: entry.cid },
+      failed: { thread: entry.thread, text: entry.text, cid: entry.cid, ...attachments },
       notSent: { thread, text: !ready ? 'Choose a reply model again before sending.' : result?.error.kind === 'refused' ? `Not sent: ${result.error.message}` : 'Not sent' },
     });
     return null;
@@ -284,7 +293,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     token: null,
     watching: false,
     pending: [],
-    box: readBox(),
+    box: { drafts: {}, outbox: [] },
     notSent: null,
     failed: null,
     picks: {},
@@ -359,13 +368,14 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (!api || !id) return;
       unfollow();
       const asked = ++loads;
+      const address = useAutoStore.getState().address;
       set({ loading: true, slow: false });
       if (slowTimer) clearTimeout(slowTimer);
       slowTimer = setTimeout(() => {
         if (get().openId === id && get().loading && get().view === null) set({ slow: true, ghost: null });
       }, SLOW_MS);
       const result = await api.request({ kind: 'thread', id }).catch((): null => null);
-      if (get().openId !== id || asked !== loads) return;
+      if (get().openId !== id || asked !== loads || useAutoStore.getState().address !== address) return;
       if (!result?.success) {
         // A thread that is gone says so; a service out of reach is the list's to report.
         const refused = result?.error.kind === 'refused';
@@ -394,8 +404,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
         ...(view.question?.id === get().view?.question?.id ? {} : { earlier: begunBefore(get().earlier, get().box, id, view.question) }),
       });
       // A message the service could not hand to the agent goes back into an empty box.
-      if (view.unsent && !(get().box.drafts[id] ?? '').trim()) {
-        keep(setDraft(get().box, id, view.unsent));
+      if ((view.unsent || view.unsentImages?.length) && !(get().box.drafts[id] ?? '').trim() && !get().box.images?.[id]?.length) {
+        keep(setDraftImages(setDraft(get().box, id, view.unsent ?? ''), id, view.unsentImages ?? []));
         set({ notSent: { thread: id, text: 'Not sent' } });
       }
       useAutoStore.getState().upsert(view.thread);
@@ -446,7 +456,16 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       keep(setDraft(get().box, key, text));
       if (get().notSent?.thread === key) set({ notSent: null });
       // Emptied once, the box is the card's answer field.
-      if (text === '' && get().earlier[key] !== undefined) set({ earlier: begunBefore(get().earlier, get().box, key, null) });
+      if (text === '' && !get().box.images?.[key]?.length && get().earlier[key] !== undefined) set({ earlier: begunBefore(get().earlier, get().box, key, null) });
+    },
+
+    setDraftImages: (key, images, beforeQuestion) => {
+      const box = setDraftImages(get().box, key, images);
+      keep(box);
+      if (get().notSent?.thread === key) set({ notSent: null });
+      if (draftKey(get().openId) === key && (beforeQuestion || get().earlier[key])) {
+        set({ earlier: begunBefore(get().earlier, box, key, get().view?.question ?? null) });
+      }
     },
 
     editNext: (line) => {
@@ -458,12 +477,18 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       const words = text.trim();
       const openId = get().openId;
       const key = draftKey(openId);
+      const images = typed ? get().box.images?.[key] ?? [] : [];
+      const attachments = images.length ? { images } : {};
       // The queue has boxes of its own.
-      if (!words || openId === DIGEST_QUEUE) return false;
+      if ((!words && !images.length) || openId === DIGEST_QUEUE) return false;
+      if (images.length > MAX_AUTO_IMAGES) {
+        set({ notSent: { thread: key, text: `Choose up to ${MAX_AUTO_IMAGES} images for one message.` } });
+        return false;
+      }
       // While a question waits, the box is its answer field: his words answer it and are not queued behind it.
       const question = get().view?.question;
       // Words begun before the card arrived are not its answer: they go as the message they were begun as.
-      if (question && typed && get().earlier[key] !== question.id) {
+      if (question && typed && !images.length && get().earlier[key] !== question.id) {
         const picked = question.kind === 'ask' && !isSingle(question) && picksReady(question, get().picks);
         if (question.kind !== 'grant' && !picked) {
           const took = await get().answer(answerTyped(question, words, get().picks));
@@ -487,13 +512,14 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       }
       const thread = key === NEW_THREAD ? null : key;
       const entry: OutboxEntry = {
-        cid: cidFor(get().failed, thread, words), thread, text: words, ...(thread ? { model: '' } : { ...get().newModel, ...(get().newMode.mode ? get().newMode : {}) }), at: Date.now(),
+        cid: cidFor(get().failed, thread, words, images), thread, text: words, ...attachments, ...(thread ? { model: '' } : { ...get().newModel, ...(get().newMode.mode ? get().newMode : {}) }), at: Date.now(),
         ...(thread && modelChanges.has(thread) ? { awaitingModel: true } : {}),
       };
-      keep(typed ? setDraft(put(get().box, entry), key, '') : put(get().box, entry));
+      const box = put(get().box, entry);
+      keep(typed ? setDraftImages(setDraft(box, key, ''), key, []) : box);
       const view = get().view;
       set({
-        pending: [...get().pending, { cid: entry.cid, text: words }],
+        pending: [...get().pending, { cid: entry.cid, text: words, ...attachments }],
         notSent: null,
         failed: null,
         view: view ? { ...view, next: [] } : view,
@@ -513,18 +539,24 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
     stop: async () => {
       const id = paneThread(get().openId);
       if (!id) return;
+      const address = useAutoStore.getState().address;
       const result = await autoApi()?.request({ kind: 'stop', id }).catch((): null => null);
+      const sameService = useAutoStore.getState().address === address;
       // The keyboard goes back to the box, whatever held it when he stopped the turn.
-      if (get().openId === id) get().focusBox();
+      if (sameService && get().openId === id) get().focusBox();
       if (!result?.success) {
-        if (result?.error.kind === 'refused') set({ cardProblem: result.error.message });
+        if (sameService && result?.error.kind === 'refused') set({ cardProblem: result.error.message });
         return;
       }
       // The queued messages it dropped go back into the box.
-      const back = result.data.returned.map((queued) => queued.text).join('\n\n');
-      if (!back) return;
-      const typed = get().box.drafts[id] ?? '';
-      keep(setDraft(get().box, id, typed.trim() ? `${typed}\n\n${back}` : back));
+      const returned = result.data.returned;
+      if (!returned.length) return;
+      const box = sameService ? get().box : readBox(address);
+      const words = [box.drafts[id] ?? '', ...returned.map((queued) => queued.text)].filter((line) => line.trim()).join('\n\n');
+      const images = [...new Set([...(box.images?.[id] ?? []), ...returned.flatMap((queued) => queued.images ?? [])])];
+      const restored = setDraftImages(setDraft(box, id, words), id, images);
+      if (sameService) keep(restored);
+      else writeBox(restored, address);
     },
 
     answer: async (answer) => {
@@ -628,6 +660,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
 useAutoStore.subscribe((state, before) => {
   // Another address is another service: nothing kept from the old one stays.
   if (state.address !== before.address) {
+    if (before.address) useThreadStore.getState().open(null, { focus: false });
+    useThreadStore.setState({ box: state.address ? readBox(state.address) : { outbox: [], drafts: {} }, notSent: null, failed: null, earlier: {}, pending: [] });
     forgetViews();
     forgetPlaces();
     // An Undo on offer would take back something the other service did.

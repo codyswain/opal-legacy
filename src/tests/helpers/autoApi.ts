@@ -1,4 +1,5 @@
 import { replyChoice } from '@/common/autoReplyModel';
+import { createHash } from 'node:crypto';
 import { vi } from 'vitest';
 import type {
   AutoAPI,
@@ -98,12 +99,13 @@ export interface FakeAuto {
   stream: (stream: 'list' | 'thread', type: 'open' | 'down') => void;
 }
 
-const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'archived', 'thread', 'digest', 'digests', 'usage']);
+const READS = new Set<AutoRoute['kind']>(['status', 'threads', 'archived', 'thread', 'digest', 'digests', 'usage', 'image']);
 const NO_DIGEST: AutoResult<never> = { success: false, error: { kind: 'refused', message: 'No digest.', code: 'not_found', status: 404 } };
 
 /** Puts a fake of the main process's Auto bridge on `window`: an in-memory service and two streams to push events down. */
 export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAuto {
   const listeners = new Set<(message: AutoStreamMessage) => void>();
+  const images = new Map<string, { mime: string; data: string }>();
   const state: FakeAuto['state'] = {
     url: 'https://host.example/agent',
     status: AUTO_STATUS,
@@ -154,6 +156,15 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
       if (state.failWrites) return { success: false, error: state.failWrites };
     }
     switch (route.kind) {
+      case 'upload-image': {
+        const id = createHash('sha256').update(Buffer.from(route.data, 'base64')).digest('hex');
+        images.set(id, { mime: route.mime, data: route.data });
+        return ok({ id });
+      }
+      case 'image':
+        return images.has(route.id)
+          ? ok(images.get(route.id))
+          : { success: false, error: { kind: 'refused', message: 'No image.', code: 'not_found', status: 404 } };
       case 'status':
       case 'check-status':
         return ok(state.status);
@@ -174,7 +185,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
       case 'create': {
         const thread = autoThread('created1', { title: route.text.slice(0, 40), status: 'working', ...replyChoice(route) });
         state.threads = [thread, ...state.threads];
-        state.snapshots[thread.id] = autoSnapshot(thread, { live: { items: [{ role: 'user', text: route.text, cid: route.cid }], activity: '', state: 'working', question: null } });
+        state.snapshots[thread.id] = autoSnapshot(thread, { live: { items: [{ role: 'user', text: route.text, cid: route.cid, ...(route.images?.length ? { images: route.images } : {}) }], activity: '', state: 'working', question: null } });
         return ok({ thread });
       }
       case 'message':
@@ -231,10 +242,10 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         const found = state.digests[route.date]?.sections.flatMap((section) => section.entries).find((each) => each.id === route.id);
         if (!found) return NO_DIGEST;
         const id = `from-${route.id}`.slice(0, 40);
-        const waits = route.words === null;
+        const waits = route.words === null && !route.images?.length;
         const thread = autoThread(id, { title: found.title || found.md.slice(0, 40), digest: { date: route.date, id: route.id }, model: '', ...replyChoice(route), waits, status: waits ? 'idle' : 'working', last: found.md.slice(0, 80) });
         state.threads = [thread, ...state.threads.filter((each) => each.id !== id)];
-        state.snapshots[id] = autoSnapshot(thread, waits ? { seed: found.md } : { live: { items: [{ role: 'user', text: route.words ?? '', cid: route.cid }], activity: '', state: 'working', question: null } });
+        state.snapshots[id] = autoSnapshot(thread, waits ? { seed: found.md } : { live: { items: [{ role: 'user', text: route.words ?? '', cid: route.cid, ...(route.images?.length ? { images: route.images } : {}) }], activity: '', state: 'working', question: null } });
         change(route.date, [route.id], () => ({ state: 'thread', thread: id }));
         return ok({ thread });
       }
