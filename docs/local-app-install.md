@@ -30,6 +30,53 @@ Never quit or replace a running Opal yourself: the person using it clicks
 "Update ready" when it suits them, and Opal saves their pages before it
 closes.
 
+## Shipping a change to Cody's Pro from an Auto thread
+
+Cody asks for Opal changes from Opal itself, and Auto builds them on the
+Mini. The change reaches his app only through "Update ready", so finish
+every Opal change with these steps. Run them yourself; his part is one
+click. (Cody, 2026-11-19: "It's a pretty important workflow for us to be
+able to write improvements directly from Opal.")
+
+1. **Work in a worktree on the Mini from `origin/main`,** never the local
+   `dev` checkout. Commit and push the branch.
+   - On the Mini, run tests with `NODE_OPTIONS=--no-experimental-webstorage`.
+     Its Node 26 has a built-in `localStorage` that breaks about 650
+     renderer tests; the pre-commit hook needs it too.
+2. **Merge `origin/main` into the branch before building.** The staged build
+   replaces his whole app, so a branch behind main would take away fixes he
+   already has. Push the merge.
+3. **Build on the Pro**, in a worktree of its own (`~/code/opal-<name>`),
+   never in the folders his sessions use. Over ssh, Node is not on the path:
+
+   ```sh
+   ssh cody@codys-macbook-pro 'export PATH=$HOME/.local/share/fnm/aliases/default/bin:$PATH
+     cd ~/code/opal && git fetch -q origin
+     git worktree add ~/code/opal-<name> -B <branch> origin/<branch>   # or: cd there && git pull --ff-only
+     cd ~/code/opal-<name> && npm install && npx tsc --noEmit -p . && npx vitest run && npm run package'
+   ```
+
+   Packaging reads the `config.forge` block in `package.json`, not
+   `forge.config.ts`. Files the app needs at run time must sit inside the
+   project folder (asar is off, so the whole folder is copied); an
+   `extraResource` in `forge.config.ts` is ignored.
+4. **Stage it in the Pro's source**, which its `updates.json` names as
+   `~/Library/Application Support/Opal Updates`:
+
+   ```sh
+   node scripts/stage-update.mjs out/Opal-darwin-arm64/Opal.app ~/Library/Application\ Support/Opal\ Updates "One line on what changed"
+   ```
+
+   Check `latest.json` there names your commit.
+5. **Tell Cody to press ⌘K and run Check for Updates**, then click
+   **Update ready** above Settings. Without that, the row appears only at
+   Opal's next check (every 30 minutes, at launch, or on focus after ten
+   minutes away). On 2026-11-19 he looked for the row right after staging
+   and found none. **Roll Back to Previous Build** in the palette undoes it.
+
+A branch build in the source is replaced by the next build anyone stages
+from main. Open the PR as well, so the change lands on main.
+
 ## Where Opal looks
 
 Each Mac lists its sources in `<userData>/updates.json`, and only there:
