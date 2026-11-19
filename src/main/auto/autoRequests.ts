@@ -1,4 +1,4 @@
-import { replyChoice } from '@/common/autoReplyModel';
+import { modeChoice, replyChoice } from '@/common/autoReplyModel';
 import {
   NOTE_LIMIT,
   RESOLVE_LIMIT,
@@ -113,7 +113,8 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
     case 'thread':
       return get(base, `/api/threads/${route.id}`);
     case 'create':
-      return post(base, '/api/threads', { text: route.text, ...replyChoice(route), cid: route.cid });
+      // A mode travels only when one is set, so an older service sees the body it knows.
+      return post(base, '/api/threads', { text: route.text, ...replyChoice(route), ...(route.mode ? { mode: route.mode, agentsModel: route.agentsModel ?? '' } : {}), cid: route.cid });
     case 'message':
       return post(base, `/api/threads/${route.id}/messages`, { text: route.text, cid: route.cid });
     case 'stop':
@@ -122,6 +123,8 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
       return post(base, `/api/threads/${route.id}/answer`, answerBody(route.answer));
     case 'model':
       return post(base, `/api/threads/${route.id}/model`, { ...replyChoice(route) });
+    case 'mode':
+      return post(base, `/api/threads/${route.id}/mode`, { mode: route.mode, agentsModel: route.agentsModel });
     case 'rename':
       return post(base, `/api/threads/${route.id}/rename`, { title: route.title });
     case 'archive':
@@ -235,8 +238,9 @@ export function validRoute(value: unknown): AutoRoute | null {
       return { kind: route.kind };
     case 'create': {
       const choice = replyChoice(route);
-      return words(route.text) && choice && validCid(route.cid)
-        ? { kind: 'create', text: route.text, ...choice, cid: route.cid }
+      const mode = route.mode === undefined && route.agentsModel === undefined ? {} : modeChoice(route);
+      return words(route.text) && choice && mode && validCid(route.cid)
+        ? { kind: 'create', text: route.text, ...choice, ...mode, cid: route.cid }
         : null;
     }
     case 'archived':
@@ -274,6 +278,10 @@ export function validRoute(value: unknown): AutoRoute | null {
     case 'model': {
       const choice = replyChoice(route);
       return choice ? { kind: 'model', id, ...choice } : null;
+    }
+    case 'mode': {
+      const choice = modeChoice(route);
+      return choice ? { kind: 'mode', id, ...choice } : null;
     }
     case 'rename':
       return words(route.title, 300) ? { kind: 'rename', id, title: route.title.trim() } : null;

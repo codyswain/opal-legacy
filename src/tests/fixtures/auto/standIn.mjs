@@ -17,6 +17,10 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 
 const MODELS = { '': 'Default', small: 'Small', large: 'Large' };
+const MODES = { '': 'Solo', orchestrate: 'Orchestrate' };
+const SOIL_REPLY = `Clay over the north half, loam by the shed. Beds 1 and 2 drain slowly after rain; beds 3 and 4 are fine within a day.
+
+Lime bed 1 in the autumn.`;
 const SIGN_IN = 'auto-login --on desk-mac';
 const NAME = 'Robin';
 
@@ -360,6 +364,7 @@ export async function startStandIn(options = {}) {
       ask: askOf(thread), unread: thread.unread, model: thread.model, created: thread.created, updated: thread.updated,
       error: thread.status === 'failed' ? thread.error : null, queued: thread.queue.length, archived: thread.archived,
       snoozed: thread.snoozed, woke: thread.woke, desk: thread.desk ?? null, yours: thread.yours ?? '', digest: thread.digest, ...(thread.waits ? { waits: true } : {}),
+      parent: thread.parent ?? null, mode: thread.mode ?? '', agentsModel: thread.agentsModel ?? '',
       snoozed_at: thread.snoozed ? thread.snoozed_at ?? thread.updated : null,
       archived_at: thread.archived ? thread.archived_at ?? thread.updated : null,
       wait: waitOf(thread.wait),
@@ -503,6 +508,7 @@ export async function startStandIn(options = {}) {
       waiting: all.filter((thread) => thread.status === 'queued').length,
       limit: 3,
       models: MODELS,
+      modes: MODES,
     };
   }
 
@@ -559,6 +565,34 @@ export async function startStandIn(options = {}) {
         }
         delete item.open;
         emitThread(thread, 'set', { index: live().items.indexOf(item), item });
+      },
+      /**
+       * Starts a sub-agent: a thread under this one, on a model, with a brief as its first message,
+       * running `play`. The step line names it and opens it. Answers its id, and a promise for its end.
+       */
+      agent(title, model, brief, play) {
+        alive();
+        const t = now();
+        const child = add({
+          id: hex(6), title, status: 'idle', last: '', activity: '', unread: false, model, parent: thread.id,
+          created: t, updated: t, error: null, archived: false, snoozed: null, woke: null, digest: null, waits: false, items: [], next: [], seed: null,
+        }, false);
+        order = order.filter((id) => id !== child.id);
+        order.splice(order.indexOf(thread.id) + 1, 0, child.id);
+        emitList('thread', entry(child));
+        emitList('order', { ids: shown() });
+        ctx.step({ g: 'agent', text: `Started ${title} on ${MODELS[model]}`, thread: child.id });
+        let settle;
+        const done = new Promise((resolve) => { settle = resolve; });
+        startTurn(child, { role: 'user', text: brief }, play);
+        const watch = setInterval(() => {
+          if (child.status === 'working' || child.status === 'queued') return;
+          clearInterval(watch);
+          timers.delete(watch);
+          settle();
+        }, 20);
+        timers.add(watch);
+        return { id: child.id, done };
       },
       /** Asks and waits for the answer. */
       async ask(fields) {
@@ -686,6 +720,33 @@ export async function startStandIn(options = {}) {
       await ctx.say(answer.allow === true ? 'Sent.' : 'Nothing was sent.');
       return [];
     }
+    if (said.includes('fan out')) {
+      // Orchestrate: the thread starts two agents as threads under it, reads one back and waits on the other.
+      ctx.activity('Splitting the work');
+      await ctx.wait(pace * 2);
+      const soil = ctx.agent('Soil types', 'small', 'Read the soil notes for each bed and say which drain slowly.', async (child) => {
+        child.activity('Reading the soil notes');
+        await child.wait(pace * 3);
+        child.step({ g: 'read', text: 'Projects/Garden/Beds.md', path: 'Projects/Garden/Beds.md' });
+        await child.say(SOIL_REPLY);
+        return [];
+      });
+      ctx.agent('Frost dates', 'large', 'Find the last frost date for the region and the earliest safe sowing week.', async (child) => {
+        child.activity('Searching the web');
+        await child.wait(pace * 2);
+        child.step({ g: 'websearch', text: 'last frost date by region' });
+        await child.gate('agent-hold');
+        await child.say('The last frost is around 10 May. Sow beans outside from the third week of May.');
+        return [];
+      });
+      await ctx.gate('agents-started');
+      ctx.activity('Waiting for agent Soil types');
+      await soil.done;
+      await ctx.say(`Two agents are working: **Soil types** on Small is done, **Frost dates** on Large is still searching.
+
+Soil: ${firstLine(SOIL_REPLY)}`);
+      return ['Read the frost dates when they are in'];
+    }
     if (said.includes('note for the club')) {
       ctx.activity('Writing the note');
       await ctx.wait(pace * 2);
@@ -784,7 +845,8 @@ export async function startStandIn(options = {}) {
     }
     thread.error = outcome === 'failed' ? error ?? 'The turn did not finish.' : null;
     thread.last = outcome === 'stopped' ? 'Stopped' : reply ? firstLine(reply.text) : thread.last;
-    thread.unread = thread.clients.size === 0 && outcome !== 'stopped';
+    // A sub-agent is read by its parent, never unread for him.
+    thread.unread = thread.clients.size === 0 && outcome !== 'stopped' && !thread.parent;
     thread.updated = now();
     const waiting = thread.queue.length > 0;
     // One follow-up may open "you:": it is his move, kept as words on the thread and never a button.
@@ -1012,11 +1074,14 @@ export async function startStandIn(options = {}) {
     if (path === '/api/threads' && isWrite) {
       if (typeof data.text !== 'string' || !data.text.trim() || data.text.length > 100_000) return refuse(response, 400, 'bad_request', 'Say something first.');
       if (data.model !== undefined && !(data.model in MODELS)) return refuse(response, 400, 'bad_request', 'No such model.');
+      if (data.mode !== undefined && !(data.mode in MODES)) return refuse(response, 400, 'bad_request', 'Unknown mode.');
+      if (data.agentsModel && !(data.agentsModel in MODELS)) return refuse(response, 400, 'bad_request', 'No such model.');
       const cid = typeof data.cid === 'string' ? data.cid.slice(0, 40) : '';
       if (cid && cids.has(cid)) return answer(response, 201, { thread: entry(threads.get(cids.get(cid))) });
       const t = now();
       const thread = add({
         id: hex(6), title: firstLine(data.text).slice(0, 40), status: 'idle', last: '', activity: '', unread: false, model: data.model ?? '',
+        mode: data.mode ?? '', agentsModel: data.agentsModel ?? '',
         created: t, updated: t, error: null, archived: false, snoozed: null, woke: null, digest: null, waits: false, items: [], next: [], seed: null,
       }, true);
       if (cid) cids.set(cid, thread.id);
@@ -1213,6 +1278,13 @@ export async function startStandIn(options = {}) {
         thread.model = data.model;
         changed(thread);
         return answer(response, 200, { thread: entry(thread) });
+      case 'mode':
+        if (!(data.mode in MODES)) return refuse(response, 400, 'bad_request', 'Unknown mode.');
+        if (data.agentsModel && !(data.agentsModel in MODELS)) return refuse(response, 400, 'bad_request', 'No such model.');
+        thread.mode = data.mode;
+        thread.agentsModel = data.agentsModel ?? '';
+        changed(thread);
+        return answer(response, 200, { thread: entry(thread) });
       case 'rename':
         if (typeof data.title !== 'string' || !data.title.trim()) return refuse(response, 400, 'bad_request', 'A title cannot be empty.');
         thread.title = data.title.split('\n')[0].trim().slice(0, 120);
@@ -1248,6 +1320,13 @@ export async function startStandIn(options = {}) {
           changed(thread);
           if (was) emitList('order', { ids: shown() });
         }
+        // Its sub-agents go with it, and come back with it, as the service does.
+        for (const child of [...threads.values()].filter((each) => each.parent === thread.id && each.archived !== thread.archived)) {
+          child.archived = thread.archived;
+          child.archived_at = thread.archived ? now() : null;
+          changed(child);
+        }
+        if (!thread.archived && was) emitList('order', { ids: shown() });
         return answer(response, 200, { thread: entry(thread) });
       }
       case 'move': {
@@ -1444,7 +1523,7 @@ export async function startStandIn(options = {}) {
     },
     async close() {
       clearInterval(waker);
-      for (const timer of timers) clearTimeout(timer);
+      for (const timer of timers) { clearTimeout(timer); clearInterval(timer); }
       for (const thread of threads.values()) {
         if (thread.run) thread.run.stopped = true;
         thread.answer?.({ allow: false, answers: {} });

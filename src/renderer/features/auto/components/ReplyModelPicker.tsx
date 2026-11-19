@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { AutoModelChoice } from '@/types/auto';
+import type { AutoModeChoice, AutoModelChoice } from '@/types/auto';
 import { replyChoice } from '@/common/autoReplyModel';
 import { Button, Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger } from '@/renderer/shared/ui';
 import { modelChoices, useAutoStore } from '../store/autoStore';
@@ -9,28 +9,43 @@ interface Props {
   choice?: AutoModelChoice;
   lastModel?: string;
   onChange: (choice: AutoModelChoice) => Promise<void> | void;
+  /** The thread's mode, or the one a new thread starts with. Drawn only when the service names modes. */
+  mode?: AutoModeChoice;
+  onMode?: (mode: AutoModeChoice) => Promise<void> | void;
   field: React.RefObject<HTMLTextAreaElement>;
   disabled?: boolean;
 }
 
 type Option = [string, string];
+type Kind = 'Model' | 'Effort' | 'Speed' | 'Mode' | 'Agents';
 
-export function ReplyModelPicker({ choice, lastModel, onChange, field, disabled }: Props) {
+/**
+ * The pickers in the box's foot: the model, with its effort and speed when
+ * the model has them; then the mode (Solo or Orchestrate), and under
+ * Orchestrate the default model for the agents the thread starts. Each is
+ * one quiet button with a menu. The choice applies to the next turn.
+ */
+export function ReplyModelPicker({ choice, lastModel, onChange, mode, onMode, field, disabled }: Props) {
   const status = useAutoStore((state) => state.status);
   const [saving, setSaving] = React.useState(false);
   const model = choice?.model;
   const options = model !== undefined ? status?.modelOptions?.[model] : undefined;
+  const modes = status?.modes;
 
-  function picker(kind: 'Model' | 'Effort' | 'Speed', value: string | undefined, choices: Option[]) {
-    const label = choices.find(([key]) => key === value)?.[1] ?? value ?? 'Thread model';
+  function picker(kind: Kind, value: string | undefined, choices: Option[], fallback = 'Thread model', prefix = '') {
+    const label = prefix + (choices.find(([key]) => key === value)?.[1] ?? value ?? fallback);
     const select = async (key: string) => {
       if (key === value) return;
-      const next = kind === 'Model' ? { model: key }
-        : replyChoice({ ...choice, [kind === 'Effort' ? 'effort' : 'speed']: key || undefined });
+      let next: AutoModelChoice | AutoModeChoice | null;
+      if (kind === 'Model') next = { model: key };
+      else if (kind === 'Mode') next = { mode: key, agentsModel: mode?.agentsModel ?? '' };
+      else if (kind === 'Agents') next = { mode: mode?.mode ?? '', agentsModel: key };
+      else next = replyChoice({ ...choice, [kind === 'Effort' ? 'effort' : 'speed']: key || undefined });
       if (!next) return;
       setSaving(true);
       try {
-        await onChange(next);
+        if ('mode' in next) await onMode?.(next);
+        else await onChange(next);
       } finally {
         setSaving(false);
       }
@@ -64,5 +79,10 @@ export function ReplyModelPicker({ choice, lastModel, onChange, field, disabled 
     {options && Object.keys(options.speeds).length > 0 && picker('Speed', choice?.speed ?? '', [
       ['', 'Standard'], ...Object.entries(options.speeds),
     ])}
+    {mode && onMode && modes && Object.keys(modes).length > 1 && picker('Mode', mode.mode, Object.entries(modes), 'Solo')}
+    {mode && onMode && modes && mode.mode === 'orchestrate' && picker('Agents', mode.agentsModel, [
+      // '' leaves the choice of model to the thread, agent by agent.
+      ['', 'Any model'], ...modelChoices(status).filter(([key]) => key !== ''),
+    ], 'Any model', 'Agents: ')}
   </>;
 }

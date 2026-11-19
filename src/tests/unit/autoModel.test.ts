@@ -41,8 +41,17 @@ const ENTRY = {
 
 describe("reading the service's answers", () => {
   it('keeps a list entry as the service gives it', () => {
-    expect(toThread(ENTRY)).toEqual({ ...ENTRY, archivedAt: null, snoozedAt: null, wait: null, waits: false, desk: null, yours: '' });
+    expect(toThread(ENTRY)).toEqual({ ...ENTRY, archivedAt: null, snoozedAt: null, wait: null, waits: false, desk: null, yours: '', parent: null, mode: '', agentsModel: '' });
     expect(toThread({ ...ENTRY, waits: true })?.waits).toBe(true);
+  });
+
+  it('reads a sub-agent’s parent and a thread’s mode, and nothing that is not a key', () => {
+    expect(toThread({ ...ENTRY, parent: '5a0000000001', mode: 'orchestrate', agentsModel: 'small' })).toMatchObject({ parent: '5a0000000001', mode: 'orchestrate', agentsModel: 'small' });
+    // A thread is never its own parent; a mode is a short word; an agents model is a model key.
+    expect(toThread({ ...ENTRY, parent: ENTRY.id })?.parent).toBeNull();
+    for (const bad of ['../x', 7, {}]) expect(toThread({ ...ENTRY, parent: bad })?.parent).toBeNull();
+    expect(toThread({ ...ENTRY, mode: 'Swarm Mode' })?.mode).toBe('');
+    expect(toThread({ ...ENTRY, agentsModel: 'Big Model' })?.agentsModel).toBe('');
   });
 
   it('reads when a thread was put away: archived, and snoozed', () => {
@@ -124,7 +133,7 @@ describe("reading the service's answers", () => {
     const strange = toThread({ id: 'ok', title: ['x'], status: 'dancing', last: 7, ask: 'yes', unread: 'true', model: 'Not A Key', created: 'soon', snoozed: -1, woke: NaN, digest: 'item', queued: 2.9, error: '' });
     expect(strange).toEqual({
       id: 'ok', title: '', status: 'idle', last: '', activity: '', ask: null, unread: false, model: '', created: 0, updated: 0,
-      error: null, queued: 2, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null, digest: null, waits: false, desk: null, yours: '',
+      error: null, queued: 2, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null, digest: null, waits: false, desk: null, yours: '', parent: null, mode: '', agentsModel: '',
     });
     expect(toThread({ id: 'ok', title: 'x'.repeat(5_000) })?.title.length).toBe(300);
   });
@@ -141,7 +150,7 @@ describe("reading the service's answers", () => {
     expect(toItem({ role: 'assistant', text: 'The plan has', open: true })).toEqual({ role: 'assistant', text: 'The plan has', open: true });
     expect(toItem({ role: 'steps', steps: [{ g: 'read', text: 'plan.md', path: 'Library/notes/plan.md' }, { g: 'run', text: 'Count' }, { text: 'no kind' }, 'junk'] })).toEqual({
       role: 'steps',
-      steps: [{ g: 'read', text: 'plan.md', path: 'Library/notes/plan.md' }, { g: 'run', text: 'Count', path: null }],
+      steps: [{ g: 'read', text: 'plan.md', path: 'Library/notes/plan.md', thread: null }, { g: 'run', text: 'Count', path: null, thread: null }],
     });
     expect(toItem({ role: 'asked', text: 'Post it?', answer: 'Not yet' })).toEqual({ role: 'asked', text: 'Post it?', answer: 'Not yet' });
     expect(toItem({ role: 'note', text: 'Stopped' })).toEqual({ role: 'note', text: 'Stopped' });
@@ -240,7 +249,7 @@ describe("reading the service's answers", () => {
   });
 
   it('reads each list event, and nothing of a kind it does not know', () => {
-    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, archivedAt: null, snoozedAt: null, wait: null, waits: false, desk: null, yours: '' } });
+    expect(toListEvent('thread', ENTRY)).toEqual({ kind: 'thread', thread: { ...ENTRY, archivedAt: null, snoozedAt: null, wait: null, waits: false, desk: null, yours: '', parent: null, mode: '', agentsModel: '' } });
     expect(toListEvent('order', { ids: ['a1', '../b', 7, 'c3'] })).toEqual({ kind: 'order', ids: ['a1', 'c3'] });
     expect(toListEvent('status', { auth: {} })?.kind).toBe('status');
     expect(toListEvent('reset', {})).toEqual({ kind: 'reset' });

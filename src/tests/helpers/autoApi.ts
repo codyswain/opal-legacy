@@ -21,7 +21,7 @@ export function autoThread(id: string, fields: Partial<AutoThread> = {}): AutoTh
   return {
     id, title: `Thread ${id}`, status: 'idle', last: '', activity: '', ask: null, unread: false, model: '', created: 1_794_000_000,
     updated: 1_794_000_000, error: null, queued: 0, archived: false, archivedAt: null, snoozed: null, snoozedAt: null, woke: null, wait: null,
-    digest: null, waits: false, desk: null, yours: '', ...fields,
+    digest: null, waits: false, desk: null, yours: '', parent: null, mode: '', agentsModel: '', ...fields,
   };
 }
 
@@ -54,6 +54,7 @@ export const AUTO_STATUS: AutoStatus = {
   limit: 3,
   models: { '': 'Default', small: 'Small', large: 'Large' },
   modelOptions: { large: { efforts: ['high', 'ultra'], speeds: { priority: 'Fast' } } },
+  modes: { '': 'Solo', orchestrate: 'Orchestrate' },
 };
 
 const ok = <T>(data: T): AutoResult<T> => ({ success: true, data }) as AutoResult<T>;

@@ -57,6 +57,12 @@ export interface AutoModelChoice {
   speed?: string;
 }
 
+/** Solo or Orchestrate, and in Orchestrate the default model for the agents the thread starts. */
+export interface AutoModeChoice {
+  mode: string;
+  agentsModel: string;
+}
+
 export interface AutoModelOptions {
   efforts: string[];
   speeds: Record<string, string>;
@@ -102,6 +108,12 @@ export interface AutoThread extends AutoModelChoice {
    * in a reply; '' for nothing. Words on the row, never a button.
    */
   yours: string;
+  /** The thread that started this one as a sub-agent, or null. A child sits under its parent in the list. */
+  parent: string | null;
+  /** How the thread works from its next turn: '' (solo) or `orchestrate`, in which its model fans work out to agents. */
+  mode: string;
+  /** The default model for the agents it starts in Orchestrate mode; '' leaves the choice to it. */
+  agentsModel: string;
 }
 
 export type AutoDigestKind = 'item' | 'meeting' | 'person' | 'draft' | 'text';
@@ -173,6 +185,8 @@ export interface AutoStep {
   text: string;
   /** Set when the step names a file in the vault. */
   path: string | null;
+  /** Set when the step started a sub-agent: that agent's thread, which the step opens. */
+  thread?: string | null;
 }
 
 export type AutoItem =
@@ -265,6 +279,8 @@ export interface AutoStatus {
   /** Model keys and their labels. */
   models: Record<string, string>;
   modelOptions?: Record<string, AutoModelOptions>;
+  /** Mode keys and their labels ('' is Solo). Missing on a service without modes, and the picker is not drawn. */
+  modes?: Record<string, string>;
 }
 
 /** One of the plan's limits, as the service last saw it. */
@@ -302,11 +318,13 @@ export type AutoRoute =
   /** The threads he archived, newest archived first; the first `limit` of them, or all with null. */
   | { kind: 'archived'; limit: number | null }
   | { kind: 'thread'; id: string }
-  | ({ kind: 'create'; text: string; cid: string } & AutoModelChoice)
+  | ({ kind: 'create'; text: string; cid: string } & AutoModelChoice & Partial<AutoModeChoice>)
   | { kind: 'message'; id: string; text: string; cid: string }
   | { kind: 'stop'; id: string }
   | { kind: 'answer'; id: string; answer: AutoAnswer }
   | ({ kind: 'model'; id: string } & AutoModelChoice)
+  /** How the thread works from its next turn, and the default model for its agents. */
+  | ({ kind: 'mode'; id: string } & AutoModeChoice)
   | { kind: 'rename'; id: string; title: string }
   | { kind: 'archive'; id: string; archived: boolean; done?: boolean }
   | { kind: 'move'; id: string; before: string | null }
@@ -351,6 +369,7 @@ export interface AutoRouteData {
   stop: { returned: AutoQueued[] };
   answer: { ok: boolean };
   model: { thread: AutoThread };
+  mode: { thread: AutoThread };
   rename: { thread: AutoThread };
   archive: { thread: AutoThread };
   move: { ids: string[] };

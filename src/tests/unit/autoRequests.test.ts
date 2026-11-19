@@ -81,6 +81,9 @@ const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
   [{ kind: 'answer', id: ID, answer: { id: 'q1', allow: true } }, 'POST', `/api/threads/${ID}/answer`, { id: 'q1', allow: true }],
   [{ kind: 'answer', id: ID, answer: { id: 'q1', allow: false, message: 'Use the trash' } }, 'POST', `/api/threads/${ID}/answer`, { id: 'q1', allow: false, message: 'Use the trash' }],
   [{ kind: 'model', id: ID, model: 'small' }, 'POST', `/api/threads/${ID}/model`, { model: 'small' }],
+  [{ kind: 'mode', id: ID, mode: 'orchestrate', agentsModel: 'small' }, 'POST', `/api/threads/${ID}/mode`, { mode: 'orchestrate', agentsModel: 'small' }],
+  [{ kind: 'mode', id: ID, mode: '', agentsModel: '' }, 'POST', `/api/threads/${ID}/mode`, { mode: '', agentsModel: '' }],
+  [{ kind: 'create', text: 'Plan the beds', model: '', mode: 'orchestrate', agentsModel: 'large', cid: 'a1b2c3d4e5' }, 'POST', '/api/threads', { text: 'Plan the beds', model: '', mode: 'orchestrate', agentsModel: 'large', cid: 'a1b2c3d4e5' }],
   [{ kind: 'rename', id: ID, title: 'Beds' }, 'POST', `/api/threads/${ID}/rename`, { title: 'Beds' }],
   [{ kind: 'archive', id: ID, archived: true }, 'POST', `/api/threads/${ID}/archive`, { archived: true }],
   [{ kind: 'archive', id: ID, archived: true, done: true }, 'POST', `/api/threads/${ID}/archive`, { archived: true, done: true }],
@@ -160,6 +163,18 @@ describe('what the page may ask for', () => {
     expect(validRoute({ kind: 'answer', id: ID, answer: { id: 'q1', answers: { 'Which?': ['A', 'B'] } } })).toEqual({
       kind: 'answer', id: ID, answer: { id: 'q1', answers: { 'Which?': ['A', 'B'] } },
     });
+  });
+
+  it('takes a mode as Solo or a word, with a model key for its agents, and nothing else', () => {
+    expect(validRoute({ kind: 'mode', id: ID, mode: 'orchestrate', agentsModel: 'small', extra: 1 })).toEqual({ kind: 'mode', id: ID, mode: 'orchestrate', agentsModel: 'small' });
+    expect(validRoute({ kind: 'mode', id: ID, mode: '' })).toEqual({ kind: 'mode', id: ID, mode: '', agentsModel: '' });
+    expect(validRoute({ kind: 'mode', id: ID, mode: 'Swarm Mode', agentsModel: '' })).toBeNull();
+    expect(validRoute({ kind: 'mode', id: ID, mode: 'orchestrate', agentsModel: 'Big Model' })).toBeNull();
+    expect(validRoute({ kind: 'mode', id: '../x', mode: '' })).toBeNull();
+    // A new thread may start in a mode; a body without one is the body an older service knows.
+    expect(validRoute({ kind: 'create', text: 'Go', model: '', mode: 'orchestrate', agentsModel: 'large', cid: 'a1' })).toEqual({ kind: 'create', text: 'Go', model: '', mode: 'orchestrate', agentsModel: 'large', cid: 'a1' });
+    expect(validRoute({ kind: 'create', text: 'Go', model: '', mode: 'nope mode', cid: 'a1' })).toBeNull();
+    expect(buildRequest(BASE, { kind: 'create', text: 'Go', model: '', mode: '', agentsModel: '', cid: 'a1' }).body).toBe(JSON.stringify({ text: 'Go', model: '', cid: 'a1' }));
   });
 
   it('checks a thread id before it can reach a path', () => {
