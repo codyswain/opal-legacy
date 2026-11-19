@@ -1,6 +1,7 @@
 import type { AutoModeChoice, AutoModelChoice } from '@/types/auto';
 import { replyChoice } from '@/common/autoReplyModel';
-import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
+import { validImageId, validImageIds } from '@/common/autoImages';
+import { hasPref, readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import { NEW_THREAD } from './pane';
 
 export { NEW_THREAD };
@@ -19,6 +20,7 @@ export interface OutboxEntry extends AutoModelChoice, Partial<AutoModeChoice> {
   /** The thread it goes to, or null for a message that starts a new one. */
   thread: string | null;
   text: string;
+  images?: string[];
   /** The Mini has not yet confirmed the model selected for this reply. */
   awaitingModel?: boolean;
   /** When Enter was pressed, in ms. */
@@ -29,6 +31,8 @@ export interface BoxState {
   outbox: OutboxEntry[];
   /** Typed and not sent, by thread id; NEW_THREAD is the new thread's box. */
   drafts: Record<string, string>;
+  /** Uploaded image IDs, by the same draft key. Older drafts hold only text. */
+  images?: Record<string, string[]>;
 }
 
 const PREF_KEY = 'auto.box';
@@ -43,15 +47,23 @@ const isEntry = (value: unknown): value is OutboxEntry => {
   return (
     typeof entry.cid === 'string' && /^[A-Za-z0-9]{1,40}$/.test(entry.cid) &&
     (entry.thread === null || typeof entry.thread === 'string') &&
-    typeof entry.text === 'string' && entry.text !== '' &&
+    typeof entry.text === 'string' && (entry.text !== '' || (Array.isArray(entry.images) && entry.images.length > 0)) &&
+    (entry.images === undefined || validImageIds(entry.images)) &&
     replyChoice(entry) !== null &&
     typeof entry.at === 'number'
   );
 };
 
 /** What storage holds, with anything that does not fit left out. */
-export function readBox(): BoxState {
-  const stored = readPref<unknown>(PREF_KEY, null) as { outbox?: unknown; drafts?: unknown } | null;
+export function readBox(address?: string | null): BoxState {
+  const key = address ? `${PREF_KEY}.${address}` : PREF_KEY;
+  // Older builds kept one box for the configured service. Claim it once, when that address is first read.
+  if (address && !hasPref(key) && readPref(PREF_KEY, null) !== null) {
+    const legacy = readBox();
+    if (writePref(key, legacy)) writePref(PREF_KEY, null);
+    return legacy;
+  }
+  const stored = readPref<unknown>(key, null) as { outbox?: unknown; drafts?: unknown; images?: unknown } | null;
   const outbox = Array.isArray(stored?.outbox) ? stored.outbox.filter(isEntry).slice(-OUTBOX_LIMIT) : [];
   const drafts: Record<string, string> = {};
   if (stored?.drafts && typeof stored.drafts === 'object') {
@@ -59,11 +71,18 @@ export function readBox(): BoxState {
       if (typeof text === 'string' && text !== '') drafts[thread] = text;
     }
   }
-  return { outbox, drafts };
+  const images: Record<string, string[]> = {};
+  if (stored?.images && typeof stored.images === 'object') {
+    for (const [thread, refs] of Object.entries(stored.images).slice(-DRAFTS_LIMIT)) {
+      // Stopping several queued messages can return more than one message's limit to the same draft.
+      if (Array.isArray(refs) && refs.length && refs.every(validImageId)) images[thread] = refs;
+    }
+  }
+  return { outbox, drafts, ...(Object.keys(images).length ? { images } : {}) };
 }
 
-export function writeBox(state: BoxState): void {
-  writePref<BoxState>(PREF_KEY, { outbox: state.outbox.slice(-OUTBOX_LIMIT), drafts: state.drafts });
+export function writeBox(state: BoxState, address?: string | null): void {
+  writePref<BoxState>(address ? `${PREF_KEY}.${address}` : PREF_KEY, { ...state, outbox: state.outbox.slice(-OUTBOX_LIMIT) });
 }
 
 /** Ten random hex characters, as the service's own page makes. */
@@ -88,6 +107,14 @@ export function setDraft(state: BoxState, thread: string, text: string): BoxStat
   return { ...state, drafts };
 }
 
+export function setDraftImages(state: BoxState, thread: string, refs: string[]): BoxState {
+  if (!refs.length && !state.images?.[thread]) return state;
+  const images = { ...state.images };
+  if (refs.length) images[thread] = refs;
+  else delete images[thread];
+  return { ...state, images };
+}
+
 /**
  * A message that did not go: it leaves the outbox and its words go back
  * into its thread's box, above anything typed since.
@@ -95,7 +122,9 @@ export function setDraft(state: BoxState, thread: string, text: string): BoxStat
 export function giveBack(state: BoxState, entry: OutboxEntry): BoxState {
   const key = entry.thread ?? NEW_THREAD;
   const typed = state.drafts[key] ?? '';
-  return setDraft(drop(state, entry.cid), key, typed.trim() ? `${entry.text}\n\n${typed}` : entry.text);
+  const box = setDraft(drop(state, entry.cid), key, [entry.text, typed].filter((text) => text.trim()).join('\n\n'));
+  if (!entry.images?.length) return box;
+  return setDraftImages(box, key, [...new Set([...entry.images, ...(box.images?.[key] ?? [])])]);
 }
 
 /**
@@ -113,10 +142,13 @@ export function leftOver(state: BoxState, now: number): { resend: OutboxEntry[];
 export interface Failed {
   thread: string | null;
   text: string;
+  images?: string[];
   cid: string;
 }
 
 /** The id for a message: the failed one's when these are the same words to the same thread, else a new one. */
-export function cidFor(failed: Failed | null, thread: string | null, text: string): string {
-  return failed && failed.thread === thread && failed.text === text ? failed.cid : newCid();
+export function cidFor(failed: Failed | null, thread: string | null, text: string, images: string[] = []): string {
+  const previous = failed?.images ?? [];
+  return failed && failed.thread === thread && failed.text === text &&
+    previous.length === images.length && previous.every((id, index) => id === images[index]) ? failed.cid : newCid();
 }
