@@ -29,6 +29,7 @@ export interface ThreadView {
   next: string[];
   /** A message that failed before it reached the agent. */
   unsent: string | null;
+  unsentImages?: string[];
   /** A waiting entry's words. */
   seed: string | null;
   /** A send waits on the phone. */
@@ -48,6 +49,7 @@ export function fromSnapshot(snapshot: AutoSnapshot): ThreadView {
     queue: snapshot.queue,
     next: snapshot.next,
     unsent: snapshot.unsent,
+    ...(snapshot.unsentImages?.length ? { unsentImages: snapshot.unsentImages } : {}),
     seed: snapshot.thread.waits ? snapshot.seed : null,
     sendWaiting: snapshot.sendWaiting,
     sent: snapshot.sent,
@@ -75,6 +77,7 @@ export function applyEvent(view: ThreadView, event: AutoThreadEvent): ThreadView
         next: [],
         ending: null,
         unsent: null,
+        unsentImages: undefined,
         // A started entry no longer waits, and a new turn closes any send that waited.
         seed: null,
         sendWaiting: false,
@@ -135,7 +138,7 @@ export function failure(view: ThreadView): string | null {
  */
 export function showsNext(view: ThreadView, waitingToGo: number): boolean {
   if (view.next.length === 0 || view.live || view.question || view.seed) return false;
-  if (view.queue.length > 0 || waitingToGo > 0 || view.unsent) return false;
+  if (view.queue.length > 0 || waitingToGo > 0 || view.unsent || view.unsentImages?.length) return false;
   if (view.ending ? view.ending.outcome !== 'done' : view.thread.status !== 'idle') return false;
   return view.history[view.history.length - 1]?.role === 'assistant';
 }
@@ -144,6 +147,7 @@ export function showsNext(view: ThreadView, waitingToGo: number): boolean {
 export interface PendingMessage {
   cid: string;
   text: string;
+  images?: string[];
 }
 
 /** Pending messages the thread now shows itself: in the history, the running turn or the queue. */
@@ -158,7 +162,7 @@ export function unconfirmed(pending: readonly PendingMessage[], view: ThreadView
 export function waitingToGo(view: ThreadView | null, pending: readonly PendingMessage[]): PendingMessage[] {
   const queue = view?.queue ?? [];
   const shown = new Set(queue.map((queued) => queued.cid).filter(Boolean));
-  return [...queue.map((queued, at) => ({ cid: queued.cid || `queued-${at}`, text: queued.text })), ...pending.filter((message) => !shown.has(message.cid))];
+  return [...queue.map((queued, at) => ({ ...queued, cid: queued.cid || `queued-${at}` })), ...pending.filter((message) => !shown.has(message.cid))];
 }
 
 /** A step as one line: its lead word, its text, and the vault file it names. */

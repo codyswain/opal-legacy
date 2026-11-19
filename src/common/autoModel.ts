@@ -1,3 +1,4 @@
+import { imageFields, validImageIds } from './autoImages';
 import type {
   AutoAsk,
   AutoContinues,
@@ -215,7 +216,7 @@ export function toItem(value: unknown): AutoItem | null {
   if (!item) return null;
   switch (item.role) {
     case 'user':
-      return { role: 'user', text: text(item.text, ITEM_TEXT_LIMIT), cid: validCid(item.cid) ? item.cid : null };
+      return { role: 'user', text: text(item.text, ITEM_TEXT_LIMIT), cid: validCid(item.cid) ? item.cid : null, ...imageFields(item.images) };
     case 'assistant':
       return { role: 'assistant', text: text(item.text, ITEM_TEXT_LIMIT), open: item.open === true };
     case 'steps':
@@ -304,7 +305,7 @@ export function toQueue(value: unknown): AutoQueued[] {
   return list(value, QUEUE_LIMIT).flatMap((entry) => {
     const queued = fields(entry);
     return queued && typeof queued.text === 'string'
-      ? [{ cid: validCid(queued.cid) ? queued.cid : '', text: queued.text.slice(0, TEXT_LIMIT) }]
+      ? [{ cid: validCid(queued.cid) ? queued.cid : '', text: queued.text.slice(0, TEXT_LIMIT), ...imageFields(queued.images) }]
       : [];
   });
 }
@@ -351,6 +352,7 @@ export function toSnapshot(value: unknown): AutoSnapshot | null {
     live: toLive(snapshot.live),
     queue: toQueue(snapshot.queue),
     unsent: optional(snapshot.unsent, TEXT_LIMIT),
+    ...(validImageIds(snapshot.unsent_images) && snapshot.unsent_images.length ? { unsentImages: snapshot.unsent_images } : {}),
     next: toNext(snapshot.next),
     cursor: validCursor(snapshot.cursor) ? snapshot.cursor : null,
     seed: optional(snapshot.seed, ITEM_TEXT_LIMIT),

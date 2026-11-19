@@ -137,6 +137,46 @@ afterEach(() => {
 });
 
 describe('an entry that matches a thread', () => {
+  it('can start a thread with only images and keeps them in the entry until the request succeeds', async () => {
+    await openQueue();
+    const digest = useDigestStore.getState();
+    const image = '1'.repeat(64);
+    const key = `${DAY}/item-1`;
+    act(() => digest.setImages(DAY, 'item-1', [image]));
+    auto.state.failWrites = { kind: 'unreachable', message: 'Offline' };
+    await act(() => digest.say('item-1', '').then(() => undefined));
+    const first = last('digest-thread');
+    expect(first).toMatchObject({ words: null, cid: expect.any(String), images: [image] });
+    expect(useDigestStore.getState().images[key]).toEqual([image]);
+    auto.state.failWrites = null;
+    await act(() => digest.say('item-1', '').then(() => undefined));
+    expect(last('digest-thread')).toEqual(first);
+    expect(useDigestStore.getState().images[key]).toBeUndefined();
+  });
+
+  it('attaches the matched entry’s images on submit and leaves them out of a row shortcut', async () => {
+    await openQueue();
+    const digest = useDigestStore.getState();
+    const first = 'a'.repeat(64);
+    const second = 'b'.repeat(64);
+    act(() => {
+      digest.setImages(DAY, 'text-b', [first]);
+      digest.setImages(DAY, 'text-c', [second]);
+    });
+    await act(() => digest.continueThread('text-b').then(() => undefined));
+    expect(last('digest-continue')).not.toHaveProperty('images');
+    auto.state.failWrites = { kind: 'unreachable', message: 'Offline' };
+    await act(() => digest.continueThread('text-c', '').then(() => undefined));
+    const original = last('digest-continue');
+    expect(original).toMatchObject({ thread: 'labels', words: null, images: [second] });
+    act(() => digest.setImages(DAY, 'text-c', [first, second]));
+    auto.state.failWrites = null;
+    await act(() => digest.continueThread('text-c', '').then(() => undefined));
+    expect(last('digest-continue')).toMatchObject({ words: null, images: [first, second] });
+    expect(last('digest-continue')?.cid).not.toBe(original?.cid);
+    expect(useDigestStore.getState().images[`${DAY}/text-c`]).toBeUndefined();
+  });
+
   it('shows the target model, remembers a digest choice across entries, and sends it with the matched reply', async () => {
     await openQueue({ threads: [BEDS, BREAD, { ...SEEDS, model: 'small' }, INSPECTION, { ...LABELS, model: 'large' }] });
     openEntry('text-b');

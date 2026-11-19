@@ -14,6 +14,7 @@ import type { AutoRoute } from '@/types/auto';
 
 const BASE = 'https://host.example/agent';
 const ID = '5a0000000001';
+const image = 'a0'.repeat(32);
 
 describe('the address rule', () => {
   it('keeps an https address, without the slash at its end', () => {
@@ -68,6 +69,11 @@ describe('the address rule', () => {
 
 /** Every route, with the request it must become. */
 const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
+  [{ kind: 'upload-image', expectedAddress: BASE, mime: 'image/png', data: 'YWJj' }, 'POST', '/api/images', { mime: 'image/png', data: 'YWJj' }],
+  [{ kind: 'image', expectedAddress: BASE, id: image }, 'GET', `/api/images/${image}`, undefined],
+  [{ kind: 'create', text: '', model: '', cid: 'a1', images: [image] }, 'POST', '/api/threads', { text: '', model: '', cid: 'a1', images: [image] }],
+  [{ kind: 'message', id: ID, text: 'Look here', cid: 'a2', images: [image] }, 'POST', `/api/threads/${ID}/messages`, { text: 'Look here', cid: 'a2', images: [image] }],
+  [{ kind: 'digest-thread', date: '2026-11-13', id: 'item-1', words: null, cid: 'a1', images: [image] }, 'POST', '/api/digest/thread', { date: '2026-11-13', id: 'item-1', cid: 'a1', images: [image] }],
   [{ kind: 'status' }, 'GET', '/api/status', undefined],
   [{ kind: 'check-status' }, 'POST', '/api/status/check', {}],
   [{ kind: 'threads' }, 'GET', '/api/threads', undefined],
@@ -112,6 +118,19 @@ const routes: Array<[AutoRoute, 'GET' | 'POST', string, unknown]> = [
 ];
 
 describe('the request builder', () => {
+
+  it('only accepts image IDs and bounded raster uploads', () => {
+    const message = { kind: 'message', id: ID, text: '', cid: 'a1' };
+    expect(validRoute({ ...message, images: [image] })).toEqual({ ...message, images: [image] });
+    for (const images of [[], 42, ['x'], [image, image], [image, ''], Array(5).fill(image)]) {
+      expect(validRoute({ ...message, images })).toBeNull();
+    }
+    expect(validRoute({ kind: 'image', expectedAddress: BASE, id: '../images/' })).toBeNull();
+    expect(validRoute({ kind: 'upload-image', expectedAddress: BASE, mime: 'image/svg+xml', data: 'YWJj' })).toBeNull();
+    for (const data of ['', 'a', '==ab', 'YW J', 'a'.repeat(6990508)]) {
+      expect(validRoute({ kind: 'upload-image', expectedAddress: BASE, mime: 'image/png', data })).toBeNull();
+    }
+  });
 
   it.each(routes)('builds %j', (route, method, path, body) => {
     const built = buildRequest(BASE, route);
