@@ -1,5 +1,6 @@
 import { replyChoice } from '@/common/autoReplyModel';
 import { create } from 'zustand';
+import { validImageIds } from '@/common/autoImages';
 import { byKey, giveBack } from '../components/focus';
 import type { AutoModelChoice, AutoDigest, AutoDigestEntry, AutoStreamMessage } from '@/types/auto';
 import { afterLeaving, allEntries, entryName, queueOrder, queueSections, stepDay, withState, wordsKey, type QueueFilter } from '../model/digestModel';
@@ -33,6 +34,9 @@ export interface DigestStore {
   opened: string | null;
   /** Typed and not sent, by day and entry. */
   words: Record<string, string>;
+  /** Uploaded image IDs, kept with the draft for the day and entry they belong to. */
+  images: Record<string, string[]>;
+  setImages: (date: string, id: string, images: string[]) => void;
   /** Explicit choices for unsent entries. A new match keeps its own thread's model. */
   replyModels: Record<string, AutoModelChoice>;
   pickModel: (key: string, model: AutoModelChoice) => void;
@@ -178,7 +182,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
   };
   const said = () => useSaidStore.getState();
   /** The entries being added to a thread now, by day and entry: a second click while one is out sends nothing. */
-  const continuing = new Set<string>();
+  const posting = new Set<string>();
   /** The archived days as the service last listed them. */
   let served: string[] = [];
   const named = (day: AutoDigest, id: string): string => {
@@ -196,6 +200,17 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     return choice.model || choice.effort || choice.speed ? choice : {};
   };
 
+  /** Only clear the submitted draft. Edits made while its request was in flight stay put. */
+  const clearDraft = (key: string, text: string, submittedImages?: string[]) => {
+    const state = get();
+    if ((state.words[key] ?? '').trim() !== text || state.images[key] !== submittedImages) return;
+    const words = { ...state.words };
+    const images = { ...state.images };
+    delete words[key];
+    delete images[key];
+    set({ words, images });
+  };
+
   return {
     latest: null,
     status: 'unknown',
@@ -205,6 +220,15 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     filter: 'left',
     opened: null,
     words: {},
+    images: {},
+    setImages: (date, id, ids) => {
+      if (!validImageIds(ids)) return;
+      const key = wordsKey(date, id);
+      const images = { ...get().images };
+      if (ids.length) images[key] = [...ids];
+      else delete images[key];
+      set({ images, ...(get().notSent === key ? { notSent: null } : {}) });
+    },
     replyModels: {},
     pickModel: (key, model) => {
       set((state) => ({ replyModels: { ...state.replyModels, [key]: model } }));
@@ -493,7 +517,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       await reload(date);
     },
 
-    continueThread: async (id, text = '') => {
+    continueThread: async (id, text) => {
       const day = selectDay(get());
       const api = autoApi();
       if (!day || !api) return false;
@@ -501,25 +525,29 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       const match = found?.state === 'open' ? found.continues : null;
       const date = day.date;
       const key = wordsKey(date, id);
-      if (!found || !match || continuing.has(key)) return false;
+      const address = useAutoStore.getState().address;
+      const postKey = JSON.stringify([address, key]);
+      if (!found || !match || posting.has(postKey)) return false;
       const model = get().replyModels[replyModelKey(date, found)];
-      continuing.add(key);
-      const words = text.trim();
+      posting.add(postKey);
+      const words = text?.trim() ?? '';
+      const images = text === undefined ? undefined : get().images[key];
+      const attachments = images ? { images } : {};
       const name = named(day, id);
       // The same words sent again go under the same id, so a click that did arrive adds nothing the second time.
-      const cid = cidFor(get().failed, key, words);
+      const cid = cidFor(get().failed, key, words, images);
       // The entry leaves "Left" at once, as a thread made of it does, until the post has landed.
       const end = keep(date, [id], () => 'thread');
       moveOn(day, [id]);
       const result = useAutoStore.getState().reachable
-        ? await api.request({ kind: 'digest-continue', date, id, thread: match.id, words: words || null, cid, ...model }).catch((): null => null)
+        ? await api.request({ kind: 'digest-continue', date, id, thread: match.id, words: words || null, cid, ...attachments, ...model }).catch((): null => null)
         : null;
-      continuing.delete(key);
+      posting.delete(postKey);
       end();
+      if (useAutoStore.getState().address !== address) return false;
       if (result?.success) {
-        const left = { ...get().words };
-        delete left[key];
-        set({ words: left, ...(get().notSent === key ? { notSent: null, failed: null } : {}) });
+        if (text !== undefined) clearDraft(key, words, images);
+        if (get().notSent === key) set({ notSent: null, failed: null });
         const thread = result.data.thread;
         useAutoStore.getState().upsert(thread);
         said().offer({
@@ -546,8 +574,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       }
       // It did not arrive: the entry is open again with his words in its box, to send again.
       const back = { ...get().words };
-      if (words) back[key] = words;
-      set({ words: back, notSent: key, failed: { thread: key, text: words, cid }, opened: id });
+      if (words && back[key] === undefined) back[key] = words;
+      set({ words: back, notSent: key, failed: { thread: key, text: words, cid, ...attachments }, ...(selectDay(get())?.date === date ? { opened: id } : {}) });
       return false;
     },
 
@@ -563,21 +591,28 @@ export const useDigestStore = create<DigestStore>((set, get) => {
 
     say: async (id, text) => {
       const day = selectDay(get());
-      const said = text.trim();
-      if (!day || !said) return false;
+      if (!day) return false;
+      const words = text.trim();
       const key = wordsKey(day.date, id);
+      const images = get().images[key];
+      const address = useAutoStore.getState().address;
+      const postKey = JSON.stringify([address, key]);
+      if ((!words && !images?.length) || posting.has(postKey)) return false;
+      posting.add(postKey);
+      const attachments = images ? { images } : {};
       // The same words sent again go under the same id, so a copy that did arrive is not made twice.
-      const cid = cidFor(get().failed, key, said);
+      const cid = cidFor(get().failed, key, words, images);
       const result = useAutoStore.getState().reachable
-        ? await autoApi()?.request({ kind: 'digest-thread', date: day.date, id, words: said, cid, ...newThreadModel(day, id) }).catch((): null => null)
+        ? await autoApi()?.request({ kind: 'digest-thread', date: day.date, id, words: words || null, cid, ...attachments, ...newThreadModel(day, id) }).catch((): null => null)
         : null;
+      posting.delete(postKey);
+      if (useAutoStore.getState().address !== address) return false;
       if (!result?.success) {
-        set({ notSent: key, failed: { thread: key, text: said, cid } });
+        set({ notSent: key, failed: { thread: key, text: words, cid, ...attachments } });
         return false;
       }
-      const words = { ...get().words };
-      delete words[key];
-      set({ words, notSent: null, failed: null, opened: null });
+      clearDraft(key, words, images);
+      set({ notSent: null, failed: null, opened: null });
       useAutoStore.getState().upsert(result.data.thread);
       showAutoPane(result.data.thread.id);
       void reload(day.date);
@@ -605,7 +640,7 @@ useAutoStore.subscribe((state, before) => {
   if (state.address !== before.address) {
     unconfirmedEntries.clear();
     unconfirmedDays.clear();
-    useDigestStore.setState({ latest: null, status: 'unknown', days: [], archivedDays: [], past: null, filter: 'left', opened: null, words: {}, replyModels: {}, notSent: null, failed: null, focusEntry: null, noteWanted: null, boxWanted: null });
+    useDigestStore.setState({ latest: null, status: 'unknown', days: [], archivedDays: [], past: null, filter: 'left', opened: null, words: {}, images: {}, replyModels: {}, notSent: null, failed: null, focusEntry: null, noteWanted: null, boxWanted: null });
   }
   // Read whenever the list is, tab or no tab: the sidebar's Digest row counts what is left. And when the tab opens.
   const read = state.refreshedAt !== before.refreshedAt || (state.tabOpen && !before.tabOpen);

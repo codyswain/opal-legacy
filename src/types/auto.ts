@@ -189,8 +189,14 @@ export interface AutoStep {
   thread?: string | null;
 }
 
+export type AutoImageMime = 'image/png' | 'image/jpeg' | 'image/webp';
+export interface AutoImage {
+  mime: AutoImageMime;
+  data: string;
+}
+
 export type AutoItem =
-  | { role: 'user'; text: string; cid: string | null }
+  | { role: 'user'; text: string; cid: string | null; images?: string[] }
   | { role: 'assistant'; text: string; open: boolean }
   | { role: 'steps'; steps: AutoStep[] }
   | { role: 'asked'; text: string; answer: string }
@@ -252,6 +258,7 @@ export interface AutoSendKey {
 }
 
 export interface AutoQueued {
+  images?: string[];
   cid: string;
   text: string;
 }
@@ -277,6 +284,7 @@ export interface AutoSnapshot {
   queue: AutoQueued[];
   /** A message that failed before it reached the agent, to put back in the box. */
   unsent: string | null;
+  unsentImages?: string[];
   /** Follow-ups, as the service gives them. */
   next: string[];
   cursor: string | null;
@@ -340,8 +348,10 @@ export type AutoRoute =
   /** The threads he archived, newest archived first; the first `limit` of them, or all with null. */
   | { kind: 'archived'; limit: number | null }
   | { kind: 'thread'; id: string }
-  | ({ kind: 'create'; text: string; cid: string } & AutoModelChoice & Partial<AutoModeChoice>)
-  | { kind: 'message'; id: string; text: string; cid: string }
+  | { kind: 'upload-image'; expectedAddress: string; mime: AutoImageMime; data: string }
+  | { kind: 'image'; expectedAddress: string; id: string }
+  | ({ kind: 'create'; text: string; cid: string; images?: string[] } & AutoModelChoice & Partial<AutoModeChoice>)
+  | { kind: 'message'; id: string; text: string; cid: string; images?: string[] }
   | { kind: 'stop'; id: string }
   | { kind: 'answer'; id: string; answer: AutoAnswer }
   | ({ kind: 'model'; id: string } & AutoModelChoice)
@@ -372,14 +382,16 @@ export type AutoRoute =
    * Makes an entry a thread. With `words` it starts with the entry and his
    * words; without, it waits on top of the list until he says something.
    */
-  | ({ kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null } & Partial<AutoModelChoice>)
+  | ({ kind: 'digest-thread'; date: string; id: string; words: string | null; cid: string | null; images?: string[] } & Partial<AutoModelChoice>)
   /** Adds an open entry to the thread it matches, with his words if any. Only his click sends it. */
-  | ({ kind: 'digest-continue'; date: string; id: string; thread: string; words: string | null; cid: string | null } & Partial<AutoModelChoice>)
+  | ({ kind: 'digest-continue'; date: string; id: string; thread: string; words: string | null; cid: string | null; images?: string[] } & Partial<AutoModelChoice>)
   /** How much of the plan the service's agent has used. Read only. */
   | { kind: 'usage' };
 
 /** What each request answers with. */
 export interface AutoRouteData {
+  'upload-image': { id: string };
+  image: AutoImage;
   status: AutoStatus;
   'check-status': AutoStatus;
   threads: { threads: AutoThread[]; cursor: string | null };

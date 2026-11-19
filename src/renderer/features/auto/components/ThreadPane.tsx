@@ -37,6 +37,7 @@ import { useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore'
 import { UsageRing } from './UsageRing';
 import { ReplyModelPicker } from './ReplyModelPicker';
 import { showAutoPane } from '../openAutoTab';
+import { Attachments, noImages, PasteStatus, useImagePaste } from './PastedImages';
 
 const quiet = 'text-control text-foreground-tertiary';
 /** A folded line of what Auto did: the reply's size, in grey. */
@@ -44,9 +45,10 @@ const folded = 'text-reply text-foreground-tertiary';
 const stepLink = 'rounded-sm underline decoration-foreground-tertiary/50 underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus';
 
 /** One of his messages. */
-function Bubble({ text, faded = false }: { text: string; faded?: boolean }) {
+function Bubble({ text, images, faded = false }: { text: string; images?: string[]; faded?: boolean }) {
   return (
     <div data-testid="auto-message" className={cn('ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-2xl bg-surface-active px-3.5 py-2 text-reply text-foreground', faded && 'opacity-60')}>
+      {images?.length ? <div className={text ? 'mb-2' : undefined}><Attachments ids={images} /></div> : null}
       {text}
     </div>
   );
@@ -107,12 +109,12 @@ function Item({ item, title }: { item: AutoItem; title: string | null }) {
   switch (item.role) {
     case 'user': {
       const entry = parseEntry(item.text);
-      if (!entry) return <Bubble text={item.text} />;
+      if (!entry) return <Bubble text={item.text} images={item.images} />;
       return (
         <>
           <EntryCardView entry={entry} title={title} />
           {/* The same gap as between any two rows of the thread. */}
-          {entry.says ? <div className="mt-4 flex flex-col"><Bubble text={entry.says} /></div> : null}
+          {entry.says || item.images?.length ? <div className="mt-4 flex flex-col"><Bubble text={entry.says ?? ''} images={item.images} /></div> : null}
         </>
       );
     }
@@ -262,7 +264,7 @@ function Talk({ scroller }: { scroller: React.RefObject<HTMLDivElement> }) {
     if (problem) rows.push({ key: 'problem', quiet: false, node: <p role="alert" className="text-ui text-foreground-secondary">{problem}</p> });
     else if (slow) rows.push({ key: 'loading', quiet: false, node: <p role="status" className="text-ui text-foreground-tertiary">Loading…</p> });
     // A new thread shows his words at once, on their way, before the service has made the thread.
-    for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, his: true, node: <Bubble text={message.text} faded /> });
+    for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, his: true, node: <Bubble text={message.text} images={message.images} faded /> });
     // The empty thread, with every thread done or put away: it says so, as the list does.
     if (!problem && !slow && pending.length === 0 && listEmpty) rows.push({ key: 'nothing', quiet: false, node: <p data-testid="auto-nothing-left" className="text-ui text-foreground-tertiary">Nothing left.</p> });
   } else {
@@ -311,7 +313,7 @@ function Talk({ scroller }: { scroller: React.RefObject<HTMLDivElement> }) {
     }
     if (failed) rows.push({ key: 'failed', quiet: false, node: <p role="alert" data-testid="auto-failed" className="text-ui text-foreground-secondary">{failed}</p> });
     // A message sent at rest shows at once; the turn it starts takes its place.
-    if (!view.live) for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, his: true, node: <Bubble text={message.text} faded /> });
+    if (!view.live) for (const message of pending) rows.push({ key: `p${message.cid}`, quiet: false, his: true, node: <Bubble text={message.text} images={message.images} faded /> });
     if (view.sendWaiting) rows.push({ key: 'send-waiting', quiet: true, node: <p data-testid="auto-send-waiting" className={quiet}>A send is waiting on your phone.</p> });
     if (showsNext(view, pending.length)) {
       rows.push({
@@ -691,19 +693,27 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   const paneId = usePaneId();
   const key = draftKey(openId);
   const draft = useThreadStore((state) => state.box.drafts[key] ?? '');
+  const images = useThreadStore((state) => state.box.images?.[key] ?? noImages);
   const notSent = useThreadStore((state) => (state.notSent?.thread === key ? state.notSent.text : null));
   const { send, setDraft, stop } = useThreadStore.getState();
   const box = React.useRef<HTMLTextAreaElement>(null);
   const queue = view?.live ? waitingToGo(view, pending) : [];
   // Words begun before the card arrived stay a message: the box is the card's answer field once it has been emptied.
   const begunBefore = useThreadStore((state) => state.view?.question != null && state.earlier[key] === state.view.question.id);
-  const answering = view?.question != null && !begunBefore;
+  const answering = view?.question != null && !begunBefore && !images.length;
   // A send he is asked to allow, or a tool that needs his yes: words here are a "no" with a reason, and nothing here is a yes.
   const refusing = answering && (view?.question?.kind === 'grant' || view?.question?.kind === 'permission');
   // The open thread's own entry, as the list or the archive has it: it says whether the thread is put away.
   const entry = useAutoStore((state) => state.threads.find((thread) => thread.id === openId) ?? state.archive.threads.find((thread) => thread.id === openId));
   const thread = entry ?? view?.thread ?? null;
   const running = turnRuns(view);
+  const readImages = () => useThreadStore.getState().box.images?.[key] ?? noImages;
+  const addImage = (id: string) => {
+    const ids = readImages();
+    if (!ids.includes(id)) useThreadStore.getState().setDraftImages(key, [...ids, id], true);
+  };
+  const pasted = useImagePaste(key, readImages, addImage, !answering);
+  const ready = !!(draft.trim() || images.length) && !pasted.pending;
   useGrow(box, draft);
 
   // A thread opens with the caret in its box, and the keyboard comes back to it after an answer, Stop or a rename.
@@ -715,7 +725,7 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
   }, [boxFocus]);
 
   const submit = () => {
-    if (draft.trim()) void send(draft);
+    if (ready && pasted.canSubmit()) void send(draft);
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -745,7 +755,7 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
             {queue.map((message) => (
               <li key={message.cid} className={cn(quiet, 'flex items-center gap-1.5')}>
                 <Clock aria-hidden className="h-3 w-3 shrink-0" />
-                <span className="min-w-0 truncate">{message.text}</span>
+                <span className="min-w-0 truncate">{[message.text, message.images?.length ? `${message.images.length} image${message.images.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</span>
               </li>
             ))}
           </ul>
@@ -753,7 +763,7 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
         {notSent ? (
           <p role="status" data-testid="auto-not-sent" className="mb-1 flex items-center gap-1 text-control font-medium text-foreground">
             {notSent}
-            <Button size="compact" variant="ghost" className="text-control" disabled={!draft.trim()} onClick={submit}>
+            <Button size="compact" variant="ghost" className="text-control" disabled={!ready} onClick={submit}>
               Retry
             </Button>
           </p>
@@ -776,10 +786,12 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
               <UsageRing field={box} />
               <div className="flex-1" />
               {running ? <StopButton onStop={() => void stop()} /> : null}
-              <SendButton label={refusing ? 'Say no' : answering ? 'Answer' : 'Send to Auto'} ready={draft.trim() !== ''} />
+              <SendButton label={refusing ? 'Say no' : answering ? 'Answer' : 'Send to Auto'} ready={ready} />
             </>
           }
         >
+          <Attachments ids={images} remove={(id) => useThreadStore.getState().setDraftImages(key, readImages().filter((other) => other !== id))} />
+          <PasteStatus pending={pasted.pending} error={pasted.error} />
           <textarea
             ref={box}
             rows={1}
@@ -789,7 +801,8 @@ function Composer({ talk }: { talk: React.RefObject<HTMLDivElement> }) {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={onKeyDown}
-            className={boxField}
+            onPaste={pasted.onPaste}
+            className={cn(boxField, images.length > 0 && 'mt-2')}
           />
         </BoxFrame>
       </div>
