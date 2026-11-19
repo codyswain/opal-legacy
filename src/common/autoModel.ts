@@ -12,6 +12,7 @@ import type {
   AutoListEvent,
   AutoLive,
   AutoGrant,
+  AutoGrantSend,
   AutoQuestion,
   AutoQuestionPart,
   AutoQueued,
@@ -266,8 +267,8 @@ function toPart(value: unknown): AutoQuestionPart | null {
  * who it goes to, by which channel and what it is about; the exact words,
  * when it carries them, are in its `grant` part. One with none of these
  * still shows, since he must be able to say no. The rest of the `grant`
- * part is for his phone, which signs the yes: Opal reads none of it, and
- * never a signature.
+ * part is what a yes signs, kept as `send` only when every field of it is
+ * whole: a yes signs exactly what was sent, never a cut copy.
  */
 function toGrant(question: Fields): AutoGrant | null {
   if (!validThreadId(question.id)) return null;
@@ -278,7 +279,43 @@ function toGrant(question: Fields): AutoGrant | null {
     title: text(question.title, LINE_LIMIT),
     detail: text(question.detail, TEXT_LIMIT),
     text: optional(grant.text, TEXT_LIMIT),
+    send: toGrantSend({
+      id: grant.id,
+      threadId: grant.thread_id,
+      channel: grant.channel,
+      to: grant.to,
+      expires: grant.expires,
+      text: grant.text === undefined || grant.text === '' ? null : grant.text,
+    }),
   };
+}
+
+/** One field of a signed line: some text, with no line break, and none of `extra`. */
+const signedField = (value: unknown, extra = ''): value is string =>
+  typeof value === 'string' && value !== '' && value.length <= LINE_LIMIT && !/[\r\n]/.test(value) && ![...extra].some((c) => value.includes(c));
+
+/**
+ * The fields a yes signs, checked whole, or null. Used on the service's grant
+ * and again in the main process on the copy the page hands back, so neither
+ * signs anything the card did not show in full.
+ */
+export function toGrantSend(value: unknown): AutoGrantSend | null {
+  const send = fields(value);
+  if (!send) return null;
+  const { id, threadId, channel, expires } = send;
+  if (!signedField(id) || !signedField(threadId) || !signedField(channel)) return null;
+  if (typeof expires !== 'number' || !Number.isFinite(expires) || expires <= 0 || expires > 1e12) return null;
+  if (!Array.isArray(send.to) || send.to.length === 0 || send.to.length > OPTIONS_LIMIT) return null;
+  const to: AutoGrantSend['to'] = [];
+  for (const entry of send.to) {
+    const place = fields(entry);
+    if (!place || !signedField(place.id, ',') || typeof place.name !== 'string' || place.name.length > LINE_LIMIT) return null;
+    to.push({ id: place.id, name: place.name });
+  }
+  const words = send.text;
+  // A lone surrogate has no UTF-8, so the service's hash and this one would differ.
+  if (words !== null && (typeof words !== 'string' || words === '' || words.length > TEXT_LIMIT || /[\uD800-\uDFFF]/u.test(words))) return null;
+  return { id, threadId, channel, to, expires, text: words as string | null };
 }
 
 /** An open question, permission request or send to allow, or null. */

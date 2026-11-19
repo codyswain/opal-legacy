@@ -177,17 +177,19 @@ describe("reading the service's answers", () => {
       id: '0c5e2f7a1b33', kind: 'grant', title: 'Send this Slack message to Robin and Sam?', detail: 'the seed swap\n\nThese exact words, once, from this thread.',
       grant: { id: 'g1', thread_id: '82a494f21dd8', channel: 'slack', to: [{ name: 'Robin', id: 'U01' }, { name: 'Sam', id: 'U02' }], about: 'the seed swap', expires: 1794637200, life: 7200, text: 'I will bring the seedlings.', kind: null as string | null, outside: false },
     };
-    // The title and the detail say who, how and what about. Of the grant part only the exact words are read; the rest is for his phone.
+    // The title and the detail say who, how and what about. Of the grant part the words are shown, and the fields a yes signs are kept whole.
+    const send = { id: 'g1', threadId: '82a494f21dd8', channel: 'slack', to: [{ name: 'Robin', id: 'U01' }, { name: 'Sam', id: 'U02' }], expires: 1794637200, text: 'I will bring the seedlings.' };
     expect(toQuestion(grant)).toEqual({
       id: '0c5e2f7a1b33', kind: 'grant', title: 'Send this Slack message to Robin and Sam?', detail: 'the seed swap\n\nThese exact words, once, from this thread.',
-      text: 'I will bring the seedlings.',
+      text: 'I will bring the seedlings.', send,
     });
     // Without its words, or with a grant part it cannot read: still a card he can say no to.
     expect(toQuestion({ ...grant, title: 'Let Auto send one Slack message to Robin?', detail: 'From this thread, once, in the next two hours. You will see what went out.', grant: { ...grant.grant, text: null } })).toEqual({
       id: '0c5e2f7a1b33', kind: 'grant', title: 'Let Auto send one Slack message to Robin?', detail: 'From this thread, once, in the next two hours. You will see what went out.', text: null,
+      send: { ...send, text: null },
     });
-    expect(toQuestion({ ...grant, grant: 7 })).toMatchObject({ kind: 'grant', text: null });
-    expect(toQuestion({ id: '0c5e2f7a1b33', kind: 'grant' })).toEqual({ id: '0c5e2f7a1b33', kind: 'grant', title: '', detail: '', text: null });
+    expect(toQuestion({ ...grant, grant: 7 })).toMatchObject({ kind: 'grant', text: null, send: null });
+    expect(toQuestion({ id: '0c5e2f7a1b33', kind: 'grant' })).toEqual({ id: '0c5e2f7a1b33', kind: 'grant', title: '', detail: '', text: null, send: null });
     // Nothing of a signature is ever read, and a bad id is no question at all.
     expect(JSON.stringify(toQuestion({ ...grant, signature: 'abc', grant: { ...grant.grant, signature: 'abc' } }))).not.toContain('signature');
     expect(toQuestion({ ...grant, id: '../x' })).toBeNull();

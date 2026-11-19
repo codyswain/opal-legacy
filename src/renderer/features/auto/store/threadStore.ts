@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { modeChoice, replyChoice, visibleModel } from '@/common/autoReplyModel';
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
-import type { AutoAnswer, AutoModeChoice, AutoModelChoice, AutoQuestion, AutoStreamMessage } from '@/types/auto';
+import type { AutoAnswer, AutoGrant, AutoModeChoice, AutoModelChoice, AutoQuestion, AutoStreamMessage } from '@/types/auto';
 import {
   NEW_THREAD,
   cidFor,
@@ -146,6 +146,8 @@ export interface ThreadStore {
   editNext: (line: string) => void;
   stop: () => Promise<void>;
   answer: (answer: AutoAnswer) => Promise<boolean>;
+  /** Allows the open send with this Mac's key: the main process asks for Touch ID, signs and answers. */
+  allowSend: (question: AutoGrant) => Promise<boolean>;
   setPicks: (picks: Picks) => void;
   /** Starts a waiting entry with its own words alone. */
   handOver: () => Promise<void>;
@@ -536,6 +538,19 @@ export const useThreadStore = create<ThreadStore>((set, get) => {
       if (result?.success) {
         set({ picks: {}, cardProblem: null });
         // The card is answered: the keyboard goes back to the box.
+        if (get().openId === id) get().focusBox();
+        return true;
+      }
+      set({ cardProblem: result?.error.message ?? "Can't reach Auto." });
+      return false;
+    },
+
+    allowSend: async (question) => {
+      const id = paneThread(get().openId);
+      if (!id || get().view?.question?.id !== question.id) return false;
+      set({ cardProblem: null });
+      const result = await autoApi()?.allowSend(id, question).catch((): null => null);
+      if (result?.success) {
         if (get().openId === id) get().focusBox();
         return true;
       }

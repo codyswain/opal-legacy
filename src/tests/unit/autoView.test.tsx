@@ -46,7 +46,12 @@ const ASK: AutoQuestion = {
 // As the service words it: the title names the channel and the people, the detail is what it is about and how it would go.
 const GRANT: Extract<AutoQuestion, { kind: 'grant' }> = {
   id: 'g1', kind: 'grant', title: 'Send this Slack message to Robin?', detail: 'the seed swap\n\nThese exact words, once, from this thread.',
-  text: 'I will bring the bean seedlings on Saturday.',
+  text: 'I will bring the bean seedlings on Saturday.', send: null,
+};
+// One that carries every field a yes signs, so this Mac can allow it.
+const SIGNED: Extract<AutoQuestion, { kind: 'grant' }> = {
+  ...GRANT, id: 'g3',
+  send: { id: 'a1', threadId: 'bread', channel: 'slack', to: [{ id: 'U01', name: 'Robin' }], expires: 1794637200, text: GRANT.text },
 };
 const PERMISSION: AutoQuestion = { id: 'p1', kind: 'permission', tool: 'Bash', title: 'Run a command: move three drafts', detail: 'mv Notes/drafts/*.md Archive/', reason: 'They are old.' };
 
@@ -665,6 +670,44 @@ describe('a thread', () => {
     expect(screen.queryByTestId('auto-grant-words')).toBeNull();
     expect(screen.getByTestId('auto-grant').querySelector('p')?.textContent).toBe('Allow a send?');
     expect(within(screen.getByTestId('auto-grant')).getAllByRole('button').map((button) => button.textContent)).toEqual(['No']);
+  });
+
+  it('offers Allow with Touch ID on a paired Mac, signed in the main process, and says why a yes did not go', async () => {
+    await open();
+    auto.state.macKey = { code: 'a1b2c3d4e5f6', paired: true };
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Tell Robin about the swap', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: SIGNED }));
+    const card = within(screen.getByTestId('auto-grant'));
+    // The words come first, then Allow beside No.
+    await waitFor(() => expect(card.getAllByRole('button').map((button) => button.textContent)).toEqual(['Allow', 'No']));
+    const order = [...screen.getByTestId('auto-grant').querySelectorAll('[data-testid]')].map((element) => element.getAttribute('data-testid'));
+    expect(order.slice(0, 3)).toEqual(['auto-grant-words', 'auto-grant-detail', 'auto-grant-allow']);
+    expect(screen.queryByTestId('auto-grant-phone')).toBeNull();
+    fireEvent.click(card.getByRole('button', { name: 'Allow' }));
+    await waitFor(() => expect(window.autoAPI.allowSend).toHaveBeenCalledWith('bread', SIGNED));
+    // The page asks the main process to sign; it never posts a yes itself.
+    expect(auto.asked('answer')).toEqual([]);
+    auto.state.allowFail = { kind: 'refused', message: 'Not confirmed. Nothing was sent.' };
+    fireEvent.click(card.getByRole('button', { name: 'Allow' }));
+    await waitFor(() => expect(card.getByRole('alert').textContent).toBe('Not confirmed. Nothing was sent.'));
+  });
+
+  it('offers to pair an unpaired Mac, with the code and the command for the Mini', async () => {
+    await open();
+    await openThread('bread');
+    act(() => auto.thread({ kind: 'turn', items: [user('Tell Robin about the swap', 'a1')], state: 'working', activity: '' }));
+    act(() => auto.thread({ kind: 'question', question: SIGNED }));
+    const card = within(screen.getByTestId('auto-grant'));
+    await waitFor(() => expect(card.getAllByRole('button').map((button) => button.textContent)).toEqual(['No', 'Pair this Mac']));
+    fireEvent.click(card.getByRole('button', { name: 'Pair this Mac' }));
+    await waitFor(() => expect(screen.getByTestId('auto-grant-code').textContent).toBe('a1b2 c3d4 e5f6'));
+    expect(screen.getByTestId('auto-grant-pairing').textContent).toContain('sudo sh ~/code/vault/.claude/apps/agent/pair-phone.sh --device macbook-pro');
+    // Once pair-phone.sh has run on the Mini, Check again finds it trusted and Allow appears.
+    auto.state.macKey = { code: 'a1b2c3d4e5f6', paired: true };
+    fireEvent.click(card.getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(card.getByRole('button', { name: 'Allow' })).toBeInTheDocument());
+    expect(auto.asked('answer')).toEqual([]);
   });
 
   it('says the plain no when he types while it waits, and then sends his words as a message', async () => {

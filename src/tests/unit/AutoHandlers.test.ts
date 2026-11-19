@@ -120,6 +120,7 @@ describe('the page’s way to Auto', () => {
       service: service as unknown as AutoService,
       pages,
       folders,
+      signer: { hasKey: vi.fn(), publicKey: vi.fn(), sign: vi.fn() },
     }).registerAll();
   });
 

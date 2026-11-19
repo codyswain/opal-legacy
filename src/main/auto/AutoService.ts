@@ -24,7 +24,10 @@ import type {
   AutoStreamTarget,
 } from '@/types/auto';
 import {
+  allowSendRequest,
   buildRequest,
+  offerKeyRequest,
+  sendKeyRequest,
   parseAutoAddress,
   parseAutoConfig,
   serializeAutoConfig,
@@ -227,6 +230,35 @@ export class AutoService {
     if (data) return ok(data);
     // The usage is read beside the list and never marks the service out of reach: an answer that does not fit says so.
     return route.kind === 'usage' ? fail('invalid', "Auto's usage answer did not fit.") : fail('unreachable', UNREACHABLE);
+  }
+
+  /** Answers a send to allow with this Mac's signature. The thread and question ids are checked by the caller. */
+  async allowSend(thread: string, question: string, signature: string): Promise<AutoResult> {
+    const base = await this.base();
+    if (!base) return fail('no-address', 'No address is set for Auto.');
+    const answer = await this.send(allowSendRequest(base, thread, question, signature), base);
+    return answer.success ? ok(undefined) : { success: false, error: answer.error };
+  }
+
+  /** The codes of the keys the service trusts: `paired` as one code, a list, or codes by device name. */
+  async trustedKeys(): Promise<AutoResult<string[]>> {
+    const base = await this.base();
+    if (!base) return fail('no-address', 'No address is set for Auto.');
+    const answer = await this.send(sendKeyRequest(base), base);
+    if (!answer.success) return { success: false, error: answer.error };
+    const paired = answer.data && typeof answer.data === 'object' ? (answer.data as { paired?: unknown }).paired : null;
+    const values = typeof paired === 'string' ? [paired] : Array.isArray(paired) ? paired : paired && typeof paired === 'object' ? Object.values(paired) : [];
+    return ok(values.filter((value): value is string => typeof value === 'string'));
+  }
+
+  /** Offers this Mac's public key, and answers the code the service worked out for it. */
+  async offerKey(key: string, device: string): Promise<AutoResult<{ code: string }>> {
+    const base = await this.base();
+    if (!base) return fail('no-address', 'No address is set for Auto.');
+    const answer = await this.send(offerKeyRequest(base, key, device), base);
+    if (!answer.success) return { success: false, error: answer.error };
+    const code = answer.data && typeof answer.data === 'object' ? (answer.data as { code?: unknown }).code : null;
+    return typeof code === 'string' && /^[0-9a-f]{12}$/.test(code) ? ok({ code }) : fail('unreachable', UNREACHABLE);
   }
 
   private async send(built: BuiltRequest, base: string): Promise<AutoResult<unknown>> {

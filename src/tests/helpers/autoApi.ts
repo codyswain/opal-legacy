@@ -8,6 +8,7 @@ import type {
   AutoListEvent,
   AutoResult,
   AutoRoute,
+  AutoSendKey,
   AutoSnapshot,
   AutoStatus,
   AutoStreamMessage,
@@ -85,6 +86,10 @@ export interface FakeAuto {
     threadGate: Promise<void> | null;
     /** The plan's usage; null answers 404, as a service without the route does. */
     usage: AutoUsage | null;
+    /** This Mac's key for allowing sends, as the main process reports it. */
+    macKey: AutoSendKey;
+    /** While set, a yes signed on this Mac fails this way: a cancelled Touch ID or a service that refuses. */
+    allowFail: AutoFailure | null;
   };
   /** Every route asked for, in order. */
   routes: () => AutoRoute[];
@@ -118,6 +123,8 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     gate: null,
     threadGate: null,
     usage: null,
+    macKey: { code: null, paired: false },
+    allowFail: null,
     ...options,
   };
   const followed: FakeAuto['followed'] = { list: null, thread: null };
@@ -274,6 +281,12 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
     }),
     resolvePage: vi.fn(async (path: string) => ok({ path: `/Vault/${path}`, title: null as string | null })),
     updateFolders: vi.fn(async () => ok('current')),
+    sendKey: vi.fn(async () => ok(state.macKey)),
+    pairMac: vi.fn(async () => {
+      state.macKey = { code: 'a1b2c3d4e5f6', paired: false };
+      return ok({ code: 'a1b2c3d4e5f6' });
+    }),
+    allowSend: vi.fn(async (): Promise<AutoResult> => (state.allowFail ? { success: false, error: state.allowFail } : ok(undefined))),
     onStream: (callback: (message: AutoStreamMessage) => void) => {
       listeners.add(callback);
       return () => listeners.delete(callback);

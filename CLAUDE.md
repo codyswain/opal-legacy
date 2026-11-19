@@ -254,9 +254,16 @@ not exist.
   day). No control in it starts or confirms a send to anyone; a drafted
   reply can only be copied. A send the service asks him to allow up front
   (a `grant` question) shows as his phone draws it, the title, the exact
-  words and the detail, with one button, "No": the yes is signed on his
-  phone, and `mayAnswer` (`questionModel.ts`) keeps every answer to one but
-  the plain no from being posted, whatever built it. The service reads no
+  words and the detail, with No and, on a paired Mac, Allow. Allow goes to
+  the main process (`auto:allow-send`), which checks the grant's fields
+  again (`toGrantSend`), builds the bytes the service's `grants.grant_text`
+  signs (`sendSigning.ts`), and has the Swift helper `native/opal-signer`
+  sign them with a Secure Enclave key after Touch ID; the page never posts
+  a yes. Until the Mini trusts this Mac's key the card offers "Pair this
+  Mac" (`auto:pair-mac`), which shows the code for `pair-phone.sh
+  --device macbook-pro`. `mayAnswer` (`questionModel.ts`) keeps every
+  answer the page posts itself to one but the plain no, whatever built
+  it. The service reads no
   words with that no, so words typed while one waits post the no first and
   then go to the thread as an ordinary message; if the no is not taken
   they stay in the box.
