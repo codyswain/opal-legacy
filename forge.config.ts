@@ -12,7 +12,9 @@ import path from 'path';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: false,
-    icon: path.resolve(__dirname, 'assets', 'icons', 'opal.icns')
+    icon: path.resolve(__dirname, 'assets', 'icons', 'opal.icns'),
+    // The helper that signs Auto's sends after Touch ID (scripts/build-signer.sh); Contents/Resources/opal-signer.
+    extraResource: [path.resolve(__dirname, 'build', 'native', 'opal-signer')],
   },
   rebuildConfig: {},
   makers: [new MakerSquirrel({}), new MakerZIP({}, ['darwin']), new MakerRpm({}), new MakerDeb({})],

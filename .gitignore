@@ -112,3 +112,6 @@ test-results/
 
 # Superpowers tool state
 .superpowers/
+
+# The send signer, built by scripts/build-signer.sh
+/build/native/
