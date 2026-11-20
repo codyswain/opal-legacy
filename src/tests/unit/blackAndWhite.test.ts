@@ -8,7 +8,7 @@ import resolveConfig from 'tailwindcss/resolveConfig';
  * Opal is black and white first (the pages-first spec, "Look"): every token is
  * a neutral grey, and no component can reach a hued colour. The only colour on
  * screen comes from images inside notes, from the touched list's palette and
- * from the plan usage ring's one blue.
+ * from the plan usage ring's one blue and the waiting-on-him dot's one yellow.
  */
 
 /**
@@ -25,7 +25,12 @@ const PALETTE_EXCEPTION = 'src/renderer/features/disk-explorer/components/stack/
  * the same in light and dark, defined in this one file and nowhere else.
  */
 const USAGE_EXCEPTION = 'src/renderer/features/auto/components/usagePalette.css';
-const EXCEPTIONS = [PALETTE_EXCEPTION, USAGE_EXCEPTION];
+/**
+ * The third, asked for on 2026-11-19: a yellow dot on a sidebar row that
+ * waits on him, "like claude code". One yellow, defined in this one file.
+ */
+const ATTENTION_EXCEPTION = 'src/renderer/features/auto/components/attentionPalette.css';
+const EXCEPTIONS = [PALETTE_EXCEPTION, USAGE_EXCEPTION, ATTENTION_EXCEPTION];
 
 const ROOT = path.resolve(__dirname, '../../..');
 const require = createRequire(__filename);
@@ -120,5 +125,15 @@ describe('black and white', () => {
       .filter((file) => !EXCEPTIONS.includes(path.relative(ROOT, file)) && readFileSync(file, 'utf8').includes('var(--usage)'))
       .map((file) => path.relative(ROOT, file));
     expect(users).toEqual(['src/renderer/features/auto/components/UsageRing.tsx']);
+  });
+
+  it('keeps the attention colour to one yellow, used only by the thread list', () => {
+    const css = readFileSync(path.join(ROOT, ATTENTION_EXCEPTION), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(([, name]) => name)).toEqual(['--attention']);
+    expect(colours(css)).toHaveLength(1);
+    const users = sourceFiles(path.join(ROOT, 'src/renderer'))
+      .filter((file) => !EXCEPTIONS.includes(path.relative(ROOT, file)) && readFileSync(file, 'utf8').includes('var(--attention)'))
+      .map((file) => path.relative(ROOT, file));
+    expect(users).toEqual(['src/renderer/features/auto/components/ThreadList.tsx']);
   });
 });

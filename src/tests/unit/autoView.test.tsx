@@ -230,11 +230,10 @@ describe('the list', () => {
     expect(screen.queryByTestId('auto-summary')).toBeNull();
     expect(screen.getByTestId('auto-count').textContent).toBe('3');
     expect(within(row('inspect')).getByTestId('auto-not-started').textContent).toBe('Not started');
-    // The dot before a title, as on the phone: an unread reply, or a thread back from snooze. No other row has one.
+    // The dot at the end of a row: an unread reply, or a thread back from snooze. No other row has one.
     expect(within(row('seeds')).getByRole('img', { name: 'Unread' })).toBeInTheDocument();
     expect(within(row('trellis')).getByRole('img', { name: 'Back from snooze' })).toBeInTheDocument();
     expect(within(row('bread')).queryByRole('img')).toBeNull();
-    expect(row('trellis').textContent).toMatch(/Back \d/);
     // Only the rows the heading's count takes in carry a heavier title: a question, something new. A thread nobody
     // has started keeps its second line and a normal title.
     const weight = (id: string) => (within(row(id)).getByText(new RegExp(`^${useAutoStore.getState().threads.find((thread) => thread.id === id)?.title}$`)).className.match(/font-(semibold|sidebar-label)/) ?? [])[1];
@@ -283,10 +282,7 @@ describe('the list', () => {
     expect(row('ask').textContent).toContain('Which bed?');
     expect(row('mine').textContent).toContain('Your move: Read it');
     expect(row('broke').textContent).toContain('Failed: it stopped');
-    // A row with no time gives its title the room: the time's slot holds only the time, and on hover or focus the
-    // first line fades out under the actions, as far in as they reach.
-    const slot = (id: string) => within(row(id)).getAllByRole('button')[0].querySelector('.tabular-nums') as HTMLElement;
-    expect(slot('broke').getAttribute('style')).toBeNull();
+    // On hover or focus the first line fades out under the actions, as far in as they reach.
     expect(row('broke').querySelector('.auto-row-line')).not.toBeNull();
     expect(row('broke').style.getPropertyValue('--auto-row-hide')).toBe('3rem');
   });

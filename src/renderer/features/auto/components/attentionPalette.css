@@ -1,0 +1,8 @@
+/* The dot on a sidebar row that waits on Cody: a question or his move, the
+   yellow Claude Code uses (asked for on 2026-11-19: "if it's waiting for
+   something from me we could use a yellow dot like claude code"). The same
+   yellow in light and dark. blackAndWhite.test.ts exempts this file by name,
+   and only the thread list takes this colour. */
+:root {
+  --attention: #e5a50a;
+}
