@@ -499,6 +499,17 @@ export function toDigest(value: unknown): AutoDigest | null {
     });
     return entries.length > 0 ? [{ title, entries }] : [];
   });
+  const dueSeen = new Set<string>();
+  const dueSnoozes = list(digest.due_snoozes, ENTRIES_LIMIT).flatMap((candidate) => {
+    const source = fields(candidate);
+    if (!source || !validDate(source.date) || source.date >= digest.date) return [];
+    const entry = toEntry(source.entry, '');
+    if (!entry || entry.state !== 'open' || entry.snoozedUntil != null) return [];
+    const key = `${source.date}/${entry.id}`;
+    if (dueSeen.has(key)) return [];
+    dueSeen.add(key);
+    return [{ date: source.date, entry }];
+  });
   const open = sections.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open' && entry.snoozedUntil == null).length, 0);
   return {
     date: digest.date,
@@ -507,6 +518,7 @@ export function toDigest(value: unknown): AutoDigest | null {
     left: typeof digest.left === 'number' && Number.isFinite(digest.left) && digest.left >= 0 ? Math.floor(digest.left) : open,
     archived: digest.archived === true,
     sections,
+    ...(dueSnoozes.length ? { dueSnoozes } : {}),
   };
 }
 

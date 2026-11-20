@@ -43,6 +43,7 @@ import { useThreadStore } from '../store/threadStore';
 import { byKey, focusRowNow, keepFocus, rovingTarget } from './focus';
 import { BoxFrame, boxField, paneHeader, SendButton } from './Box';
 import { ThreadLine } from './ThreadLine';
+import { DueDigestEntries } from './DueDigestEntries';
 import { UsageRing } from './UsageRing';
 import { ReplyModelPicker } from './ReplyModelPicker';
 import { useGrow } from './ThreadPane';
@@ -828,6 +829,7 @@ export function QueuePane({ intro, title }: { intro?: React.ReactNode; title?: s
         <div className="auto-column flex flex-col pb-6">
           {intro}
           {intro ? <h2 className="pb-1 pt-5 text-ui font-medium text-foreground">Digest queue</h2> : null}
+          <DueDigestEntries />
           {day ? (
             // Each day has its own Tab stop: entries of different days share ids such as "item-1".
             <Queue key={day.date} day={day} roomy={roomy} />
