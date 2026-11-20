@@ -10,7 +10,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, I
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import { cn } from '@/renderer/shared/utils';
 import { attentionCount } from '../model/listModel';
-import { NEW_THREAD } from '../model/pane';
+import { DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { openAutoTab, showInAuto } from '../openAutoTab';
 import { useAutoStore } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
@@ -53,6 +53,18 @@ function OutOfReach() {
       </button>
     </div>
   );
+}
+
+/** Digest stays available in Primary navigation when Threads is folded. */
+export function DigestNavItem({ onNavigate }: { onNavigate?: () => void }) {
+  const { navigateFiles } = useShell();
+  const available = useAutoStore((state) => Boolean(state.address && state.loaded));
+  const inFront = useTabsStore((state) => isDigestLocation(selectCurrentLocation(state)));
+  if (!available) return null;
+  return <DigestRow inFront={inFront} show={(_pane, how) => {
+    showInAuto(navigateFiles, DIGEST_QUEUE, how);
+    onNavigate?.();
+  }} />;
 }
 
 /**
@@ -139,7 +151,6 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      {address && loaded ? <DigestRow inFront={digestInFront} show={show} /> : null}
       <SidebarFold
         fold="threads"
         label="Threads"

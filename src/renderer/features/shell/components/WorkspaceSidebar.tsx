@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronsDownUp, Settings } from "lucide-react";
-import { SaidBar, ThreadsSection } from "@/renderer/features/auto";
+import { DigestNavItem, SaidBar, ThreadsSection } from "@/renderer/features/auto";
 import { useDiskStore } from "@/renderer/features/disk-explorer/store/diskStore";
 import { canCollapseTree } from "@/renderer/features/disk-explorer/store/treeExpansion";
 import { useSettingsStore } from "@/renderer/features/settings/store/settingsStore";
@@ -76,6 +76,7 @@ export function WorkspaceSidebar({
         <SidebarSection>
           <DailyDashboardItem onNavigate={onNavigate} />
           <NoteItem onNavigate={onNavigate} />
+          <DigestNavItem onNavigate={onNavigate} />
         </SidebarSection>
       </nav>
 
