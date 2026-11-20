@@ -159,8 +159,9 @@ function ThreadRow({ thread, now, current, tabStop, show, nested = false, drop =
   const icons = 2;
   // A reply he has not read, or a thread back from snooze. Not on the one he is reading.
   const dot = isMarked(thread) && !current;
-  // The heavier title is for the rows the heading's count takes in: a question, unread, back from snooze, his move.
-  const heavy = dot || thread.status === 'waiting' || isYours(thread);
+  // The heavier title is for a reply he has not read or a thread back from snooze. A question or his move is the
+  // yellow dot alone, at a normal weight (Cody, 2026-11-19: "I just want the yellow circle").
+  const heavy = dot;
   const title = thread.title || 'Untitled';
   const marked = thread.desk !== null;
   const renaming = useThreadStore((state) => state.renaming?.at === 'row' && state.renaming.id === thread.id);

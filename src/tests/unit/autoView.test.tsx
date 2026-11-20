@@ -234,10 +234,10 @@ describe('the list', () => {
     expect(within(row('seeds')).getByRole('img', { name: 'Unread' })).toBeInTheDocument();
     expect(within(row('trellis')).getByRole('img', { name: 'Back from snooze' })).toBeInTheDocument();
     expect(within(row('bread')).queryByRole('img')).toBeNull();
-    // Only the rows the heading's count takes in carry a heavier title: a question, something new. A thread nobody
+    // Only something new carries a heavier title. A question is the yellow dot at a normal weight; a thread nobody
     // has started keeps its second line and a normal title.
     const weight = (id: string) => (within(row(id)).getByText(new RegExp(`^${useAutoStore.getState().threads.find((thread) => thread.id === id)?.title}$`)).className.match(/font-(semibold|sidebar-label)/) ?? [])[1];
-    expect(['beds', 'seeds', 'trellis', 'inspect', 'bread'].map(weight)).toEqual(['semibold', 'semibold', 'semibold', 'sidebar-label', 'sidebar-label']);
+    expect(['beds', 'seeds', 'trellis', 'inspect', 'bread'].map(weight)).toEqual(['sidebar-label', 'semibold', 'semibold', 'sidebar-label', 'sidebar-label']);
     expect(screen.getByTestId('auto-count').textContent).toBe(String(['beds', 'seeds', 'trellis'].length));
     // A row is one line, two when the thread needs him: the first words of a reply are left out of the sidebar.
     expect(row('inspect').textContent).not.toContain('The committee walks the plots.');
