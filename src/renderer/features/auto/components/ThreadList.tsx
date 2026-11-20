@@ -14,7 +14,7 @@ import {
 } from '@/renderer/shared/ui';
 import { useNow } from '@/renderer/shared/hooks/useNow';
 import { cn } from '@/renderer/shared/utils';
-import { emptyList, fromDigest, isMarked, isWorking, isYours, listView, moveBy, moveTarget, needsLine, rowTime, topLevel, type ListGroup } from '../model/listModel';
+import { emptyList, fromDigest, isMarked, isWorking, isYours, listView, moveBy, moveTarget, needsLine, topLevel, type ListGroup } from '../model/listModel';
 import { leftWord } from '../model/digestModel';
 import { AWAY, DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { LIST_PLACE, keepPlace, placeIn, placeOf } from '../model/places';
@@ -26,6 +26,7 @@ import { useVaultLinks } from '../useVaultLinks';
 import { PAGE_FIRST, byKey, focusRowAfterClose, giveBack, keepFocus, rovingTarget, rowElement } from './focus';
 import { fadeOf, revealIn, type Fade } from './listScroll';
 import { SnoozeButton, SnoozeItems } from './SnoozeMenu';
+import './attentionPalette.css';
 
 const DRAG_TYPE = 'application/x-opal-auto-thread';
 
@@ -49,13 +50,13 @@ interface RowProps {
 }
 
 const rowButton = 'rounded-sidebar-row text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus';
-// Hidden by opacity, not display, so an open menu keeps the button it hangs from. They sit over the time, or over the
-// end of the title when the time is shorter than they are; the line fades out under them (`.auto-row-line`).
+// Hidden by opacity, not display, so an open menu keeps the button it hangs from. They sit over the status and the
+// end of the title; the line fades out under them (`.auto-row-line`).
 const rowActions =
   'pointer-events-none absolute right-0 top-0 flex h-thread-row items-center opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[[data-auto-row]:focus-visible]:pointer-events-auto group-has-[[data-auto-row]:focus-visible]:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100';
-const timeHides =
+const statusHides =
   'group-hover:invisible group-has-[[data-auto-row]:focus-visible]:invisible group-has-[[data-state=open]]:invisible';
-/** The second line starts under the title, past the slot the dot sits in. */
+/** The second line starts under the title, past the slot before it. */
 const underTitle = 'pl-[calc(var(--sidebar-icon-size)+var(--sidebar-icon-gap))]';
 const rowFill = (current: boolean) => (current ? 'bg-sidebar-selected' : 'hover:bg-surface-hover');
 
@@ -66,15 +67,36 @@ const keepOnRow = (id: string): void => {
 };
 
 /**
+ * A row's one sign, at the end of its first line where the time was (Cody,
+ * 2026-11-19: "we could remove the time", "the spinning could be where
+ * current time is"). A turning ring while Auto works on it; a yellow dot
+ * when it waits on him, a question or his move, "like claude code"; a dot
+ * for a reply he has not read or a thread back from snooze; else nothing.
+ */
+function RowStatus({ thread, current, className }: { thread: AutoThread; current: boolean; className?: string }) {
+  let sign: React.ReactNode = null;
+  if (isWorking(thread)) {
+    sign = <Loader2 role="img" aria-label="Working" data-testid={`auto-row-working-${thread.id}`} className="h-3 w-3 animate-spin text-foreground-tertiary" />;
+  } else if (thread.status === 'waiting' || isYours(thread)) {
+    sign = <span role="img" aria-label="Waits on you" data-testid={`auto-row-attention-${thread.id}`} className="h-2 w-2 rounded-full" style={{ background: 'var(--attention)' }} />;
+  } else if (isMarked(thread) && !current) {
+    sign = <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 rounded-full bg-foreground" />;
+  }
+  return <span className={cn('flex w-sidebar-icon shrink-0 justify-center', className)}>{sign}</span>;
+}
+
+/**
  * The line under a row's title in the sidebar, only when there is something
- * he must see: the question it asks, "Your move: ...", "Not started", why it
- * failed, or who replied to a wait. Words, never a button.
+ * he must see: "Not started", why it failed, or who replied to a wait. Words,
+ * never a button. A question or his move is the yellow dot alone, and the
+ * thread says what (Cody, 2026-11-19: "when it's waiting for something from
+ * me I don't want to see that in the sidebar that's too much").
  */
 function NeedsLine({ thread }: { thread: AutoThread }) {
   const line = needsLine(thread);
-  if (!line) return null;
-  const testId = line.kind === 'yours' ? 'auto-yours' : line.kind === 'idle' ? 'auto-not-started' : line.kind === 'back' ? 'auto-wait-back' : undefined;
-  const quiet = line.kind === 'ask' || line.kind === 'failed';
+  if (!line || line.kind === 'ask' || line.kind === 'yours') return null;
+  const testId = line.kind === 'idle' ? 'auto-not-started' : line.kind === 'back' ? 'auto-wait-back' : undefined;
+  const quiet = line.kind === 'failed';
   return (
     <span data-testid={testId} data-line={line.kind} className={cn('mt-0.5 line-clamp-2 break-words text-control', underTitle, quiet ? 'text-foreground-secondary' : 'text-foreground')}>
       {line.text}
@@ -135,13 +157,11 @@ function ThreadRow({ thread, now, current, tabStop, show, nested = false, drop =
   const digestEntry = fromDigest(thread);
   // How far in from the first line's end the icons reach: two of 1.75rem, less the row's own 0.5rem padding.
   const icons = 2;
-  const time = rowTime(thread, now);
-  // The dot before the title, as on the phone: a reply he has not read, or a thread back from snooze. Not on the one he is reading.
+  // A reply he has not read, or a thread back from snooze. Not on the one he is reading.
   const dot = isMarked(thread) && !current;
-  // A turning ring in the dot's place while Auto works on the thread (Cody, 2026-11-16: "some sort of icon if the thread is currently being actively moved").
-  const working = isWorking(thread);
-  // The heavier title is for the rows the heading's count takes in: a question, unread, back from snooze, his move.
-  const heavy = dot || thread.status === 'waiting' || isYours(thread);
+  // The heavier title is for a reply he has not read or a thread back from snooze. A question or his move is the
+  // yellow dot alone, at a normal weight (Cody, 2026-11-19: "I just want the yellow circle").
+  const heavy = dot;
   const title = thread.title || 'Untitled';
   const marked = thread.desk !== null;
   const renaming = useThreadStore((state) => state.renaming?.at === 'row' && state.renaming.id === thread.id);
@@ -204,7 +224,7 @@ function ThreadRow({ thread, now, current, tabStop, show, nested = false, drop =
                 <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
                   <span className="flex w-sidebar-icon shrink-0 justify-center" />
                   <RowTitleField thread={thread} className={titleClass} />
-                  <span className="shrink-0 text-right text-metadata tabular-nums text-sidebar-time">{time}</span>
+                  <RowStatus thread={thread} current={current} />
                 </span>
                 <NeedsLine thread={thread} />
               </div>
@@ -227,21 +247,15 @@ function ThreadRow({ thread, now, current, tabStop, show, nested = false, drop =
                   className={cn(rowButton, 'flex min-h-thread-row w-full min-w-0 flex-col justify-center px-2 py-1')}
                 >
                   <span className="auto-row-line flex w-full min-w-0 items-center gap-sidebar-icon-gap">
-                    <span className="flex w-sidebar-icon shrink-0 justify-center">
-                      {working ? (
-                        <Loader2 role="img" aria-label="Working" data-testid={`auto-row-working-${thread.id}`} className="h-3 w-3 animate-spin text-foreground-tertiary" />
-                      ) : dot ? (
-                        <span role="img" aria-label={thread.unread ? 'Unread' : 'Back from snooze'} className="h-1.5 w-1.5 rounded-full bg-foreground" />
-                      ) : null}
-                    </span>
+                    <span className="flex w-sidebar-icon shrink-0 justify-center" />
                     <span data-heavy={heavy || undefined} data-testid={`auto-row-title-${thread.id}`} className={cn('min-w-0 flex-1 truncate text-ui', titleClass)}>
                       {title}
                     </span>
-                    <span className={cn('shrink-0 text-right text-metadata tabular-nums text-sidebar-time', timeHides)}>{time}</span>
+                    <RowStatus thread={thread} current={current} className={statusHides} />
                   </span>
                   <NeedsLine thread={thread} />
                 </button>
-                {/* The row's actions take the time's place while the pointer is on the row, the keyboard is, or their menu is open.
+                {/* The row's actions take the status's place while the pointer is on the row, the keyboard is, or their menu is open.
                     A press on one leaves the keyboard where it is. */}
                 <div className={rowActions}>
                   <SnoozeButton thread={thread} from="row" open={snoozing} onOpenChange={setSnoozing} tabIndex={-1} />

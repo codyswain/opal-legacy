@@ -622,26 +622,26 @@ describe('a thread waiting on a reply', () => {
   });
 });
 
-describe('how long a thread has been working', () => {
-  it('takes the row’s time slot while it works, in the phone’s words', async () => {
+describe('the sign at the end of a row', () => {
+  it('shows no time: a turning ring while it works, a yellow dot when it waits on him, else nothing', async () => {
     await open({
       threads: [
         autoThread('a', { title: 'Just began', status: 'working', updated: NOW / 1000 - 20 }),
-        autoThread('b', { title: 'A while', status: 'working', activity: 'Reading the plan', updated: NOW / 1000 - 12 * 60 }),
         autoThread('c', { title: 'Long', status: 'queued', updated: NOW / 1000 - 65 * 60 }),
-        autoThread('d', { title: 'Even hours', status: 'working', updated: NOW / 1000 - 120 * 60 }),
+        autoThread('ask', { title: 'Ask', status: 'waiting', ask: { id: 'q', kind: 'ask', text: 'Which bed?', options: ['One'], question: 'Which bed?' } }),
+        autoThread('mine', { title: 'Mine', last: 'Drafted.', yours: 'Read it' }),
         { ...BREAD },
       ],
     });
-    const time = (id: string) => rowButton(id).querySelector('.tabular-nums')?.textContent;
-    expect(time('a')).toBe('now');
-    expect(time('b')).toBe('12 min');
-    expect(time('c')).toBe('1 h 5 min');
-    expect(time('d')).toBe('2 h');
-    // At rest it is the clock again.
-    expect(time('bread')).toBe('9:05 am');
-    act(() => auto.list({ kind: 'thread', thread: autoThread('b', { title: 'A while', status: 'idle', last: 'Done.', updated: NOW / 1000 - 60 }) }));
-    expect(time('b')).toBe('3:09 pm');
+    for (const id of ['a', 'c', 'ask', 'mine', 'bread']) expect(rowButton(id).querySelector('.tabular-nums')).toBeNull();
+    expect(rowButton('a').querySelector('[aria-label="Working"]')).not.toBeNull();
+    expect(rowButton('c').querySelector('[aria-label="Working"]')).not.toBeNull();
+    expect(rowButton('ask').querySelector('[aria-label="Waits on you"]')).not.toBeNull();
+    expect(rowButton('mine').querySelector('[aria-label="Waits on you"]')).not.toBeNull();
+    expect(rowButton('bread').querySelector('[role="img"]')).toBeNull();
+    // The ring sits at the end of the line, after the title, where the time was.
+    const line = rowButton('a').querySelector('.auto-row-line') as HTMLElement;
+    expect(line.lastElementChild?.querySelector('[aria-label="Working"]')).not.toBeNull();
   });
 });
 

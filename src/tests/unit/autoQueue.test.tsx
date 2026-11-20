@@ -149,12 +149,12 @@ describe('the mark for the Mac', () => {
     expect(group.getByTestId('auto-row-seeds')).toBeInTheDocument();
   });
 
-  it('keeps a marked thread that waits there, with its question under its title', async () => {
+  it('keeps a marked thread that waits there, with the yellow dot', async () => {
     await open({ threads: [BREAD, { ...BEDS, desk: { at: 1_794_000_100, by: 'phone' } }, SEEDS] });
     expect(rowIds()).toEqual(['beds', 'bread', 'seeds']);
     const group = within(screen.getByTestId('auto-group-desk'));
     expect(group.getByText('For the Mac')).toBeInTheDocument();
-    expect(group.getByText('Which wood for the frames?')).toBeInTheDocument();
+    expect(group.getByRole('img', { name: 'Waits on you' })).toBeInTheDocument();
   });
 
   it('takes the mark off from the same menu', async () => {
