@@ -140,14 +140,21 @@ afterEach(() => {
 });
 
 describe('the list under the keyboard', () => {
-  it('is one Tab stop: Digest and every row in one run, and no button inside a row', async () => {
+  it('gives Digest its own Tab stop above the Threads fold and keeps the list in one run', async () => {
     await open();
     const stops = [...screen.getByTestId('auto-list').querySelectorAll<HTMLElement>('button, [tabindex]')].filter((element) => element.tabIndex === 0);
     expect(stops).toHaveLength(1);
-    // The open thread's row; the new thread that shows with none is the heading's button, outside the run.
-    expect(stops[0]).toBe(rowButton(':digest'));
+    expect(stops[0]).toBe(rowButton('beds'));
+    const digest = rowButton(':digest');
+    const threads = screen.getByTestId('sidebar-threads');
+    expect(digest.tabIndex).toBe(0);
+    expect(digest.compareDocumentPosition(threads)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // The run of rows the arrows walk.
-    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual([':digest', 'beds', 'bread', 'seeds', 'trellis', 'inspect', ':away']);
+    expect([...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')].map((element) => element.getAttribute('data-row-id'))).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect', ':away']);
+    fireEvent.click(within(threads).getByRole('button', { name: /^Threads/ }));
+    expect(digest).toBeVisible();
+    expect(screen.queryByTestId('auto-list')).toBeNull();
+    fireEvent.click(within(threads).getByRole('button', { name: /^Threads/ }));
   });
 
   it('moves with the arrows, Home and End, and J and K', async () => {
@@ -164,11 +171,11 @@ describe('the list under the keyboard', () => {
     key('ArrowUp');
     expect(focusedRow()).toBe('trellis');
     key('Home');
-    expect(focusedRow()).toBe(':digest');
-    // The row the keyboard was last on is the Tab stop.
+    expect(focusedRow()).toBe('beds');
+    // The row the keyboard was last on is the list's Tab stop.
     key('ArrowDown');
-    expect(rowButton('beds').tabIndex).toBe(0);
-    expect(rowButton(':digest').tabIndex).toBe(-1);
+    expect(rowButton('bread').tabIndex).toBe(0);
+    expect(rowButton('beds').tabIndex).toBe(-1);
   });
 
   it('archives with E and moves the keyboard to the row below, or the one above from the last', async () => {

@@ -27,7 +27,7 @@ const digestRow = (date: string): string => `:digest:${date}`;
 
 const quiet = 'text-control text-foreground-tertiary';
 
-/** Opens a thread or a digest from the page; the sidebar's Put away row stays marked and leads back here. */
+/** Opens a thread or a digest from the page; the sidebar's Snoozed row stays marked and leads back here. */
 const openFromPage = (pane: string): void => showAutoPane(pane, { fromAway: true });
 
 interface RowProps {
@@ -194,7 +194,7 @@ export function AwayPane() {
     const target = event.target as HTMLElement;
     if (!target.hasAttribute('data-away-row') || event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.key === 'Escape') {
-      // Back to the sidebar, with the keyboard on its Put away row.
+      // Back to the sidebar, with the keyboard on its Snoozed row.
       event.preventDefault();
       focusRowNow(AWAY);
       return;
@@ -282,7 +282,7 @@ export function AwayPane() {
       ref={pane}
       tabIndex={-1}
       data-testid="auto-away-page"
-      aria-label="Put away"
+      aria-label="Snoozed"
       className="auto-ink flex min-w-0 flex-1 flex-col outline-none"
       onFocus={(event) => {
         const id = (event.target as HTMLElement).getAttribute?.('data-row-id');
@@ -299,7 +299,7 @@ export function AwayPane() {
       <header className={paneHeader}>
         <div className="auto-column">
           <div className="flex h-header items-center">
-            <h1 className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">Put away</h1>
+            <h1 className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">Snoozed</h1>
           </div>
         </div>
       </header>

@@ -183,10 +183,10 @@ describe('the mark for the Mac', () => {
     await waitFor(() => expect(screen.queryByTestId('auto-group-desk')).toBeNull());
   });
 
-  it('puts a marked thread that is snoozed on the Put away page', async () => {
+  it('puts a marked thread that is snoozed on the Snoozed page', async () => {
     await open({ threads: [BREAD, { ...SEEDS, desk: { at: 1_794_000_100, by: 'phone' }, snoozed: 4_000_000_000 }] });
     expect(screen.queryByTestId('auto-group-desk')).toBeNull();
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed1');
   });
 });
 
@@ -196,7 +196,7 @@ describe('the Digest row', () => {
     await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
     expect(screen.queryByTestId('auto-digest-line')).toBeNull();
     const rows = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')];
-    expect(rows[0]).toBe(digestRow());
+    expect(rows).not.toContain(digestRow());
     expect(digestRow().closest('[data-thread-id]')).toBeNull();
     expect(digestRow().closest('[draggable="true"]')).toBeNull();
     // The new thread is the heading's button, outside the run of rows.
@@ -793,7 +793,7 @@ describe('archiving the digest', () => {
   it('archives the digest from its own row, by E or its right-click menu, with Undo', async () => {
     await open();
     await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
-    const next = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')][1].getAttribute('data-row-id');
+    const next = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')][0].getAttribute('data-row-id');
     digestRow().focus();
     expect(digestRow().getAttribute('aria-keyshortcuts')).toBe('E');
     fireEvent.keyDown(digestRow(), { key: 'e' });
@@ -872,7 +872,7 @@ describe('archiving the digest', () => {
     await screen.findByTestId('auto-queue-pane');
     expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13');
     expect(screen.getByTestId('auto-queue-archived')).toBeInTheDocument();
-    // Opened from the page, the Put away row is the one marked, and it leads back there.
+    // Opened from the page, the Snoozed row is the one marked, and it leads back there.
     expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
     await openArchive();
     fireEvent.click(screen.getByTestId(`auto-restore-digest-${DAY}`));

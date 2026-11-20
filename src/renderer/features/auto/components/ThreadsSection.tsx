@@ -15,7 +15,7 @@ import { openAutoTab, showInAuto } from '../openAutoTab';
 import { useAutoStore } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
 import { SnoozeDateHost } from './SnoozeMenu';
-import { ThreadList } from './ThreadList';
+import { DigestRow, ThreadList } from './ThreadList';
 
 const UNREACHABLE = "Can't reach Auto.";
 /** Threads' height when the app last closed, in px: a number, never the list. */
@@ -56,7 +56,7 @@ function OutOfReach() {
 }
 
 /**
- * Threads, the sidebar's first section: Auto's list, under a heading that
+ * Threads, the sidebar's foldable section: Auto's list, under a heading that
  * folds it, with the count of threads that need him and a button for a new
  * thread. A thread picked here shows in the Auto tab, which opens beside
  * the page when there is none; the page stays in its tab.
@@ -139,6 +139,7 @@ export function ThreadsSection({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
+      {address && loaded ? <DigestRow inFront={digestInFront} show={show} /> : null}
       <SidebarFold
         fold="threads"
         label="Threads"
