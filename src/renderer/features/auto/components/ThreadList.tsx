@@ -427,7 +427,7 @@ export function DigestRow({ inFront, show }: { inFront: boolean; show: (pane: st
     void useDigestStore.getState().archive(digest.date, true);
   };
   return (
-    <div data-auto-list data-auto-keys data-palette-return className="shrink-0 px-sidebar-inset">
+    <div data-auto-list data-auto-keys data-palette-return className="shrink-0">
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className={cn('rounded-sidebar-row transition-hover', rowFill(current))}>
