@@ -338,7 +338,7 @@ describe('what his last actions did, and the way back from each', () => {
 });
 
 describe('an answer before it is posted', () => {
-  const grant: Extract<AutoQuestion, { kind: 'grant' }> = { id: 'g1', kind: 'grant', title: 'Send this Slack message to Robin?', detail: '', text: 'Hello.' };
+  const grant: Extract<AutoQuestion, { kind: 'grant' }> = { id: 'g1', kind: 'grant', title: 'Send this Slack message to Robin?', detail: '', text: 'Hello.', send: null };
   const permission: Extract<AutoQuestion, { kind: 'permission' }> = { id: 'p1', kind: 'permission', tool: 'Bash', title: 'Run it?', detail: '', reason: '' };
   const ask: AutoQuestion = { id: 'q1', kind: 'ask', questions: [{ question: 'Which bed?', header: 'Bed', multiSelect: false, options: [{ label: 'Bed 1', description: '' }, { label: 'Bed 2', description: '' }, { label: 'Bed 3', description: '' }, { label: 'Bed 4', description: '' }] }] };
 

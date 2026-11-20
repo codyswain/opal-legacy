@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { Check } from 'lucide-react';
+import { Check, Fingerprint } from 'lucide-react';
 import type { AutoQuestion, AutoQuestionPart } from '@/types/auto';
 import { Button } from '@/renderer/shared/ui';
 import { cn } from '@/renderer/shared/utils';
 import { Markdown, MarkdownLinksContext } from '../markdown/Markdown';
 import { answerAllow, answerDeny, answerNo, answerOption, answerPicks, isPicked, isSingle, keyOptions, pick, picksReady, splitQuestion } from '../model/questionModel';
 import type { EntryCard } from '../model/threadModel';
+import { autoApi } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
 
 /** A card in a thread: the box's light border, with corners one step under its 16px. */
@@ -128,16 +129,65 @@ export function PermissionCard({ question }: { question: Extract<AutoQuestion, {
   );
 }
 
+/** The command that trusts this Mac's key, run on the Mini with the code the card shows. */
+export const PAIR_COMMAND = 'sudo sh ~/code/vault/.claude/apps/agent/pair-phone.sh --device macbook-pro';
+
+/** A key's code in three groups, to read across to a keyboard, as the phone shows it. */
+const grouped = (code: string): string => code.match(/.{1,4}/g)?.join(' ') ?? code;
+
+type KeyState = { state: 'checking' } | { state: 'paired' } | { state: 'unpaired' } | { state: 'pairing' } | { state: 'offered'; code: string };
+
+/** Whether this Mac's key is trusted, checked when the card opens and again on request. Makes no key. */
+function useSendKey(): [KeyState, () => void, () => Promise<void>, string | null] {
+  const [key, setKey] = React.useState<KeyState>({ state: 'checking' });
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const alive = React.useRef(true);
+  React.useEffect(() => () => {
+    alive.current = false;
+  }, []);
+  const check = React.useCallback(() => {
+    void autoApi()?.sendKey().then(
+      (result) => {
+        if (!alive.current) return;
+        // A check that failed leaves Allow in place: the service still decides, and says so.
+        setKey({ state: !result.success || result.data.paired ? 'paired' : 'unpaired' });
+      },
+      () => alive.current && setKey({ state: 'paired' }),
+    );
+  }, []);
+  React.useEffect(check, [check]);
+  const pair = React.useCallback(async () => {
+    setProblem(null);
+    setKey({ state: 'pairing' });
+    const result = await autoApi()?.pairMac().catch((): null => null);
+    if (!alive.current) return;
+    if (result?.success) setKey({ state: 'offered', code: result.data.code });
+    else {
+      setKey({ state: 'unpaired' });
+      setProblem(result?.error.message ?? "Can't reach Auto.");
+    }
+  }, []);
+  return [key, check, pair, problem];
+}
+
 /**
  * A send Auto asks him to allow up front, drawn as his phone draws it: the
  * service's question, which names the channel and the people, the exact
  * words when the request carries them, and its detail on the lines the
- * service gave it. Here he can only say no. The yes is signed on his phone,
- * and nothing in this card, no key and no typed word allows it. Words typed
- * in the box below say no first and then go to the thread as his message.
+ * service gave it. Allow asks for Touch ID; the main process signs the
+ * grant's own fields with this Mac's key and answers. Until the Mini trusts
+ * this Mac, the card offers to pair it instead. Words typed in the box below
+ * say no first and then go to the thread as his message.
  */
 export function GrantCard({ question }: { question: Extract<AutoQuestion, { kind: 'grant' }> }) {
-  const { answer } = useThreadStore.getState();
+  const { answer, allowSend } = useThreadStore.getState();
+  const [key, check, pair, pairProblem] = useSendKey();
+  const [waiting, setWaiting] = React.useState(false);
+  const allow = async () => {
+    setWaiting(true);
+    await allowSend(question);
+    setWaiting(false);
+  };
   return (
     <div data-testid="auto-grant" className={card}>
       <p className="text-reply font-semibold text-foreground">{question.title || 'Allow a send?'}</p>
@@ -148,9 +198,31 @@ export function GrantCard({ question }: { question: Extract<AutoQuestion, { kind
       ) : null}
       {question.detail ? <p data-testid="auto-grant-detail" className="mt-2 whitespace-pre-line text-ui text-foreground-secondary">{question.detail}</p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => void answer(answerNo(question))}>No</Button>
-        <p data-testid="auto-grant-phone" className="text-control text-foreground-tertiary">The yes is on your phone.</p>
+        {question.send && key.state === 'paired' ? (
+          <Button data-testid="auto-grant-allow" disabled={waiting} onClick={() => void allow()}>
+            <Fingerprint aria-hidden className="h-3.5 w-3.5" />
+            Allow
+          </Button>
+        ) : null}
+        <Button variant="outline" disabled={waiting} onClick={() => void answer(answerNo(question))}>No</Button>
+        {question.send && (key.state === 'unpaired' || key.state === 'pairing') ? (
+          <Button data-testid="auto-grant-pair" variant="outline" disabled={key.state === 'pairing'} onClick={() => void pair()}>
+            Pair this Mac
+          </Button>
+        ) : null}
+        {waiting ? <p className="text-control text-foreground-tertiary">Waiting for Touch ID…</p> : null}
+        {!question.send ? <p data-testid="auto-grant-phone" className="text-control text-foreground-tertiary">The yes is on your phone.</p> : null}
       </div>
+      {key.state === 'offered' ? (
+        <div data-testid="auto-grant-pairing" className="mt-3 text-ui text-foreground-secondary">
+          <p>
+            This Mac&apos;s code is <span data-testid="auto-grant-code" className="font-mono font-medium text-foreground">{grouped(key.code)}</span>. On the Mini, run this and type the code:
+          </p>
+          <Markdown text={`\`\`\`\n${PAIR_COMMAND}\n\`\`\``} className="mt-2" />
+          <Button className="mt-2" variant="outline" onClick={check}>Check again</Button>
+        </div>
+      ) : null}
+      {pairProblem ? <p role="alert" className="mt-3 text-ui font-medium text-foreground">{pairProblem}</p> : null}
       <CardProblem />
     </div>
   );

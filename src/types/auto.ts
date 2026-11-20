@@ -221,8 +221,8 @@ export type AutoQuestion =
 
 /**
  * A send Auto asks him to allow up front: one message to named people by one
- * channel. Only his phone can say yes, with a signature Opal cannot make.
- * Opal shows it and can only say no.
+ * channel. The yes needs a signature from a paired device: his phone with
+ * Face ID, or this Mac with Touch ID, made in the main process from `send`.
  */
 export interface AutoGrant {
   id: string;
@@ -233,6 +233,28 @@ export interface AutoGrant {
   detail: string;
   /** The exact words that would go, when the grant carries them. */
   text: string | null;
+  /** What a yes signs, field for field as the service sent it; null when any part is missing or odd, and then only No is offered. */
+  send: AutoGrantSend | null;
+}
+
+/** The grant part of a send to allow, as signed (the service's grants.grant_text). */
+export interface AutoGrantSend {
+  id: string;
+  threadId: string;
+  /** slack, email or text. */
+  channel: string;
+  to: { id: string; name: string }[];
+  /** Seconds since 1970; the whole seconds are signed. */
+  expires: number;
+  /** The exact words, the same as the card's `text`. */
+  text: string | null;
+}
+
+/** Whether this Mac can allow sends: its key's code, and whether the service trusts it. */
+export interface AutoSendKey {
+  /** The first 12 hex digits of the SHA-256 of this Mac's public key line; null before a key is made. */
+  code: string | null;
+  paired: boolean;
 }
 
 export interface AutoQueued {
@@ -494,6 +516,12 @@ export interface AutoAPI {
   /** Brings the opened folders that are git checkouts up to date with their upstreams, by fast-forward only. */
   updateFolders: () => Promise<AutoResult<FolderUpdateOutcome>>;
   onStream: (callback: (message: AutoStreamMessage) => void) => () => void;
+  /** Whether this Mac's key for allowing sends is made and trusted by the service. Makes no key. */
+  sendKey: () => Promise<AutoResult<AutoSendKey>>;
+  /** Makes this Mac's key if there is none and offers it to the service; answers the code pair-phone.sh asks for. */
+  pairMac: () => Promise<AutoResult<{ code: string }>>;
+  /** Allows the send on the open card: the main process signs it after Touch ID and answers the question. */
+  allowSend: (thread: string, question: AutoGrant) => Promise<AutoResult>;
 }
 
 declare global {

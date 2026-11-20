@@ -427,6 +427,8 @@ describe('what is his', () => {
     expect(question).toEqual({
       id: expect.any(String), kind: 'grant', title: 'Send this Slack message to Robin?', detail: 'the seed swap\n\nThese exact words, once, from this thread.',
       text: 'I will bring the bean seedlings on Saturday.',
+      // What a yes from this Mac signs, as the service sent it.
+      send: { id: expect.any(String), threadId: 'here', channel: 'slack', to: [{ id: 'U01', name: 'Robin' }], expires: expect.any(Number), text: 'I will bring the bean seedlings on Saturday.' },
     });
     // Its row waits on him, with the title as its line and nothing to pick.
     await until(() => listed(BREAD).some((thread) => thread.status === 'waiting'), 'the waiting row');

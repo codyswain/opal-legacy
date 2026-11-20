@@ -254,6 +254,9 @@ const autoAPI: AutoAPI = {
   unfollow: (stream) => ipcRenderer.invoke("auto:unfollow", stream),
   resolvePage: (path) => ipcRenderer.invoke("auto:resolve-page", path),
   updateFolders: () => ipcRenderer.invoke("auto:update-folders"),
+  sendKey: () => ipcRenderer.invoke("auto:send-key"),
+  pairMac: () => ipcRenderer.invoke("auto:pair-mac"),
+  allowSend: (thread, question) => ipcRenderer.invoke("auto:allow-send", thread, question),
   onStream: (callback) => {
     const listener = (_event: IpcRendererEvent, message: AutoStreamMessage) => callback(message);
     ipcRenderer.on("auto:stream", listener);

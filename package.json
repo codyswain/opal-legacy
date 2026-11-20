@@ -8,6 +8,11 @@
   "type": "commonjs",
   "scripts": {
     "postinstall": "electron-rebuild",
+    "build:signer": "sh scripts/build-signer.sh",
+    "prestart": "npm run build:signer",
+    "predev": "npm run build:signer",
+    "prepackage": "npm run build:signer",
+    "premake": "npm run build:signer",
     "start": "npx vite build --config vite.main.config.ts && npx vite build --config vite.preload.config.ts && npx vite build --config vite.renderer.config.ts && electron-forge start",
     "dev": "electron-forge start",
     "better-dev": "node fix-dev.js",

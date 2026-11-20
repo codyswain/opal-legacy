@@ -95,6 +95,16 @@ const post = (base: string, path: string, body: Record<string, unknown>): BuiltR
   body: JSON.stringify(body),
 });
 
+/** The yes to a send he allowed on this Mac, with the signature made here after Touch ID. */
+export const allowSendRequest = (base: string, thread: string, question: string, signature: string): BuiltRequest =>
+  post(base, `/api/threads/${thread}/answer`, { id: question, allow: true, signature });
+
+/** The code of the key the service trusts for this Mac (`paired`), if any. */
+export const sendKeyRequest = (base: string): BuiltRequest => get(base, '/api/phone-key?device=macbook-pro');
+
+/** Offers this Mac's public key; it is trusted only once pair-phone.sh is run on the Mini with its code. */
+export const offerKeyRequest = (base: string, key: string, device: string): BuiltRequest => post(base, '/api/phone-key', { key, device });
+
 /**
  * The request for a route. Each body is built from named fields, so nothing
  * else the page sent can ride along: in particular no body ever marks a

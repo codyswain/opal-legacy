@@ -77,6 +77,7 @@ import { AgentService } from "@/main/agent/AgentService";
 import { AgentHandlers } from "@/main/agent/AgentHandlers";
 import { AutoService } from "@/main/auto/AutoService";
 import { AutoHandlers } from "@/main/auto/AutoHandlers";
+import { helperSigner, signerPath } from "@/main/auto/sendSigning";
 import { FolderUpdates } from "@/main/fs/FolderUpdates";
 import { loginShellPath } from "@/main/agent/loginPath";
 import { runAgentFile, spawnAgent } from "@/main/agent/nodeProcesses";
@@ -676,6 +677,8 @@ const autoHandlers = new AutoHandlers({
     vaults: async () => (await vaultService.discover()).map((vault) => vault.path),
   },
   folders: folderUpdates,
+  // This Mac's key for allowing Auto's sends, used only after Touch ID.
+  signer: helperSigner({ helper: signerPath(app.isPackaged, process.resourcesPath, app.getAppPath()), fs: fsPromises }),
 });
 
 // --- Primary Initialization and Cleanup ---
