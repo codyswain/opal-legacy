@@ -132,6 +132,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('opens a due snooze by source date and acts on its original entry', async () => {
+  const original = earlier();
+  const due = original.sections[0].entries[1];
+  await openQueue({
+    digests: { [DAY]: { ...day(), dueSnoozes: [{ date: EARLIER, entry: due }] }, [EARLIER]: original },
+  });
+  const followUp = screen.getByRole('region', { name: 'Back from snooze' });
+  fireEvent.click(within(followUp).getByRole('button', { name: /Net the brassicas/ }));
+  await screen.findByText('Before the pigeons do.');
+  expect(last('digest')).toEqual({ kind: 'digest', date: EARLIER });
+  expect(screen.queryByRole('region', { name: 'Back from snooze' })).toBeNull();
+  press(due.id, 'Resolve');
+  await waitFor(() => expect(last('digest-resolve')).toEqual({
+    kind: 'digest-resolve', date: EARLIER, ids: [due.id], resolved: true,
+  }));
+  expect(service(due.id, EARLIER)?.state).toBe('resolved');
+  expect(service(due.id, DAY)?.state).toBe('thread');
+});
+
 describe('the mark for the Mac', () => {
   const menuOf = async (id: string) => {
     await userEvent.setup().pointer({ keys: '[MouseRight]', target: within(row(id)).getAllByRole('button')[0] });
