@@ -191,7 +191,7 @@ describe('the mark for the Mac', () => {
 });
 
 describe('the Digest row', () => {
-  it('heads the Threads section on one line with how much is left, and is not a thread row', async () => {
+  it('shows one digest line above Threads with how much is left', async () => {
     await open();
     await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
     expect(screen.queryByTestId('auto-digest-line')).toBeNull();
