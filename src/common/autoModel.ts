@@ -454,6 +454,8 @@ function toEntry(value: unknown, section: string): AutoDigestEntry | null {
   // A to-do carries its drafted reply; a drafted reply of its own carries its words.
   const drafted = fields(entry.draft);
   const paste = drafted ? text(drafted.paste, TEXT_LIMIT) : kind === 'draft' ? text(entry.paste, TEXT_LIMIT) : '';
+  const until = entry.snoozed_until;
+  const snoozedUntil = typeof until === 'number' && Number.isFinite(until) && until >= 1e9 && until <= 1e11 ? until : null;
   // An entry said to be a thread without one that can be named is still open.
   const state: AutoDigestEntry['state'] = entry.state === 'resolved' ? 'resolved' : entry.state === 'thread' && thread ? 'thread' : 'open';
   return {
@@ -463,6 +465,7 @@ function toEntry(value: unknown, section: string): AutoDigestEntry | null {
     md: text(entry.md, TEXT_LIMIT),
     section,
     state,
+    ...(until !== undefined ? { snoozedUntil: state === 'open' ? snoozedUntil : null } : {}),
     thread,
     note: text(entry.note, NOTE_LIMIT),
     priority: kind === 'item' ? text(entry.priority, 40) : '',
@@ -496,7 +499,7 @@ export function toDigest(value: unknown): AutoDigest | null {
     });
     return entries.length > 0 ? [{ title, entries }] : [];
   });
-  const open = sections.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open').length, 0);
+  const open = sections.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open' && entry.snoozedUntil == null).length, 0);
   return {
     date: digest.date,
     path: text(digest.path, 1_024),

@@ -15,6 +15,8 @@ export interface QueueSection {
   resolveAll: string[];
 }
 
+const isLeft = (entry: AutoDigestEntry): boolean => entry.state === 'open' && entry.snoozedUntil == null;
+
 export const allEntries = (digest: AutoDigest): AutoDigestEntry[] => digest.sections.flatMap((section) => section.entries);
 
 /**
@@ -25,7 +27,7 @@ export const allEntries = (digest: AutoDigest): AutoDigestEntry[] => digest.sect
  */
 export function queueSections(digest: AutoDigest, filter: QueueFilter): QueueSection[] {
   return digest.sections.flatMap((section) => {
-    const open = section.entries.filter((entry) => entry.state === 'open');
+    const open = section.entries.filter(isLeft);
     const entries = filter === 'left' ? open : section.entries;
     const reading = !section.entries.some((entry) => entry.kind === 'item');
     const resolveAll = reading && open.length > 1 ? open.map((entry) => entry.id) : [];
@@ -74,7 +76,7 @@ export interface EmptyQueue {
 export function emptyQueue(digest: AutoDigest, filter: QueueFilter): EmptyQueue | null {
   const all = allEntries(digest).length;
   if (all === 0) return { text: 'This digest has no entries.', showAll: null };
-  if (filter === 'left' && !allEntries(digest).some((entry) => entry.state === 'open')) {
+  if (filter === 'left' && !allEntries(digest).some(isLeft)) {
     return { text: 'Nothing left in this digest.', showAll: all };
   }
   return null;
@@ -196,7 +198,7 @@ export function withState(digest: AutoDigest, ids: readonly string[], state: (en
     ...section,
     entries: section.entries.map((entry) => (ids.includes(entry.id) ? { ...entry, state: state(entry) } : entry)),
   }));
-  return { ...digest, sections, left: sections.reduce((sum, section) => sum + section.entries.filter((entry) => entry.state === 'open').length, 0) };
+  return { ...digest, sections, left: sections.reduce((sum, section) => sum + section.entries.filter(isLeft).length, 0) };
 }
 
 /** What an entry is called in a line about it: its title, else its first words. */

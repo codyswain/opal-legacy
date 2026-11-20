@@ -82,6 +82,7 @@ export interface DigestStore {
    * Resolving offers Undo for a few seconds; `section` names several.
    */
   resolve: (ids: string[], resolved: boolean, section?: string) => Promise<void>;
+  snooze: (date: string, id: string, until: number | null) => Promise<void>;
   /** Saves his note on an entry; empty text removes it. */
   setNote: (id: string, text: string) => Promise<boolean>;
   /** Makes an entry a thread without words: it waits on top of the list, not started. He stays in the queue. */
@@ -183,6 +184,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
   const said = () => useSaidStore.getState();
   /** The entries being added to a thread now, by day and entry: a second click while one is out sends nothing. */
   const posting = new Set<string>();
+  const snoozing = new Set<string>();
   /** The archived days as the service last listed them. */
   let served: string[] = [];
   const named = (day: AutoDigest, id: string): string => {
@@ -449,6 +451,24 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       said().drop(offer);
       put((entry) => (resolved ? unresolved(entry) : 'resolved'));
       said().refuse(result?.error.message ?? UNREACHABLE, name);
+    },
+
+    snooze: async (date, id, until) => {
+      const day = held(date);
+      const api = autoApi();
+      const key = entryKey(date, id);
+      const address = useAutoStore.getState().address;
+      if (!day || !api || snoozing.has(key)) return;
+      snoozing.add(key);
+      const answer = await api.request({ kind: 'digest-snooze', date, id, until }).catch(() => null);
+      snoozing.delete(key);
+      if (useAutoStore.getState().address !== address) return;
+      if (!answer?.success) {
+        said().refuse(answer?.error.message ?? UNREACHABLE, named(day, id));
+        return;
+      }
+      if (until !== null && selectDay(get())?.date === date) moveOn(day, [id]);
+      took(answer.data);
     },
 
     setNote: async (id, text) => {

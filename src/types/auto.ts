@@ -131,6 +131,8 @@ export interface AutoDigestEntry {
   /** Its section's title. */
   section: string;
   state: AutoDigestState;
+  /** Unix seconds, null when awake, absent on older Auto services. */
+  snoozedUntil?: number | null;
   /** The thread the entry became, or null. */
   thread: string | null;
   /** His own words on the entry, or empty. */
@@ -377,6 +379,7 @@ export type AutoRoute =
   /** Resolves entries of one day, or reopens them. */
   | { kind: 'digest-resolve'; date: string; ids: string[]; resolved: boolean }
   /** His note on an entry; empty text removes it. */
+  | { kind: 'digest-snooze'; date: string; id: string; until: number | null }
   | { kind: 'digest-note'; date: string; id: string; text: string }
   /**
    * Makes an entry a thread. With `words` it starts with the entry and his
@@ -415,6 +418,7 @@ export interface AutoRouteData {
   'digest-archive': AutoDigest;
   'digest-resolve': AutoDigest;
   'digest-note': AutoDigest;
+  'digest-snooze': AutoDigest;
   'digest-thread': { thread: AutoThread };
   'digest-continue': { thread: AutoThread };
   usage: AutoUsage;
