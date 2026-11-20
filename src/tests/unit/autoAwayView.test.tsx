@@ -122,12 +122,12 @@ async function open(options: Parameters<typeof installAutoApi>[0] = {}) {
 }
 
 const row = (id: string) => screen.getByTestId(`auto-row-${id}`);
-/** A row's own button, in the sidebar or on the Put away page. */
+/** A row's own button, in the sidebar or on the Snoozed page. */
 const rowButton = (id: string) =>
   (document.querySelector(`[data-auto-list] [data-row-id="${id}"]`) ?? document.querySelector(`[data-testid="auto-away-page"] [data-row-id="${id}"]`)) as HTMLElement;
-/** What a row of the Put away page offers beside its words: the clock's label, then the words on its button. */
+/** What a row of the Snoozed page offers beside its words: the clock's label, then the words on its button. */
 const actionsOf = (id: string) => [...row(id).querySelectorAll('button:not([data-away-row])')].map((button) => button.getAttribute('aria-label') ?? button.textContent);
-/** Opens the Put away page from its row at the foot of Threads. */
+/** Opens the Snoozed page from its row at the foot of Threads. */
 async function openAway() {
   fireEvent.click(screen.getByTestId('auto-away-row'));
   await screen.findByTestId('auto-away-page');
@@ -200,7 +200,7 @@ describe('what is put away, one row and a page', () => {
   it('keeps one row at the foot of Threads that counts what is waiting and snoozed, never the archive, and opens the three groups', async () => {
     await open();
     expect(listed()).toEqual(['beds', 'bread', 'seeds', 'trellis', 'inspect']);
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away2');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed2');
     // Outside the part that scrolls, so it is in view however long the list is; no rows behind it in the sidebar.
     expect(screen.getByTestId('auto-list-rows').contains(screen.getByTestId('auto-away-row'))).toBe(false);
     expect(screen.queryByTestId('auto-row-glass')).toBeNull();
@@ -210,12 +210,12 @@ describe('what is put away, one row and a page', () => {
     await screen.findByTestId('auto-row-gone1');
     expect(headings()).toEqual(['Waiting on a reply', 'Snoozed', 'Archived']);
     expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away2');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed2');
   });
 
   it('leaves out the groups that hold nothing, and says so when nothing is archived', async () => {
     await open({ threads: [BEDS, BREAD], archived: [] });
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed');
     await openAway();
     expect(headings()).toEqual(['Archived']);
     await waitFor(() => expect(screen.getByTestId('auto-archived-empty').textContent).toBe('Nothing is archived.'));
@@ -244,7 +244,7 @@ describe('what is put away, one row and a page', () => {
     expect(focusedRow()).toBe(':away');
   });
 
-  it('opens a row to read with the Put away row still marked, and goes back to the page where he left it', async () => {
+  it('opens a row to read with the Snoozed row still marked, and goes back to the page where he left it', async () => {
     await open();
     await openAway();
     await screen.findByTestId('auto-row-gone1');
@@ -378,7 +378,7 @@ describe('archived threads', () => {
     await waitFor(() => expect(last('archive')).toEqual({ kind: 'archive', id: 'gone4', archived: false }));
   });
 
-  it('keeps a thread opened from the page under the marked Put away row when its bringing back is undone', async () => {
+  it('keeps a thread opened from the page under the marked Snoozed row when its bringing back is undone', async () => {
     await open();
     await openArchive();
     await openThread('gone1');
@@ -463,7 +463,7 @@ describe('a thread waiting on a reply', () => {
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'glass', until: null }));
     expect(listed()).toContain('glass');
     expect(screen.queryByTestId('auto-away')).toBeNull();
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed1');
     // It can be put on the same wait again, in the words he gave for it.
     expect(said()).toBe('Back in the list.Undo');
     fireEvent.click(within(screen.getByTestId('auto-said')).getByRole('button', { name: 'Undo' }));
@@ -538,7 +538,7 @@ describe('a thread waiting on a reply', () => {
     expect(screen.queryByTestId('auto-snooze-reply')).toBeNull();
     // It leaves the list for the Waiting line, and the line at the foot says so in the phone's words.
     expect(listed()).not.toContain('bread');
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away3');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed3');
     expect(said()).toBe('Waiting on a reply until Tue 5:00 pm.Undo');
     await openAway();
     expect(rowIds('auto-waiting')).toEqual(['bread', 'glass']);
@@ -597,7 +597,7 @@ describe('a thread waiting on a reply', () => {
     act(() => auto.list({ kind: 'thread', thread: met }));
     // With what is new, under the question, and no longer behind its line.
     expect(listed()).toEqual(['beds', 'glass', 'bread', 'seeds', 'trellis', 'inspect']);
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed1');
     expect(within(row('glass')).getByTestId('auto-wait-back').textContent).toBe('Sam replied: 4 mm toughened, 86 for the lot.');
     act(() => auto.list({ kind: 'thread', thread: { ...met, last: 'No reply from Sam.', wait: wait({ state: 'expired' }) } }));
     expect(within(row('glass')).getByTestId('auto-wait-back').textContent).toBe('No reply from Sam.');
@@ -1039,7 +1039,7 @@ describe('where the keyboard goes', () => {
   it('brings a snoozed thread back from the palette by the same verb', async () => {
     await open();
     await openAway();
-    expect(command('auto.goToAway')).toMatchObject({ name: 'Go to Put away' });
+    expect(command('auto.goToAway')).toMatchObject({ name: 'Go to Snoozed' });
     auto.state.snapshots.labels = autoSnapshot(LABELS);
     await openThread('labels');
     await waitFor(() => expect(command('auto.bringBackThread')).toMatchObject({ name: 'Bring back thread' }));

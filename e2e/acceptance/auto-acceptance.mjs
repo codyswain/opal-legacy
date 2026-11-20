@@ -28,7 +28,7 @@
 // move" row; an unread thread lifted under the questions; three archives taken back one by one
 // with Cmd+Z while their posts are still on the way; Cmd+Z from an empty
 // box; the last entry of the queue opened and in view; and a long message
-// typed at the end of a thread. Then what is put away: the one Put away
+// typed at the end of a thread. Then what is put away: the one Snoozed
 // row at the foot of Threads and its page in the Auto tab, the archive read
 // when the page opens and a thread brought back from it four ways, a thread waiting on a reply (what was
 // heard, the reply, "Until a reply" from the snooze menu, nobody replying),
@@ -270,19 +270,19 @@ async function tour() {
   const awaySays = () => textOf('auto-away-row');
   const listRowsPane = page.getByTestId('auto-list-rows');
   const archivedIds = () => page.getByTestId('auto-archived').locator('[data-thread-id]').evaluateAll((rows) => rows.map((element) => element.getAttribute('data-thread-id')));
-  /** A row's own button on the Put away page. */
+  /** A row's own button on the Snoozed page. */
   const awayButton = (id) => row(id).locator('[data-away-row]');
-  /** The buttons a row on the Put away page offers beside its own: their labels, or their words. */
+  /** The buttons a row on the Snoozed page offers beside its own: their labels, or their words. */
   const awayButtons = (id) => row(id).getByRole('button').evaluateAll((buttons) => buttons.filter((button) => !button.hasAttribute('data-away-row')).map((button) => button.getAttribute('aria-label') ?? (button.textContent ?? '').trim()));
   /** Whether a row of the list or of the page holds the keyboard. */
   const keyboardOnRow = () => page.evaluate(() => !!document.activeElement?.hasAttribute('data-row-id'));
-  /** The Put away page, opened from the sidebar's row if it is not showing, with one of its groups drawn. */
+  /** The Snoozed page, opened from the sidebar's row if it is not showing, with one of its groups drawn. */
   const showLine = async (name) => {
     if ((await awayPage.count()) === 0) await awayRow.click();
     await awayPage.waitFor({ timeout: 10_000 });
     await page.getByTestId(`auto-${name}`).waitFor({ timeout: 10_000 });
   };
-  /** Leaves the Put away page for an empty new thread, if the page shows. */
+  /** Leaves the Snoozed page for an empty new thread, if the page shows. */
   const hideLine = async () => {
     if ((await awayPage.count()) === 1) await newThread.click();
     await until(async () => (await awayPage.count()) === 0);
@@ -396,7 +396,7 @@ async function tour() {
     check('an unread row has a dot', (await row(SEEDS).getByRole('img', { name: 'Unread' }).count()) === 1);
     check('a thread back from snooze says Back and when', /Back \d/.test((await row(TRELLIS).textContent()) ?? ''));
     check('a failed row says so', ((await row(COMPOST).textContent()) ?? '').includes('Failed: The turn ended early'));
-    check('what is put away is one quiet row, Put away, at the foot of Threads and outside its scrolling part, counting what is snoozed or waiting and never the archive', (await awaySays()) === 'Put away3' && await page.evaluate(() => {
+    check('what is put away is one quiet row, Snoozed, at the foot of Threads and outside its scrolling part, counting what is snoozed or waiting and never the archive', (await awaySays()) === 'Snoozed3' && await page.evaluate(() => {
       const away = document.querySelector('[data-testid="auto-away-row"]');
       const rows = document.querySelector('[data-testid="auto-list-rows"]');
       const threads = document.querySelector('[data-testid="sidebar-threads"]')?.getBoundingClientRect();
@@ -407,7 +407,7 @@ async function tour() {
     check('no put-away rows sit in the sidebar, and nothing of the archive has been read', (await page.locator('[data-testid="workspace-sidebar"] :is([data-testid="auto-waiting"], [data-testid="auto-snoozed"], [data-testid="auto-archived"], [data-testid$="-line"][data-testid^="auto-"])').count()) === 0 && archivedReads().length === 0);
     await row(BREAD).locator('[data-auto-row]').focus();
     await key('End');
-    check('the Put away row is the last stop of the list’s arrow keys', (await focused()) === ':away', await focused());
+    check('the Snoozed row is the last stop of the list’s arrow keys', (await focused()) === ':away', await focused());
     await key('ArrowUp');
     check('and Up from it goes back into the list', (await rowIds()).includes(await focused()), await focused());
     await page.evaluate(() => document.activeElement?.blur());
@@ -831,11 +831,11 @@ async function tour() {
       return !!at && (lateToday ? at.getDate() === clock.getDate() && at.getHours() === 23 && at.getMinutes() === 59 : at.getHours() === 14 && at.getMinutes() === 30);
     }));
     check('the line gives the time alone for today', !lateToday || (await saidText()) === 'Snoozed until 11:59 pm.Undo', await saidText());
-    // --- The Put away page: one click from the sidebar's row, the three groups in the Auto tab.
+    // --- The Snoozed page: one click from the sidebar's row, the three groups in the Auto tab.
     const readsBefore = archivedReads().length;
     await awayRow.click();
     await awayPage.waitFor({ timeout: 5_000 });
-    check('a click on Put away opens its page in the Auto tab, named Put away, with the row marked', await until(async () => (await tabName()) === 'Put away' && (await awayRow.getAttribute('aria-current')) === 'true'), await tabName());
+    check('a click on Snoozed opens its page in the Auto tab, named Snoozed, with the row marked', await until(async () => (await tabName()) === 'Snoozed' && (await awayRow.getAttribute('aria-current')) === 'true'), await tabName());
     check('the page has its groups under plain headings: Waiting on a reply, Snoozed, Archived', await until(async () => (await awayPage.locator('h2').allTextContents()).join() === 'Waiting on a reply,Snoozed,Archived'), (await awayPage.locator('h2').allTextContents()).join());
     check('the archive is read when the page opens', await until(() => archivedReads().length === readsBefore + 1), archivedReads().join());
     check('the Snoozed group shows them, the first to return first', (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 3);
@@ -867,14 +867,14 @@ async function tour() {
     check('S on a snoozed row opens its menu, which starts with Bring back', ((await page.getByTestId('auto-snooze-menu').getByRole('menuitem').first().textContent()) ?? '') === 'Bring back');
     await key('Escape');
     await until(async () => (await page.getByTestId('auto-snooze-menu').count()) === 0);
-    // Keys on the page: Up and Down, j and k move; Escape puts the keyboard on the sidebar's Put away row.
+    // Keys on the page: Up and Down, j and k move; Escape puts the keyboard on the sidebar's Snoozed row.
     await awayButton(napping[1]).focus();
     await key('ArrowUp');
     const above = await focused();
     await key('j');
     check('Up and j move between the page’s rows', above === GLASS && (await focused()) === napping[1], `${above} | ${await focused()}`);
     await key('Escape');
-    check('Escape puts the keyboard on the sidebar’s Put away row', await until(async () => (await focused()) === ':away'), await focused());
+    check('Escape puts the keyboard on the sidebar’s Snoozed row', await until(async () => (await focused()) === ':away'), await focused());
     await key('Enter');
     check('Enter on it keeps the page, with the keyboard back on the row it left', await until(async () => (await awayPage.count()) === 1 && (await focused()) === napping[1]), await focused());
     await hideLine();
@@ -927,11 +927,11 @@ async function tour() {
     await fromMenu(BARREL, 'Take off the Mac mark');
     await until(async () => service.thread(BARREL)?.desk === null && (await marked.count()) === 0);
 
-    // --- The archive, on the Put away page: read each time the page opens, newest first, a few and then all.
+    // --- The archive, on the Snoozed page: read each time the page opens, newest first, a few and then all.
     await showLine('archived');
     check('opened, the page reads the newest ten, newest archived first', await until(async () => (await archivedIds()).length === 10 && (await archivedIds())[0] === FENCE && (await archivedIds())[1] === FEEDER) && archivedReads().at(-1) === '/api/threads?archived=1&limit=10', archivedReads().join());
     check('each row says its last line and when it was archived, as the phone does', ((await row(FENCE).textContent()) ?? '').includes('Two coats of the dark green cover the north side.') && (await lineOf(FENCE, 'auto-archived-when')) === 'Archived yesterday.' && /^Archived [A-Z][a-z]{2}\.$/.test(await lineOf(FEEDER, 'auto-archived-when')), `${await lineOf(FENCE, 'auto-archived-when')} | ${await lineOf(FEEDER, 'auto-archived-when')}`);
-    check('the Put away row still counts only what is snoozed or waiting, and Show all says how many are archived', /^Put away[1-9]$/.test(await awaySays()) && (await textOf('auto-archived-all')) === 'Show all 12', `${await awaySays()} | ${await textOf('auto-archived-all')}`);
+    check('the Snoozed row still counts only what is snoozed or waiting, and Show all says how many are archived', /^Snoozed[1-9]$/.test(await awaySays()) && (await textOf('auto-archived-all')) === 'Show all 12', `${await awaySays()} | ${await textOf('auto-archived-all')}`);
     await row(FENCE).hover();
     check('an archived row offers only the way back, in words', (await awayButtons(FENCE)).join() === 'Bring back', (await awayButtons(FENCE)).join());
     await shot(62, 'archived-open');
@@ -944,7 +944,7 @@ async function tour() {
     const lastArchived = (await archivedIds()).at(-1);
     const pageTop = await awayScroll.evaluate((element) => element.scrollTop);
     await awayButton(lastArchived).click();
-    check('a row on the page opens its thread to read, with the sidebar’s Put away row still marked', await until(async () => (await awayPage.count()) === 0 && (await page.getByTestId('auto-away').count()) === 1 && (await awayRow.getAttribute('aria-current')) === 'true'));
+    check('a row on the page opens its thread to read, with the sidebar’s Snoozed row still marked', await until(async () => (await awayPage.count()) === 0 && (await page.getByTestId('auto-away').count()) === 1 && (await awayRow.getAttribute('aria-current')) === 'true'));
     await awayRow.click();
     check('a click on the marked row returns to the page, with its place kept', await until(async () => (await awayPage.count()) === 1 && (await archivedIds()).length === 12 && Math.abs((await awayScroll.evaluate((element) => element.scrollTop)) - pageTop) < 2), `${pageTop} -> ${await awayScroll.evaluate((element) => element.scrollTop).catch(() => -1)}`);
     await awayScroll.evaluate((element) => { element.scrollTop = 0; });
@@ -962,7 +962,7 @@ async function tour() {
     check('its header has Archive again, and nothing above the box', await until(async () => (await page.getByTestId('auto-archive-open').count()) === 1 && (await page.getByTestId('auto-away').count()) === 0) && (await textOf('auto-title')) === 'Fence paint');
     await shot(64, 'undo-bring-back');
     await said.getByRole('button', { name: 'Undo' }).click();
-    check('Undo archives it again, and it is still open to read under the marked Put away row', await until(async () => service.thread(FENCE)?.archived === true && !(await listedIds()).includes(FENCE) && (await textOf('auto-away-lead')) === 'Archived' && (await awayRow.getAttribute('aria-current')) === 'true'));
+    check('Undo archives it again, and it is still open to read under the marked Snoozed row', await until(async () => service.thread(FENCE)?.archived === true && !(await listedIds()).includes(FENCE) && (await textOf('auto-away-lead')) === 'Archived' && (await awayRow.getAttribute('aria-current')) === 'true'));
     await awayRow.click();
     check('and it is back on top of the archive', await until(async () => (await archivedIds())[0] === FENCE), (await archivedIds()).join());
     // By a key: E on an archived row brings it back with the keyboard on the next row of the page.
@@ -988,7 +988,7 @@ async function tour() {
     check('with an archived thread open the palette offers Bring back thread, and none of the other thread actions', await until(async () => (await textOf('palette-command-auto.bringBackThread')).startsWith('Bring back thread')) && (await page.locator('[data-testid="palette-command-auto.archiveThread"], [data-testid="palette-command-auto.restoreThread"]').count()) === 0);
     await page.getByTestId('palette-command-auto.bringBackThread').click();
     check('which brings it back', await until(async () => service.thread(FENCE)?.archived === false && (await listedIds()).includes(FENCE)));
-    // Put away again, so the list is as it was.
+    // Archive it again to restore the list.
     await page.getByTestId('auto-archive-open').click();
     await until(async () => service.thread(FENCE)?.archived === true && !(await listedIds()).includes(FENCE));
     await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
@@ -996,10 +996,10 @@ async function tour() {
     // --- Waiting on a reply: its group on the page, the open thread, what was heard, and the reply. From the palette.
     await key('Meta+k');
     await page.getByTestId('command-palette').waitFor({ timeout: 5_000 });
-    await page.keyboard.type('go to put away');
+    await page.keyboard.type('go to snoozed');
     await page.getByTestId('palette-command-auto.goToAway').waitFor({ timeout: 5_000 });
     await key('Enter');
-    check('the palette’s Go to Put away opens the page', await until(async () => (await awayPage.count()) === 1 && (await page.getByTestId('auto-waiting').count()) === 1));
+    check('the palette’s Go to Snoozed opens the page', await until(async () => (await awayPage.count()) === 1 && (await page.getByTestId('auto-waiting').count()) === 1));
     check('a waiting row says who it waits on and until when, then what for, where, and what was last heard', new RegExp(`^Waiting on Sam until ${WHEN}$`).test(await lineOf(GLASS, 'auto-wait-line')) && (await lineOf(GLASS, 'auto-wait-detail')) === 'The quote for the greenhouse glass. In Gmail. Last heard: I will measure the frames on Monday.', `${await lineOf(GLASS, 'auto-wait-line')} | ${await lineOf(GLASS, 'auto-wait-detail')}`);
     await row(GLASS).hover();
     check('it offers another time and the words Bring back', (await awayButtons(GLASS)).join() === 'Snooze,Bring back', (await awayButtons(GLASS)).join());
@@ -1073,7 +1073,7 @@ async function tour() {
     await shot(59, 'wait-expired');
     await row(swap).locator('[data-auto-row]').click();
     check('the thread has the service’s note of when it gave up', await until(async () => /No reply by [A-Z][a-z]{2} 5:00 pm/.test((await talk.textContent()) ?? '')), ((await talk.textContent()) ?? '').slice(-160));
-    // Put away for good, so the list is as it was. The Waiting line, with nothing behind it, has gone.
+    // Archive it, so the list is as it was. The Waiting line, with nothing behind it, has gone.
     await page.getByTestId('auto-archive-open').click();
     await until(() => service.thread(swap)?.archived === true);
     await listRowsPane.evaluate((element) => { element.scrollTop = 0; });
@@ -1402,7 +1402,10 @@ async function tour() {
     // --- The digest as a queue, beside the list where a thread would be.
     const DAY = '2026-11-13';
     const left = () => service.digest()?.left;
-    check('the Digest row is the first row of Threads and says how much is left', (await digestSays()) === 'Digest8 left' && (await page.locator('[data-testid="auto-list"] [data-auto-row]').first().getAttribute('data-testid')) === 'auto-digest-row');
+    check('Digest sits above Threads and says how much is left', (await digestSays()) === 'Digest8 left' && await digestRow.evaluate((row) => {
+      const threads = document.querySelector('[data-testid="sidebar-threads"]');
+      return !!threads && row.compareDocumentPosition(threads) === Node.DOCUMENT_POSITION_FOLLOWING;
+    }));
     check('the Digest row is one line', (await digestRow.evaluate((element) => Math.round(element.getBoundingClientRect().height))) <= 32);
     await digestRow.click();
     check('the Digest tab shows the queue beside the named thread tab', await until(async () =>
@@ -1636,7 +1639,7 @@ async function tour() {
     await shot(74, 'archived-digest');
     // Readable from its row in the archive, and by stepping days.
     await archivedDigest.locator('[data-away-row]').click();
-    check('its row in the archive opens that day in the queue, with Put away still marked', await until(async () => (await textOf('auto-queue-day')) === 'Friday, November 13' && (await page.getByTestId('auto-queue-archived').count()) === 1 && (await awayRow.getAttribute('aria-current')) === 'true'));
+    check('its row in the archive opens that day in the queue, with Snoozed still marked', await until(async () => (await textOf('auto-queue-day')) === 'Friday, November 13' && (await page.getByTestId('auto-queue-archived').count()) === 1 && (await awayRow.getAttribute('aria-current')) === 'true'));
     await page.getByRole('button', { name: 'Earlier day' }).click();
     await until(async () => (await textOf('auto-queue-day')) === 'Thursday, November 12');
     check('an earlier day that is not archived has no such line at its foot', (await page.getByTestId('auto-queue-archived').count()) === 0);
@@ -1761,7 +1764,7 @@ async function tour() {
     await key('Escape');
     check('Escape from the queue puts the keyboard on the Digest row', await until(async () => (await focused()) === ':digest'));
 
-    // The list: one arrow sequence through Digest and every row. New thread is the button beside the heading.
+    // Down from Digest enters the thread list. New thread is the button beside the heading.
     await key('ArrowDown');
     const [one, two, three, four] = await rowIds();
     check('Down from the Digest row is the first thread', (await focused()) === one && one === BEDS, `${await focused()} ${one}`);
@@ -1772,8 +1775,7 @@ async function tour() {
     await key('Escape');
     await until(async () => (await focused()) === made.id);
     await key('Home');
-    await key('ArrowDown');
-    check('Home is the Digest row, and Down the first thread', await until(async () => (await focused()) === one, 2_000), await focused());
+    check('Home is the first thread', await until(async () => (await focused()) === one, 2_000), await focused());
 
     // Three archives, taken back one by one with Cmd+Z while the service is slow: the first is undone before its post has landed.
     service.slow(700);
@@ -1845,7 +1847,7 @@ async function tour() {
     await key('Escape');
     check('Escape closes it and the keyboard is back on the row', await until(async () => (await page.getByTestId(`auto-row-menu-${mover}`).count()) === 0 && (await focused()) === mover), await focused());
     await key('Home');
-    check('Home is the Digest row', (await focused()) === ':digest', await focused());
+    check('Home is the first thread', (await focused()) === (await rowIds())[0], await focused());
     await newThread.focus();
     await key('Enter');
     check('Enter opens it with the caret in the box, which is empty', await until(async () => (await focused()) === 'auto-box') && (await box.inputValue()) === '');
@@ -1966,8 +1968,8 @@ async function tour() {
     await wait(400);
     check('nothing moves sideways when Threads starts to scroll: a row and the Digest count keep their right edges', restOverflow <= 0 && (await listRows.evaluate((element) => element.scrollHeight - element.clientHeight)) > 0 && (await rowEnds()) === edgesAtRest, `${restOverflow}: ${edgesAtRest} -> ${await rowEnds()}`);
     check('a cut edge fades: the bottom while more is below', (await listRows.getAttribute('data-fade-y')) === 'bottom', String(await listRows.getAttribute('data-fade-y')));
-    // The Put away row stays in view under the part that scrolls, whatever the list's length.
-    check('the Put away row stays in view under the scrolling rows', await page.evaluate(() => {
+    // The Snoozed row stays in view under the part that scrolls, whatever the list's length.
+    check('the Snoozed row stays in view under the scrolling rows', await page.evaluate(() => {
       const away = document.querySelector('[data-testid="auto-away-row"]')?.getBoundingClientRect();
       const rows = document.querySelector('[data-testid="auto-list-rows"]')?.getBoundingClientRect();
       const threads = document.querySelector('[data-testid="sidebar-threads"]')?.getBoundingClientRect();
@@ -2046,11 +2048,11 @@ async function tour() {
       const threads = document.querySelector('[data-testid="sidebar-threads"]')?.getBoundingClientRect();
       return !!away && !!threads && away.height > 0 && away.top >= threads.top && away.bottom <= threads.bottom + 1 && away.bottom <= window.innerHeight;
     });
-    check('with thirteen threads and a short tree the Put away row is in view, and Threads takes no more than it needs', (await listedIds()).length >= 13 && (await awayInView()) && thirteen.overflow <= 0, `${(await listedIds()).length} threads, ${JSON.stringify(thirteen)}`);
+    check('with thirteen threads and a short tree the Snoozed row is in view, and Threads takes no more than it needs', (await listedIds()).length >= 13 && (await awayInView()) && thirteen.overflow <= 0, `${(await listedIds()).length} threads, ${JSON.stringify(thirteen)}`);
     await shot(82, 'thirteen-threads');
     await page.setViewportSize({ width: WIDTH, height: HEIGHT });
     await wait(400);
-    check(`at ${HEIGHT} px the thirteen threads scroll and the Put away row is still in view`, (await awayInView()) && (await heights()).overflow > 0, JSON.stringify(await heights()));
+    check(`at ${HEIGHT} px the thirteen threads scroll and the Snoozed row is still in view`, (await awayInView()) && (await heights()).overflow > 0, JSON.stringify(await heights()));
     await page.setViewportSize({ width: WIDTH, height: 1100 });
     await wait(400);
     // A long tree: Threads stops at 70% and Library keeps the rest, at least 30%.
@@ -2606,12 +2608,12 @@ async function tour() {
     await page.getByRole('textbox', { name: 'Address' }).fill(emptyService.url);
     await page.getByRole('textbox', { name: 'Address' }).press('Enter');
     await page.getByTestId('auto-empty').waitFor({ timeout: 15_000 });
-    check('with no thread left the list says so and when the next snoozed one returns, and how many are snoozed is said once', /^Nothing left\. ?The next snoozed one returns (today|tomorrow) at \d/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && !/2 snoozed/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && (await awaySays()) === 'Put away2' && (await page.getByTestId('auto-summary').count()) === 0, (await page.getByTestId('auto-empty').textContent()) ?? '');
+    check('with no thread left the list says so and when the next snoozed one returns, and how many are snoozed is said once', /^Nothing left\. ?The next snoozed one returns (today|tomorrow) at \d/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && !/2 snoozed/.test((await page.getByTestId('auto-empty').textContent()) ?? '') && (await awaySays()) === 'Snoozed2' && (await page.getByTestId('auto-summary').count()) === 0, (await page.getByTestId('auto-empty').textContent()) ?? '');
     await shot(17, 'empty-list');
     await newThread.click();
     check('the empty new thread says Nothing left. when the list is empty', await until(async () => (await textOf('auto-nothing-left')) === 'Nothing left.'), await textOf('auto-nothing-left'));
     await showLine('snoozed');
-    check('the Put away page still shows them', await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 2));
+    check('the Snoozed page still shows them', await until(async () => (await page.getByTestId('auto-snoozed').locator('[data-thread-id]').count()) === 2));
     check('with nothing waiting on a reply there is no group for it', (await page.getByTestId('auto-waiting').count()) === 0);
     check('an archive with nothing in it says so', await until(async () => (await textOf('auto-archived-empty')) === 'Nothing is archived.'), await textOf('auto-archived-empty'));
     await shot(18, 'empty-list-snoozed-open');
