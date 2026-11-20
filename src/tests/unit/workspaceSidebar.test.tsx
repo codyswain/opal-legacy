@@ -87,7 +87,17 @@ beforeEach(() => {
 });
 
 describe("WorkspaceSidebar", () => {
-  it("opens today's page from Daily, at the path the main process returns", async () => {
+  it("opens Daily separately from the Note stream", async () => {
+    useDiskStore.setState({ roots: [ROOT] });
+    const user = userEvent.setup();
+    renderSidebar(false, "/");
+    await user.click(screen.getByRole("button", { name: "Daily" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("collection=daily");
+    expect(screen.getByRole("button", { name: "Daily" })).toHaveClass("bg-sidebar-selected");
+    expect(screen.getByRole("button", { name: "Note" })).not.toHaveClass("bg-sidebar-selected");
+  });
+
+  it("opens today's page from Note, at the path the main process returns", async () => {
     const today = localDate();
     const page = `${ROOT}/Library/daily/${today}.md`;
     const createDay = vi.fn(async () => ({ success: true as const, data: { path: page } }));
@@ -97,7 +107,7 @@ describe("WorkspaceSidebar", () => {
     };
     const user = userEvent.setup();
     renderSidebar(false, "/");
-    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Note" }));
     expect(createDay).toHaveBeenCalledWith(ROOT, today);
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(
@@ -109,7 +119,7 @@ describe("WorkspaceSidebar", () => {
 
     // Cmd+click opens Daily in a new tab instead.
     await user.keyboard("{Meta>}");
-    await user.click(screen.getByRole("button", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Note" }));
     await user.keyboard("{/Meta}");
     await waitFor(() => expect(tabPaths()).toEqual([page, page]));
   });
@@ -123,11 +133,11 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/files");
   });
 
-  it("marks Daily active while today's daily page is open, also when a relaunch restored it", () => {
+  it("marks Note active while today's daily page is open, also when a relaunch restored it", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       vi.setSystemTime(new Date(2026, 9, 29, 23, 59));
-      const today = () => screen.getByRole("button", { name: "Daily" });
+      const today = () => screen.getByRole("button", { name: "Note" });
       // A restored tab, which Daily did not open.
       openTabs([`${ROOT}/Library/daily/2026-10-29.md`]);
       renderSidebar();
@@ -159,7 +169,7 @@ describe("WorkspaceSidebar", () => {
     });
     renderSidebar(false, "/");
 
-    expect(screen.getByRole("button", { name: "Daily" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Note" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Recent" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Auto/ })).toBeNull();
     expect(screen.queryByRole("link", { name: "Library" })).toBeNull();
@@ -294,7 +304,7 @@ describe("a new daily page", () => {
     openTabs([stackLocation("daily", TODAY)]);
     const user = userEvent.setup();
     renderSidebar();
-    await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: "Daily" }) });
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: "Note" }) });
     const menu = await screen.findByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["TomorrowSat, Oct 31", "Pick a date…", "Open to the side"]);
     await user.click(within(menu).getByRole("menuitem", { name: /^Tomorrow/ }));

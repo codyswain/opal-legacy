@@ -5,12 +5,13 @@ import type { DiskEntry } from '@/types/disk';
 import { useDiskStore } from '../store/diskStore';
 import { HIDDEN_MESSAGE, useHiddenStore } from '../store/hiddenStore';
 import { AutoView } from '@/renderer/features/auto';
+import { DailyView } from '@/renderer/features/daily/DailyView';
 import { RecentView } from './RecentView';
 import { FileViewer } from './FileViewer';
 import { MarkdownEditor } from './editor/MarkdownEditor';
 import { StackView } from './stack/StackView';
 import { useTabScroll } from '../hooks/useTabScroll';
-import { filesLocationKey, isAutoLocation, isDigestLocation } from '../navigation/filesLocation';
+import { filesLocationKey, isAutoLocation, isDailyLocation, isDigestLocation } from '../navigation/filesLocation';
 import { tabFile, tabLocation } from '../store/tabsStore';
 import { usePaneTab } from '../panes/PaneContext';
 import { EditorSlot } from '../panes/EditorSlot';
@@ -137,6 +138,10 @@ export const DiskExplorer: React.FC = () => {
                 : 'File unavailable'}
             </div>
           )}
+        </div>
+      ) : isDailyLocation(location) ? (
+        <div data-testid="files-daily" className="min-h-0 flex-1">
+          <DailyView />
         </div>
       ) : isAutoLocation(location) || isDigestLocation(location) ? (
         <div data-testid="files-auto" className="min-h-0 flex-1">

@@ -10,12 +10,12 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, I
 import { readPref, writePref } from '@/renderer/shared/prefs/prefs';
 import { cn } from '@/renderer/shared/utils';
 import { attentionCount } from '../model/listModel';
-import { NEW_THREAD } from '../model/pane';
+import { DIGEST_QUEUE, NEW_THREAD } from '../model/pane';
 import { openAutoTab, showInAuto } from '../openAutoTab';
 import { useAutoStore } from '../store/autoStore';
 import { useThreadStore } from '../store/threadStore';
 import { SnoozeDateHost } from './SnoozeMenu';
-import { ThreadList } from './ThreadList';
+import { DigestRow, ThreadList } from './ThreadList';
 
 const UNREACHABLE = "Can't reach Auto.";
 /** Threads' height when the app last closed, in px: a number, never the list. */
@@ -55,8 +55,20 @@ function OutOfReach() {
   );
 }
 
+/** Digest stays available in Primary navigation when Threads is folded. */
+export function DigestNavItem({ onNavigate }: { onNavigate?: () => void }) {
+  const { navigateFiles } = useShell();
+  const available = useAutoStore((state) => Boolean(state.address && state.loaded));
+  const inFront = useTabsStore((state) => isDigestLocation(selectCurrentLocation(state)));
+  if (!available) return null;
+  return <DigestRow inFront={inFront} show={(_pane, how) => {
+    showInAuto(navigateFiles, DIGEST_QUEUE, how);
+    onNavigate?.();
+  }} />;
+}
+
 /**
- * Threads, the sidebar's first section: Auto's list, under a heading that
+ * Threads, the sidebar's foldable section: Auto's list, under a heading that
  * folds it, with the count of threads that need him and a button for a new
  * thread. A thread picked here shows in the Auto tab, which opens beside
  * the page when there is none; the page stays in its tab.

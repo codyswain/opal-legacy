@@ -1,12 +1,8 @@
-/* The touched list under a daily page: the day's digest link and what the
-   day touched, in the page's own column below the note. Every colour but
-   the palette's is a shell token. */
+/* Documents touched this day, in the Daily view. */
 .opal-touched {
   position: relative;
   box-sizing: border-box;
-  max-width: calc(var(--editor-measure) + 4rem);
-  margin: 0 auto;
-  padding: 0.5rem 2rem 1rem;
+  padding-top: 0.5rem;
   font-family: var(--font-sans);
   font-feature-settings: var(--font-features);
   font-size: var(--text-ui-size);
@@ -93,12 +89,6 @@
 
 .opal-touched-week > i[data-hit] {
   background-color: hsl(var(--text-tertiary) / 0.55);
-}
-
-/* Pointing at a row keeps that item's rows on every day at full strength and dims the rest. */
-.opal-stack-content[data-touched-hover] .opal-touched-row:not([data-match]) {
-  opacity: 0.28;
-  transition-duration: 0s;
 }
 
 .opal-touched-tip {

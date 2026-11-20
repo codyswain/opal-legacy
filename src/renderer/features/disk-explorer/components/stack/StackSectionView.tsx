@@ -9,7 +9,6 @@ import { cn } from '@/renderer/shared/utils/cn';
 import { MarkdownEditor } from '../editor/MarkdownEditor';
 import type { MarkdownSaveState } from '../editor/useMarkdownDocument';
 import type { OpenNote } from '../editor/wikiLinks';
-import { TouchedList, type TouchedDay } from './TouchedList';
 import { EditorSlot } from '../../panes/EditorSlot';
 
 /** What a section asks of its stack. One object for the life of the stack, so sections stay memoized. */
@@ -47,8 +46,6 @@ interface StackSectionViewProps {
   propertiesShown: boolean;
   position: number;
   setSize: number;
-  /** A daily page's touched list, on the first page of its date; null for none. */
-  touched: TouchedDay | null;
   actions: SectionActions;
 }
 
@@ -82,7 +79,7 @@ function clearStart(event: React.PointerEvent<HTMLElement>) {
  * folded.
  */
 export const StackSectionView = memo(function StackSectionView({
-  section, first, large, twin, lone, open, live, height, status, autoFocusEmpty, propertiesShown, position, setSize, touched, actions,
+  section, first, large, twin, lone, open, live, height, status, autoFocusEmpty, propertiesShown, position, setSize, actions,
 }: StackSectionViewProps) {
   const id = useId();
   const titleId = `${id}-title`;
@@ -99,7 +96,6 @@ export const StackSectionView = memo(function StackSectionView({
       data-stack-section={section.path}
       data-role={section.role}
       data-open={open ? '' : undefined}
-      data-touched={touched ? '' : undefined}
       aria-labelledby={titleId}
       aria-posinset={position}
       aria-setsize={setSize}
@@ -191,7 +187,6 @@ export const StackSectionView = memo(function StackSectionView({
           )}
         </div>
       ) : null}
-      {touched ? <TouchedList touched={touched} openPath={actions.openNote} /> : null}
     </article>
   );
 });

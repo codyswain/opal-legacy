@@ -512,7 +512,7 @@ async function tour() {
     check('a closed tab whose page the other pane shows opens again in its own pane, with the line', await until(async () => (await lineIn(0, abs('Garden plan.md')).count()) === 1) && (await activeIndex()) === 0 && (await pill(0, 'Garden plan').getAttribute('aria-selected')) === 'true' && (await liveFor(abs('Garden plan.md'))) === 1, `${(await tabsOf(0)).join()} | ${(await tabsOf(1)).join()}`);
     // Today's page in the stream at the left, and the same page opened alone at the right.
     await leftCard();
-    await page.getByRole('button', { name: 'Daily', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Note', exact: true }).first().click();
     await until(async () => (await column(0).locator(`[data-stack-section="${daily}"] [data-live-editor] .cm-content`).count()) === 1, 10_000);
     await column(1).getByTestId('workspace-surface').click({ position: { x: 200, y: 200 } });
     await page.evaluate((file) => { window.location.hash = `#/files?mode=focus&file=${encodeURIComponent(file)}&alone=1`; }, daily);
@@ -561,7 +561,7 @@ async function tour() {
 
     // The stream of days at the left with the caret in yesterday's page; Focus Other Pane and back, then type.
     await toOnePane();
-    await page.getByRole('button', { name: 'Daily', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Note', exact: true }).first().click();
     const yesterdaySection = column(0).locator(`[data-stack-section="${yesterday}"]`);
     await yesterdaySection.waitFor({ timeout: 10_000 });
     await yesterdaySection.scrollIntoViewIfNeeded();

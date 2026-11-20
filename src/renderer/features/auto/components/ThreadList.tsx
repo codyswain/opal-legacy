@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, Loader2, Newspaper } from 'lucide-react';
+import { Archive, Clock, Loader2, Newspaper } from 'lucide-react';
 import type { AutoThread } from '@/types/auto';
 import { openHowFor, type OpenHow } from '@/renderer/features/disk-explorer/navigation/openHow';
 import {
@@ -410,67 +410,82 @@ function GroupRows({ group, apart, now, openId, tabStop, show }: GroupProps) {
 const fadeClear = (): number => 1.5 * parseFloat(getComputedStyle(document.documentElement).fontSize || '16');
 
 /** The digest, as a queue. Not a thread: it does not drag or snooze. Its menu and E archive it, with Undo. */
-function DigestRow({ current, tabStop, show, next }: { current: boolean; tabStop: boolean; show: (pane: string, how?: OpenHow) => void; next: () => string | null }) {
+export function DigestRow({ inFront, show }: { inFront: boolean; show: (pane: string, how?: OpenHow) => void }) {
   const digest = useDigestStore((state) => state.latest);
+  const archivedDay = useDigestStore((state) => selectDay(state)?.archived);
+  const current = inFront && !archivedDay;
   const { openVault } = useVaultLinks();
+  if (digest?.archived) return null;
+  const firstThread = () => document.querySelector<HTMLElement>('[data-testid="auto-list"] [data-auto-row]');
   const archive = () => {
     if (!digest) return;
-    // The row leaves: by a key, the keyboard takes the row below.
-    if (byKey()) useAutoStore.getState().requestFocus(next() ?? NEW_THREAD);
+    if (byKey()) {
+      const next = firstThread()?.getAttribute('data-row-id');
+      if (next) useAutoStore.getState().requestFocus(next);
+      else rowElement(NEW_THREAD)?.focus();
+    }
     void useDigestStore.getState().archive(digest.date, true);
   };
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div className={cn('rounded-sidebar-row transition-hover', rowFill(current))}>
-          <button
-            type="button"
-            data-auto-row
-            data-row-id={DIGEST_QUEUE}
-            data-testid="auto-digest-row"
-            tabIndex={tabStop ? 0 : -1}
-            aria-current={current || undefined}
-            aria-keyshortcuts={digest ? 'E' : undefined}
-            onClick={(event) => show(DIGEST_QUEUE, openHowFor(event))}
-            onAuxClick={(event) => {
-              if (event.button === 1) {
-                event.preventDefault();
-                show(DIGEST_QUEUE, openHowFor(event));
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'e' || !digest) return;
-              event.preventDefault();
-              archive();
-            }}
-            className={cn(rowButton, 'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui', current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label')}
-          >
-            <Newspaper aria-hidden className="stroke-sidebar-icon h-sidebar-icon w-sidebar-icon shrink-0 text-sidebar-icon" />
-            <span className="min-w-0 flex-1 truncate">Digest</span>
-            {digest ? <span data-testid="auto-digest-left" className="shrink-0 text-metadata font-normal tabular-nums text-sidebar-time">{leftWord(digest)}</span> : null}
-          </button>
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent data-testid="auto-digest-menu-row" onCloseAutoFocus={(event) => focusRowAfterClose(event, DIGEST_QUEUE)}>
-        <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { newTab: true })}>Open in new tab</ContextMenuItem>
-        <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { side: true })}>Open to the side</ContextMenuItem>
-        {digest ? (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={archive}>
-              Archive the digest
-              <ContextMenuShortcut aria-hidden>E</ContextMenuShortcut>
-            </ContextMenuItem>
-            {digest.path ? <ContextMenuItem onSelect={() => openVault(digest.path, false)}>Open the digest</ContextMenuItem> : null}
-          </>
-        ) : null}
-      </ContextMenuContent>
-    </ContextMenu>
+    <div data-auto-list data-auto-keys data-palette-return className="shrink-0">
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className={cn('rounded-sidebar-row transition-hover', rowFill(current))}>
+            <button
+              type="button"
+              data-auto-row
+              data-row-id={DIGEST_QUEUE}
+              data-testid="auto-digest-row"
+              aria-current={current || undefined}
+              aria-keyshortcuts={digest ? 'E' : undefined}
+              onClick={(event) => show(DIGEST_QUEUE, openHowFor(event))}
+              onAuxClick={(event) => {
+                if (event.button === 1) {
+                  event.preventDefault();
+                  show(DIGEST_QUEUE, openHowFor(event));
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+                if (event.key === 'ArrowDown' || event.key === 'j') {
+                  const next = firstThread() ?? rowElement(NEW_THREAD);
+                  if (!next) return;
+                  event.preventDefault();
+                  next.focus();
+                } else if (event.key.toLowerCase() === 'e' && digest) {
+                  event.preventDefault();
+                  archive();
+                }
+              }}
+              className={cn(rowButton, 'flex h-thread-row w-full min-w-0 items-center gap-sidebar-icon-gap px-2 text-ui', current ? 'font-sidebar-active text-foreground' : 'font-sidebar-label text-sidebar-label')}
+            >
+              <Newspaper aria-hidden className="stroke-sidebar-icon h-sidebar-icon w-sidebar-icon shrink-0 text-sidebar-icon" />
+              <span className="min-w-0 flex-1 truncate">Digest</span>
+              {digest ? <span data-testid="auto-digest-left" className="shrink-0 text-metadata font-normal tabular-nums text-sidebar-time">{leftWord(digest)}</span> : null}
+            </button>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent data-testid="auto-digest-menu-row" onCloseAutoFocus={(event) => focusRowAfterClose(event, DIGEST_QUEUE)}>
+          <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { newTab: true })}>Open in new tab</ContextMenuItem>
+          <ContextMenuItem onSelect={() => show(DIGEST_QUEUE, { side: true })}>Open to the side</ContextMenuItem>
+          {digest ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={archive}>
+                Archive the digest
+                <ContextMenuShortcut aria-hidden>E</ContextMenuShortcut>
+              </ContextMenuItem>
+              {digest.path ? <ContextMenuItem onSelect={() => openVault(digest.path, false)}>Open the digest</ContextMenuItem> : null}
+            </>
+          ) : null}
+        </ContextMenuContent>
+      </ContextMenu>
+    </div>
   );
 }
 
 /**
- * The threads in the sidebar: Digest, then the threads marked for the Mac,
+ * The threads in the sidebar: the threads marked for the Mac,
  * the ones that wait on him, what is new, and the rest in his order. Under
  * them, outside the part that scrolls, one row leads to what is put away.
  * It is one Tab stop; the arrow keys move between rows. A click shows the
@@ -485,7 +500,6 @@ export function ThreadList({ show, inFront, digestInFront }: { show: (pane: stri
   // Highlight the row for the focused pane when the digest and thread are both visible.
   const openId = digestInFront ? DIGEST_QUEUE : inFront ? openNow : null;
   const archivedDigest = useDigestStore((state) => selectDay(state)?.archived);
-  const digest = useDigestStore((state) => state.latest);
   const now = useNow();
   // The open thread keeps its place while it is open; leaving the tab lets it go to its place.
   const view = React.useMemo(() => listView(threads, inFront ? hold : null), [threads, hold, inFront]);
@@ -509,18 +523,15 @@ export function ThreadList({ show, inFront, digestInFront }: { show: (pane: stri
     return () => observer.disconnect();
   }, []);
 
-  // An archived digest is off the list until the next one. It stays readable from the Put away page.
-  const showsDigest = !digest?.archived;
-
   // One row is the list's Tab stop. While the keyboard is in the list it is the row the keyboard is on;
   // coming into the list from outside, it is the open pane's row, else the first.
   const [active, setActive] = React.useState<string | null>(null);
   const order = React.useMemo(
-    () => [...(showsDigest ? [DIGEST_QUEUE] : []), ...view.groups.flatMap((group) => group.threads.map((thread) => thread.id)), AWAY],
-    [view, showsDigest]
+    () => [...view.groups.flatMap((group) => group.threads.map((thread) => thread.id)), AWAY],
+    [view]
   );
   const rows = React.useMemo(() => new Set(order), [order]);
-  // The Put away row is marked while its page shows, or something opened from it that is not a row here.
+  // The Snoozed row is marked while its page shows, or something opened from it that is not a row here.
   const awayMarked = digestInFront ? archivedDigest === true : openId === AWAY || (openId !== null && fromAway && !rows.has(openId));
   const marked = awayMarked ? AWAY : openId;
   const tabStop = active && rows.has(active) ? active : marked && rows.has(marked) ? marked : (order[0] ?? '');
@@ -617,7 +628,6 @@ export function ThreadList({ show, inFront, digestInFront }: { show: (pane: stri
         }}
       >
         <div ref={content} className="ml-sidebar-inset flex flex-col gap-0.5">
-          {showsDigest ? <DigestRow current={digestInFront && !awayMarked} tabStop={tabStop === DIGEST_QUEUE} show={show} next={() => order[1] ?? null} /> : null}
 
           {empty ? (
             <p data-testid="auto-empty" className="py-1 pr-2 pl-[calc(var(--sidebar-icon-size)+var(--sidebar-icon-gap)+0.5rem)] text-control text-foreground-tertiary">
@@ -664,9 +674,9 @@ export function ThreadList({ show, inFront, digestInFront }: { show: (pane: stri
               )}
             >
               <span className="flex w-sidebar-icon shrink-0 justify-center">
-                <Archive aria-hidden className="h-3.5 w-3.5" />
+                <Clock aria-hidden className="h-3.5 w-3.5" />
               </span>
-              <span className="min-w-0 flex-1 truncate">Put away</span>
+              <span className="min-w-0 flex-1 truncate">Snoozed</span>
               {awayCount > 0 ? <span data-testid="auto-away-count" className="shrink-0 text-metadata tabular-nums text-sidebar-time">{awayCount}</span> : null}
             </button>
           </ContextMenuTrigger>

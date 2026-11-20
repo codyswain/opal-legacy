@@ -1,8 +1,8 @@
 # Project: Opal
 
 A desktop app for reading and editing the Markdown pages in a folder on disk.
-Pages come first. There is no chat and no Today screen: "Daily" opens a
-stream of daily pages at the day's page (`Library/daily/YYYY-MM-DD.mdo`, or
+"Daily" shows the digest queue, recent activity and documents for the selected day.
+"Note" opens a stream of daily pages at the day's page (`Library/daily/YYYY-MM-DD.mdo`, or
 `.md` for older days and Obsidian's), the earlier ones below it and pages
 made for later days above it, creating the day's page as a `.mdo` from the
 vault's template when the date has none. A date with both files shows both,
@@ -36,8 +36,7 @@ not exist.
   (person notes the log links to, and meeting speakers who have one) and
   digest, and sends `vault:day-changed`. The parsing
   is in `src/common/dayModel.ts`
-- **Touched list:** each daily page in the stream shows, under its text, a
-  link to the day's digest and up to eight things the agent turns of that
+- **Touched list:** Daily shows up to eight things the agent turns of that
   day's log linked to, with a square per day of its week.
   `TouchedService` (`vault:touched-week`, `vault:touched-changed`) reads a
   week's logs through `DayService.logEntries`, plus the optional
@@ -236,10 +235,10 @@ not exist.
   lookup away from a real install
 - **Auto:** the sidebar’s Threads section opens a thread tab and a separate Digest tab.
   Both connect to the agent service on the Mini. The sidebar is
-  Daily, then two sections that fold (`SidebarFold.tsx`, kept in
+  Daily, Digest, then two sections that fold (`SidebarFold.tsx`, kept in
   `shell.layout` as `threadsOpen` and `libraryOpen`): Threads
   (`ThreadsSection.tsx`: the heading with the count and New thread, the
-  Digest row, the threads, the put-away lines; the height its rows need, up
+  threads and the Snoozed row; the height its rows need, up
   to 70% of the room it shares with Library, scrolling inside that with
   faded cut edges; a put-away line opened scrolls its first rows into view) and Library (pinned pages, then the tree); then the
   Undo line, Update ready and Settings. Recent has no row; the palette's

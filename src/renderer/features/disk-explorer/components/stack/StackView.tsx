@@ -5,7 +5,6 @@ import { EditorView } from '@codemirror/view';
 import { isDocFile, pageName } from '@/common/fileKind';
 import { isFsPathAtOrBelow } from '@/common/fsPaths';
 import { dailyDetail, dailyHeadDate, readOnlyRule } from '@/common/stackModel';
-import { mondayOf, touchedForDay, weekdayIndex } from '@/common/touchedModel';
 import { localDate } from '@/common/vaultModel';
 import type { StackSection } from '@/types/stack';
 import { recordOpened } from '../../activity/recordActivity';
@@ -19,7 +18,6 @@ import { findTab, useTabsStore, type StackViewState, type TabEntry } from '../..
 import { placeCaret, sectionKeys, type SectionEdge } from './stackKeys';
 import { StackSectionView, type SectionActions } from './StackSectionView';
 import { StackToolbar, ToolbarBinding } from './StackToolbar';
-import { touchedHover, useTouchedWeeks, type TouchedDay } from './TouchedList';
 import { useHiddenStore } from '../../store/hiddenStore';
 import { STACK_WINDOW, planStackWindow, sectionHeights, type SectionGeometry } from './stackWindow';
 import './stack.css';
@@ -300,31 +298,6 @@ export const StackView: React.FC<StackViewProps> = ({ tabId, index, location }) 
   // A stack that holds a document has one toolbar above its scroll, for the document that last had focus.
   // Daily always has it, since new days are documents: the stream never moves when one arrives or leaves.
   const hasDocuments = useMemo(() => kind === 'daily' || sections.some((section) => isDocFile(section.path)), [kind, sections]);
-  // Each daily page's touched list, on the first page of its date, from that date's week.
-  const shownDates = useMemo(
-    () => (kind === 'daily' ? shown.map((section) => dailyHeadDate(section.path)).filter((date): date is string => !!date) : []),
-    [kind, shown],
-  );
-  const touchedWeeks = useTouchedWeeks(kind === 'daily' ? root : null, shownDates);
-  const touchedDays = useRef(new Map<string, TouchedDay>());
-  const touched = useMemo(() => {
-    const byPath = new Map<string, TouchedDay>();
-    const seen = new Set<string>();
-    for (const section of shown) {
-      const date = kind === 'daily' ? dailyHeadDate(section.path) : null;
-      if (!date || seen.has(date)) continue;
-      seen.add(date);
-      const week = touchedWeeks.get(mondayOf(date));
-      if (!week) continue;
-      // The same answer keeps the same object, so the section stays memoized.
-      const known = touchedDays.current.get(section.path);
-      const day = weekdayIndex(date);
-      const entry = known?.week === week && known.day === day ? known : { week, day, rows: touchedForDay(week, day), digest: week.digests[day] ?? null };
-      if (entry.rows.length > 0 || entry.digest) byPath.set(section.path, entry);
-    }
-    touchedDays.current = byPath;
-    return byPath;
-  }, [kind, shown, touchedWeeks]);
   // A date's document and note read the same; their buttons name each file.
   const twins = useMemo(() => {
     const names = sections.map((section) => pageName(section.path));
@@ -1238,7 +1211,7 @@ export const StackView: React.FC<StackViewProps> = ({ tabId, index, location }) 
         onFocus={onFocus}
         onBlur={onBlur}
       >
-        <div ref={content} onPointerOver={touchedHover.onPointerOver} onPointerLeave={touchedHover.onPointerLeave} role="feed" aria-busy={loadingMore} aria-label={kind === 'daily' ? 'Daily pages' : pageName(head)} className="opal-stack-content">
+        <div ref={content} role="feed" aria-busy={loadingMore} aria-label={kind === 'daily' ? 'Daily pages' : pageName(head)} className="opal-stack-content">
           {shown.map((section, position) => {
             const open = lone || sectionOpen(folds, section.path, section.defaultOpen);
             const isLive = open && live.has(section.path);
@@ -1258,7 +1231,6 @@ export const StackView: React.FC<StackViewProps> = ({ tabId, index, location }) 
                 propertiesShown={propertiesOpen && propertiesPath === section.path}
                 position={position + 1}
                 setSize={total}
-                touched={touched.get(section.path) ?? null}
                 actions={actions}
               />
             );

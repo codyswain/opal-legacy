@@ -149,7 +149,7 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
       ...section,
       entries: section.entries.map((found) => (ids.includes(found.id) ? { ...found, ...fields(found) } : found)),
     }));
-    state.digests[date] = { ...digest, sections, left: sections.reduce((sum, section) => sum + section.entries.filter((found) => found.state === 'open').length, 0) };
+    state.digests[date] = { ...digest, sections, left: sections.reduce((sum, section) => sum + section.entries.filter((found) => found.state === 'open' && found.snoozedUntil == null).length, 0) };
     return ok(state.digests[date]);
   };
 
@@ -243,6 +243,8 @@ export function installAutoApi(options: Partial<FakeAuto['state']> = {}): FakeAu
         return state.usage ? ok(state.usage) : { success: false, error: { kind: 'refused', message: 'Not found.', code: 'not_found', status: 404 } };
       case 'digest-resolve':
         return change(route.date, route.ids, (found) => ({ state: route.resolved ? 'resolved' : found.thread ? 'thread' : 'open' }));
+      case 'digest-snooze':
+        return change(route.date, [route.id], () => ({ snoozedUntil: route.until }));
       case 'digest-note':
         return change(route.date, [route.id], () => ({ note: route.text }));
       case 'digest-thread': {

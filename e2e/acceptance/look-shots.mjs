@@ -207,7 +207,7 @@ try {
   const variantOn = await page.evaluate((name) => document.documentElement.getAttribute(`data-${name}`), VARIANT);
   console.log(`root data-${VARIANT}: ${variantOn ?? '(none)'}`);
   // Daily, then the tree open at today's page, the selected row.
-  await page.getByRole('button', { name: 'Daily', exact: true }).click();
+  await page.getByRole('button', { name: 'Note', exact: true }).click();
   await page.locator('.opal-stack').first().waitFor({ timeout: 15_000 });
   await wait(800);
   for (const folder of ['Notes', 'Projects']) {
@@ -218,7 +218,7 @@ try {
 
   for (const theme of ['light', 'dark']) {
     await setTheme(theme);
-    await page.getByRole('button', { name: 'Daily', exact: true }).click();
+    await page.getByRole('button', { name: 'Note', exact: true }).click();
     await wait(600);
     await shot(theme, 1, 'sidebar-daily', async () => {});
     await shot(theme, 2, 'note', () => open(NOTE));
@@ -239,7 +239,7 @@ try {
       await wait(300);
     });
     await shot(theme, 7, 'right-sidebar', async () => {
-      await page.getByRole('button', { name: 'Daily', exact: true }).click();
+      await page.getByRole('button', { name: 'Note', exact: true }).click();
       await wait(400);
       // The right sidebar starts open; it is opened only if something closed it.
       if (!(await page.getByTestId('day-sidebar').isVisible())) await menu('pane.toggleRight');
@@ -310,7 +310,7 @@ try {
       element.scrollTop = value;
     }, top);
     await shot(theme, 14, 'long-tree', async () => {
-      await page.getByRole('button', { name: 'Daily', exact: true }).click();
+      await page.getByRole('button', { name: 'Note', exact: true }).click();
       await wait(500);
       await scrollTree(0);
       await wait(200);

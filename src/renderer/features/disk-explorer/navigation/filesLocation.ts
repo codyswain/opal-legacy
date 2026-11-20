@@ -13,11 +13,12 @@ export const FILES_ROUTE_PATH = '/files';
  * The built-in views a tab can show. Folders browse in the sidebar tree.
  */
 export interface FilesCollection {
-  kind: 'recent' | 'auto' | 'digest';
+  kind: 'recent' | 'auto' | 'digest' | 'daily';
 }
 
 export const RECENT_COLLECTION: FilesCollection = { kind: 'recent' };
 export const AUTO_COLLECTION: FilesCollection = { kind: 'auto' };
+export const DAILY_COLLECTION: FilesCollection = { kind: 'daily' };
 export const DIGEST_COLLECTION: FilesCollection = { kind: 'digest' };
 
 /** The collection of a stored or written kind, or null for one Opal does not know. */
@@ -26,6 +27,7 @@ export function collectionOf(kind: unknown): FilesCollection | null {
     case 'recent': return RECENT_COLLECTION;
     case 'auto': return AUTO_COLLECTION;
     case 'digest': return DIGEST_COLLECTION;
+    case 'daily': return DAILY_COLLECTION;
     default: return null;
   }
 }
@@ -135,6 +137,14 @@ export function browseAuto(): FilesNavigationIntent {
 
 export function isAutoLocation(location: FilesLocation | null): boolean {
   return location?.mode === 'browse' && location.collection.kind === 'auto';
+}
+
+export function browseDaily(): FilesNavigationIntent {
+  return { location: { mode: 'browse', collection: DAILY_COLLECTION } };
+}
+
+export function isDailyLocation(location: FilesLocation | null): boolean {
+  return location?.mode === 'browse' && location.collection.kind === 'daily';
 }
 
 export function browseDigest(): FilesNavigationIntent {

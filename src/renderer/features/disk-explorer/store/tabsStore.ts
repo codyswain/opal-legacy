@@ -15,6 +15,7 @@ import {
   filesLocationKey,
   isAutoLocation,
   isDigestLocation,
+  isDailyLocation,
   locationPath,
   remapFilesLocation,
   stackLocation,
@@ -516,8 +517,8 @@ function openInView(view: PaneView, location: FilesLocation, options: OpenOption
   }
   const from = tabLocation(active);
   if (filesLocationKey(from) === filesLocationKey(location)) return {};
-  // Keep the thread and digest in their own tabs when opening another place.
-  if (isAutoLocation(from) || isDigestLocation(from)) {
+  // Keep the thread, digest and Daily in their own tabs when opening another place.
+  if (isAutoLocation(from) || isDigestLocation(from) || isDailyLocation(from)) {
     const shown = view.tabs.find((tab) => filesLocationKey(tabLocation(tab)) === filesLocationKey(location));
     if (shown) return { activeId: shown.id };
     const tab = createTab([{ location }]);

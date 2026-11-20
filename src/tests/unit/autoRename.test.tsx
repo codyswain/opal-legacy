@@ -336,7 +336,7 @@ describe('renaming in the header', () => {
 });
 
 describe('what is not renamed', () => {
-  it('leaves the Digest row, the Put away row and a row on the Put away page as they are', async () => {
+  it('leaves the Digest row, the Snoozed row and a row on the Snoozed page as they are', async () => {
     await open();
     const pointer = userEvent.setup();
     await pointer.dblClick(rowButton(':digest'));

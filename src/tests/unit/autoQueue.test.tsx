@@ -132,6 +132,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('opens a due snooze by source date and acts on its original entry', async () => {
+  const original = earlier();
+  const due = original.sections[0].entries[1];
+  await openQueue({
+    digests: { [DAY]: { ...day(), dueSnoozes: [{ date: EARLIER, entry: due }] }, [EARLIER]: original },
+  });
+  const followUp = screen.getByRole('region', { name: 'Back from snooze' });
+  fireEvent.click(within(followUp).getByRole('button', { name: /Net the brassicas/ }));
+  await screen.findByText('Before the pigeons do.');
+  expect(last('digest')).toEqual({ kind: 'digest', date: EARLIER });
+  expect(screen.queryByRole('region', { name: 'Back from snooze' })).toBeNull();
+  press(due.id, 'Resolve');
+  await waitFor(() => expect(last('digest-resolve')).toEqual({
+    kind: 'digest-resolve', date: EARLIER, ids: [due.id], resolved: true,
+  }));
+  expect(service(due.id, EARLIER)?.state).toBe('resolved');
+  expect(service(due.id, DAY)?.state).toBe('thread');
+});
+
 describe('the mark for the Mac', () => {
   const menuOf = async (id: string) => {
     await userEvent.setup().pointer({ keys: '[MouseRight]', target: within(row(id)).getAllByRole('button')[0] });
@@ -183,20 +202,20 @@ describe('the mark for the Mac', () => {
     await waitFor(() => expect(screen.queryByTestId('auto-group-desk')).toBeNull());
   });
 
-  it('puts a marked thread that is snoozed on the Put away page', async () => {
+  it('puts a marked thread that is snoozed on the Snoozed page', async () => {
     await open({ threads: [BREAD, { ...SEEDS, desk: { at: 1_794_000_100, by: 'phone' }, snoozed: 4_000_000_000 }] });
     expect(screen.queryByTestId('auto-group-desk')).toBeNull();
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed1');
   });
 });
 
 describe('the Digest row', () => {
-  it('heads the Threads section on one line with how much is left, and is not a thread row', async () => {
+  it('shows one digest line above Threads with how much is left', async () => {
     await open();
     await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
     expect(screen.queryByTestId('auto-digest-line')).toBeNull();
     const rows = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')];
-    expect(rows[0]).toBe(digestRow());
+    expect(rows).not.toContain(digestRow());
     expect(digestRow().closest('[data-thread-id]')).toBeNull();
     expect(digestRow().closest('[draggable="true"]')).toBeNull();
     // The new thread is the heading's button, outside the run of rows.
@@ -238,14 +257,35 @@ describe('the queue', () => {
     expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']);
   });
 
-  it('shows a closed entry as a title line and its words as plain text, and his note', async () => {
+  it('snoozes an open entry with an Auto preset and can bring it back from All', async () => {
+    const digest = day();
+    const top = digest.sections[1];
+    top.entries[0] = { ...top.entries[0], snoozedUntil: null };
+    await openQueue({ digests: { [DAY]: digest } });
+    const pointer = userEvent.setup();
+    const menu = async () => {
+      await pointer.click(within(entry('item-1')).getByRole('button', { name: 'Snooze entry' }));
+      return within(await screen.findByRole('menu'));
+    };
+    await pointer.click((await menu()).getByRole('menuitem', { name: /Tomorrow/ }));
+    await waitFor(() => expect(last('digest-snooze')).toMatchObject({ date: DAY, id: 'item-1', until: expect.any(Number) }));
+    expect(screen.queryByTestId('auto-entry-item-1')).toBeNull();
+    expect(screen.getByTestId('auto-queue-left')).toHaveTextContent('Left4');
+    fireEvent.click(screen.getByTestId('auto-queue-all'));
+    expect(within(entry('item-1')).getByText(/Snoozed until/)).toBeInTheDocument();
+    await pointer.click((await menu()).getByRole('menuitem', { name: 'Bring back' }));
+    await waitFor(() => expect(last('digest-snooze')).toEqual({ kind: 'digest-snooze', date: DAY, id: 'item-1', until: null }));
+    fireEvent.click(screen.getByTestId('auto-queue-left'));
+    expect(entry('item-1')).toBeInTheDocument();
+  });
+
+  it('keeps closed rows to one line and shows details on demand', async () => {
     await openQueue();
-    // A to-do: its title, then its detail in the quiet colour at the smaller size, cut to two lines by the page.
+    // Titled entries show their title, and meetings keep their time.
     expect(entry('item-1').querySelector('p')?.textContent).toBe('Order the trays');
     const words = within(entry('item-1')).getByTestId('auto-entry-words');
     expect(words.textContent).toBe('Two trays of 40 cells. See Beds.');
-    expect(words.className).toContain('line-clamp-2');
-    expect(words.className).toContain('text-foreground-tertiary');
+    expect(words.className).toContain('sr-only');
     // A meeting's words open with its name in bold: it is said once, and its time is at the row's right.
     expect(entry('meeting-committee').querySelector('p')?.textContent).toBe('Committee');
     expect(within(entry('meeting-committee')).getByTestId('auto-entry-time').textContent).toBe('10:00');
@@ -255,7 +295,8 @@ describe('the queue', () => {
     expect(within(entry('text-plots')).queryByRole('table')).toBeNull();
     expect(within(entry('text-plots')).getByTestId('auto-entry-words').textContent).toBe('Plot, Bed\n4, 2');
     expect(within(entry('text-plots')).getByTestId('auto-entry-words').className).toContain('text-foreground');
-    expect(within(entry('text-c')).getByTestId('auto-entry-note').textContent).toBe('Buy a new washer');
+    openEntry('text-c');
+    expect(within(entry('text-c')).getByRole('textbox', { name: 'Your note' })).toHaveValue('Buy a new washer');
     fireEvent.click(screen.getByTestId('auto-queue-all'));
     expect(entry('item-2').querySelector('p')?.textContent).toBe('High Book the inspection');
     // Opened, it reads whole: the table is drawn.
@@ -793,7 +834,7 @@ describe('archiving the digest', () => {
   it('archives the digest from its own row, by E or its right-click menu, with Undo', async () => {
     await open();
     await waitFor(() => expect(digestWord()).toBe('Digest5 left'));
-    const next = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')][1].getAttribute('data-row-id');
+    const next = [...screen.getByTestId('auto-list').querySelectorAll('[data-auto-row]')][0].getAttribute('data-row-id');
     digestRow().focus();
     expect(digestRow().getAttribute('aria-keyshortcuts')).toBe('E');
     fireEvent.keyDown(digestRow(), { key: 'e' });
@@ -872,7 +913,7 @@ describe('archiving the digest', () => {
     await screen.findByTestId('auto-queue-pane');
     expect(screen.getByTestId('auto-queue-day').textContent).toBe('Friday, November 13');
     expect(screen.getByTestId('auto-queue-archived')).toBeInTheDocument();
-    // Opened from the page, the Put away row is the one marked, and it leads back there.
+    // Opened from the page, the Snoozed row is the one marked, and it leads back there.
     expect(screen.getByTestId('auto-away-row').getAttribute('aria-current')).toBe('true');
     await openArchive();
     fireEvent.click(screen.getByTestId(`auto-restore-digest-${DAY}`));

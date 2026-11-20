@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AutoView, SaidBar, ThreadsSection } from '@/renderer/features/auto';
+import { AutoView, DigestNavItem, SaidBar, ThreadsSection } from '@/renderer/features/auto';
 import { browseAuto, isAutoLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { selectCurrentLocation, selectPaneTab, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { PaneProvider } from '@/renderer/features/disk-explorer/panes/PaneContext';
@@ -22,6 +22,7 @@ export function AutoScreen() {
   const panes = useTabsStore((state) => state.panes);
   return (
     <>
+      <DigestNavItem />
       <ThreadsSection />
       <SaidBar />
       {panes.map((pane) => {

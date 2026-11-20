@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { isAutoLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { isAutoLocation, isDailyLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { selectCurrentLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { inField } from './components/focus';
 import { turnRuns } from './model/threadModel';
@@ -27,7 +27,7 @@ export function useAutoKeys(): void {
       const location = selectCurrentLocation(useTabsStore.getState());
       const threadInFront = isAutoLocation(location);
       const place = nowhere ? null : target.closest<HTMLElement>('[data-auto-keys]');
-      if (!place && !(nowhere && (threadInFront || isDigestLocation(location)))) return;
+      if (!place && !(nowhere && (threadInFront || isDailyLocation(location) || isDigestLocation(location)))) return;
       if (!(event.metaKey || event.ctrlKey)) {
         // A single key, so only from a row or an entry, never from a field.
         const onRow = !!target && (target.hasAttribute('data-auto-row') || target.hasAttribute('data-auto-entry'));

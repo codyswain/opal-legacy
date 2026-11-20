@@ -41,7 +41,7 @@ test("The daily stream saves two typed sections on quit, and takes an append to 
     // Launch opens Daily: today's page, created from no template, on top.
     await expect(page.getByTestId("files-stack")).toBeVisible();
     await expect(section(page, older)).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Daily/ })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Note" })).toBeVisible();
     await editorOf(page, today).click();
     await page.keyboard.press("Meta+ArrowDown");
     await page.keyboard.type("Typed in today.");

@@ -55,7 +55,7 @@ export interface DigestStore {
   /** Steps to the earlier or the later day. An earlier day opens whole, since it is for looking back. */
   step: (older: boolean) => Promise<void>;
   /** Shows one day, as a row of the archive asks for it. The latest day shows as it always does. */
-  show: (date: string) => Promise<void>;
+  show: (date: string, source?: AutoDigestEntry) => Promise<void>;
   /**
    * Puts a day's digest away, or brings it back. Archived, it is off the
    * list until the next one and reads as before. Either way offers Undo.
@@ -82,6 +82,7 @@ export interface DigestStore {
    * Resolving offers Undo for a few seconds; `section` names several.
    */
   resolve: (ids: string[], resolved: boolean, section?: string) => Promise<void>;
+  snooze: (date: string, id: string, until: number | null) => Promise<void>;
   /** Saves his note on an entry; empty text removes it. */
   setNote: (id: string, text: string) => Promise<boolean>;
   /** Makes an entry a thread without words: it waits on top of the list, not started. He stays in the queue. */
@@ -163,14 +164,6 @@ export const useDigestStore = create<DigestStore>((set, get) => {
     if (result?.success) took(result.data);
   };
 
-  /** Reads the days that have a digest, and which of them he archived. */
-  const days = async () => {
-    const result = await autoApi()?.request({ kind: 'digests' }).catch((): null => null);
-    if (!result?.success) return;
-    served = result.data.archived;
-    set({ days: result.data.days, archivedDays: laidDays(result.data.days, served) });
-  };
-
   /** An entry that left "Left" is no longer open in place, and the keyboard moves on to the next one. */
   const moveOn = (day: AutoDigest, ids: readonly string[]) => {
     const { opened, filter } = get();
@@ -183,6 +176,7 @@ export const useDigestStore = create<DigestStore>((set, get) => {
   const said = () => useSaidStore.getState();
   /** The entries being added to a thread now, by day and entry: a second click while one is out sends nothing. */
   const posting = new Set<string>();
+  const snoozing = new Set<string>();
   /** The archived days as the service last listed them. */
   let served: string[] = [];
   const named = (day: AutoDigest, id: string): string => {
@@ -264,17 +258,29 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       if (past) await reload(past.date);
     },
 
-    show: async (date) => {
+    show: async (date, source) => {
       const api = autoApi();
       if (!api) return;
       if (date === get().latest?.date) {
         set({ past: null, opened: null });
         return;
       }
-      if (get().past?.date === date) return;
+      if (get().past?.date === date && !source) return;
       const result = await api.request({ kind: 'digest', date }).catch((): null => null);
-      if (result?.success) set({ past: laid(result.data), filter: 'all', opened: null });
-      else said().refuse(result?.error.message ?? UNREACHABLE);
+      if (!result?.success) {
+        said().refuse(result?.error.message ?? UNREACHABLE);
+        return;
+      }
+      const past = laid(result.data);
+      const entry = source && allEntries(past).find((candidate) => candidate.id === source.id &&
+        candidate.state === 'open' && candidate.snoozedUntil == null && candidate.kind === source.kind &&
+        candidate.title === source.title && candidate.md === source.md);
+      if (source && !entry) {
+        said().refuse('That digest entry has changed.');
+        void get().refresh();
+        return;
+      }
+      set({ past, filter: 'all', opened: entry?.id ?? null, ...(entry ? { focusEntry: entry.id } : {}) });
     },
 
     archive: async (date, archived) => {
@@ -451,6 +457,24 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       said().refuse(result?.error.message ?? UNREACHABLE, name);
     },
 
+    snooze: async (date, id, until) => {
+      const day = held(date);
+      const api = autoApi();
+      const key = entryKey(date, id);
+      const address = useAutoStore.getState().address;
+      if (!day || !api || snoozing.has(key)) return;
+      snoozing.add(key);
+      const answer = await api.request({ kind: 'digest-snooze', date, id, until }).catch(() => null);
+      snoozing.delete(key);
+      if (useAutoStore.getState().address !== address) return;
+      if (!answer?.success) {
+        said().refuse(answer?.error.message ?? UNREACHABLE, named(day, id));
+        return;
+      }
+      if (until !== null && selectDay(get())?.date === date) moveOn(day, [id]);
+      took(answer.data);
+    },
+
     setNote: async (id, text) => {
       const day = selectDay(get());
       if (!day) return false;
@@ -623,13 +647,8 @@ export const useDigestStore = create<DigestStore>((set, get) => {
       // The sidebar's Digest row says how many entries are left, so the digest is followed with or without a tab.
       if (message.token !== useAutoStore.getState().listToken) return;
       if (message.type !== 'event' || message.stream !== 'list' || message.event.kind !== 'digest') return;
-      const { date } = message.event;
-      const { latest, past } = get();
-      if (past?.date === date) void reload(date);
-      // The latest day changed, or a newer day has arrived: read it again. For any other day only the days and
-      // which of them are archived can have changed for the list.
-      if (!latest || date >= latest.date) void get().refresh();
-      else void days();
+      // A change to an older digest can change which snoozes are due in the latest queue.
+      void get().refresh();
     },
   };
 });

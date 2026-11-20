@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronsDownUp, Settings } from "lucide-react";
-import { SaidBar, ThreadsSection } from "@/renderer/features/auto";
+import { DigestNavItem, SaidBar, ThreadsSection } from "@/renderer/features/auto";
 import { useDiskStore } from "@/renderer/features/disk-explorer/store/diskStore";
 import { canCollapseTree } from "@/renderer/features/disk-explorer/store/treeExpansion";
 import { useSettingsStore } from "@/renderer/features/settings/store/settingsStore";
@@ -8,7 +8,8 @@ import { UpdateRow } from "@/renderer/features/updates";
 import { IconButton } from "@/renderer/shared/ui";
 import { cn } from "@/renderer/shared/utils";
 import { useShellStore } from "../store/shellStore";
-import { DailyItem } from "./DailyItem";
+import { DailyDashboardItem } from "@/renderer/features/daily/DailyDashboardItem";
+import { NoteItem } from "./NoteItem";
 import { FileTree } from "./FileTree";
 import { FrameControls, SearchButton, TrafficLightInset } from "./FrameControls";
 import { PinnedSection, usePinnedShown } from "./PinnedSection";
@@ -73,7 +74,9 @@ export function WorkspaceSidebar({
 
       <nav aria-label="Primary" className="shrink-0 pt-1">
         <SidebarSection>
-          <DailyItem onNavigate={onNavigate} />
+          <DailyDashboardItem onNavigate={onNavigate} />
+          <NoteItem onNavigate={onNavigate} />
+          <DigestNavItem onNavigate={onNavigate} />
         </SidebarSection>
       </nav>
 

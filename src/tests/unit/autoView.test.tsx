@@ -243,7 +243,7 @@ describe('the list', () => {
     // A row is one line, two when the thread needs him: the first words of a reply are left out of the sidebar.
     expect(row('inspect').textContent).not.toContain('The committee walks the plots.');
     expect(row('bread').textContent).not.toContain('Start the starter at 8.');
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away1');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed1');
     expect(screen.queryByTestId('auto-row-labels')).toBeNull();
   });
 
@@ -302,23 +302,23 @@ describe('the list', () => {
     expect(auto.asked('answer')).toEqual([]);
   });
 
-  it('opens the snoozed threads from the Put away row, and brings one back', async () => {
+  it('opens the snoozed threads from the Snoozed row, and brings one back', async () => {
     await open();
     fireEvent.click(screen.getByTestId('auto-away-row'));
     const snoozed = within(await screen.findByTestId('auto-snoozed'));
     fireEvent.click(snoozed.getByRole('button', { name: 'Bring back' }));
     await waitFor(() => expect(last('snooze')).toEqual({ kind: 'snooze', id: 'labels', until: null }));
     await waitFor(() => expect(screen.queryByTestId('auto-snoozed')).toBeNull());
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed');
     expect(row('labels')).toBeInTheDocument();
   });
 
-  it('says Nothing left when every thread is snoozed, and the Put away page still shows them', async () => {
+  it('says Nothing left when every thread is snoozed, and the Snoozed page still shows them', async () => {
     await open({ threads: [LABELS, autoThread('herbs', { title: 'Herb spiral', snoozed: 4_000_100_000 })] });
     expect(screen.getByTestId('auto-empty').textContent).toMatch(/^Nothing left\. The next snoozed one returns .+ at \d/);
-    // How many are snoozed is said once, on the Put away row.
+    // How many are snoozed is said once, on the Snoozed row.
     expect(screen.getByTestId('auto-empty').textContent).not.toMatch(/2 snoozed/);
-    expect(screen.getByTestId('auto-away-row').textContent).toBe('Put away2');
+    expect(screen.getByTestId('auto-away-row').textContent).toBe('Snoozed2');
     // The empty new thread says so too.
     expect(screen.getByTestId('auto-nothing-left').textContent).toBe('Nothing left.');
     fireEvent.click(screen.getByTestId('auto-away-row'));
@@ -1392,7 +1392,7 @@ describe('the sidebar review, smaller items', () => {
     const button = screen.getByTestId('auto-new-thread');
     button.focus();
     fireEvent.keyDown(button, { key: 'ArrowDown' });
-    expect(document.activeElement?.getAttribute('data-row-id')).toBe(':digest');
+    expect(document.activeElement?.getAttribute('data-row-id')).toBe('beds');
   });
 
   it('draws the folded count in the text colour and the headings a step above the labels', async () => {

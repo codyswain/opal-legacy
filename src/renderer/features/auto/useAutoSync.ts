@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { isAutoLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { isAutoLocation, isDailyLocation, isDigestLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { allTabs, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
 import { autoApi, useAutoStore } from './store/autoStore';
 import { dispatchStream } from './store/streams';
@@ -24,7 +24,7 @@ const RETRY_AWAY_MS = 30_000;
 export function useAutoSync(): void {
   const hasTab = useTabsStore((state) => allTabs(state).some((tab) => {
     const location = tabLocation(tab);
-    return isAutoLocation(location) || isDigestLocation(location);
+    return isAutoLocation(location) || isDailyLocation(location) || isDigestLocation(location);
   }));
   const address = useAutoStore((state) => state.address);
   const reachable = useAutoStore((state) => state.reachable);

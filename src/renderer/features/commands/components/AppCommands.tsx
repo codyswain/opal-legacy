@@ -24,6 +24,7 @@ import {
   selectOpenedPath,
   useTabsStore,
 } from "@/renderer/features/disk-explorer/store/tabsStore";
+import { openDailyDashboard } from "@/renderer/features/daily/DailyDashboardItem";
 import { useShell } from "@/renderer/features/shell/context/ShellContext";
 import { useShellStore } from "@/renderer/features/shell/store/shellStore";
 import { openDaily, openDailyPage } from "@/renderer/features/shell/utils/openDaily";
@@ -109,7 +110,14 @@ export const AppCommands: React.FC = () => {
         id: "nav.daily",
         name: "Go to Daily",
         type: "navigation",
-        keywords: ["home", "journal", "today"],
+        keywords: ["home", "dashboard", "today"],
+        perform: ({ newTab } = {}) => openDailyDashboard(navigateFiles, { newTab }),
+      },
+      {
+        id: "nav.note",
+        name: "Go to Note",
+        type: "navigation",
+        keywords: ["journal", "daily notes", "today"],
         perform: ({ newTab } = {}) => reportOpen(openDaily(navigateFiles, { newTab }), "Could not open today's page."),
       },
       {

@@ -8,8 +8,8 @@ import { commandRegistry } from '@/renderer/features/commands/services/commandRe
 import { useDiskStore } from '@/renderer/features/disk-explorer/store/diskStore';
 import { usePagePropertiesStore } from '@/renderer/features/disk-explorer/store/pagePropertiesStore';
 import { useStackStore } from '@/renderer/features/disk-explorer/store/stackStore';
-import { tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
-import { isAutoLocation, stackLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
+import { selectCurrentLocation, tabLocation, useTabsStore } from '@/renderer/features/disk-explorer/store/tabsStore';
+import { browseDaily, isAutoLocation, stackLocation } from '@/renderer/features/disk-explorer/navigation/filesLocation';
 import { usePinsStore } from '@/renderer/features/disk-explorer/store/pinsStore';
 import { useHiddenStore } from '@/renderer/features/disk-explorer/store/hiddenStore';
 import { installPinsApi, setPins } from '@/tests/helpers/pinsApi';
@@ -70,7 +70,7 @@ describe('CommandPalette', () => {
     await user.type(await screen.findByRole('combobox'), 'daily');
     await screen.findByTestId(`palette-file-${PLAN}`);
     const palette = screen.getByRole('dialog');
-    expect(within(palette).getAllByRole('group').map((group) => group.getAttribute('aria-label'))).toEqual(['Commands', 'Files']);
+    expect(within(palette).getAllByRole('group').slice(0, 2).map((group) => group.getAttribute('aria-label'))).toEqual(['Commands', 'Files']);
     expect(within(palette).getAllByRole('option')[0].getAttribute('data-testid')).toMatch(/^palette-command-/);
   });
   it('keeps a command found only by keyword or loose letters below the files', async () => {
@@ -285,10 +285,6 @@ describe('CommandPalette', () => {
 
   it('asks only for a file after New Tab, and opens Daily there in a new tab when asked with >', async () => {
     const user = userEvent.setup();
-    window.vaultAPI = {
-      discover: vi.fn(async () => ({ success: true as const, data: [{ path: ROOT }] })),
-      createDay: vi.fn(async (root: string, date: string) => ({ success: true as const, data: { path: `${root}/Library/daily/${date}.md` } })),
-    } as unknown as typeof window.vaultAPI;
     openTabs(['/Vault/inbox.md']);
     renderPalette();
     act(() => commandRegistry.executeCommand(COMMAND_IDS.newTab));
@@ -300,7 +296,7 @@ describe('CommandPalette', () => {
     await user.click(await within(palette).findByTestId('palette-command-nav.daily'));
     await waitFor(() => expect(tabPaths()).toHaveLength(2));
     expect(tabPaths()[0]).toBe('/Vault/inbox.md');
-    expect(openedPath()).toMatch(/^\/Vault\/Library\/daily\/\d{4}-\d{2}-\d{2}\.md$/);
+    expect(selectCurrentLocation(useTabsStore.getState())).toEqual(browseDaily().location);
   });
 
   it('goes to the one Auto tab from Go to Auto: a new tab beside the page the first time, the same tab after', async () => {

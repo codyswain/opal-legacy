@@ -193,18 +193,12 @@ describe('an entry that matches a thread', () => {
     expect(auto.asked('model')).toHaveLength(0);
   });
 
-  it('says which thread on its row, under its words and above his note, and only on the matching rows', async () => {
+  it('shows the matched thread and the note when the row expands', async () => {
     await openQueue();
-    expect(within(entry('text-b')).getByTestId('auto-entry-continues').textContent).toBe('Continues: Seed order');
-    expect(within(entry('text-c')).getByTestId('auto-entry-continues').textContent).toBe('Continues: Pantry labels (snoozed)');
-    const line = within(entry('text-c')).getByTestId('auto-entry-continues');
-    const note = within(entry('text-c')).getByTestId('auto-entry-note');
-    const words = within(entry('text-c')).getByTestId('auto-entry-words');
-    expect(words.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(line.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // One line, cut with an ellipsis.
-    expect(line.className).toContain('truncate');
-    for (const id of ['meeting-committee', 'item-1', 'text-plots']) expect(within(entry(id)).queryByTestId('auto-entry-continues')).toBeNull();
+    expect(within(entry('text-c')).queryByTestId('auto-entry-continues-open')).toBeNull();
+    openEntry('text-c');
+    expect(within(entry('text-c')).getByTestId('auto-entry-continues-open')).toHaveTextContent('Continues: Pantry labels (snoozed)');
+    expect(within(entry('text-c')).getByRole('textbox', { name: 'Your note' })).toHaveValue('Buy a new washer');
   });
 
   it('offers Add to it in the place of Thread, and New thread in its menu; a row without a match is as it was', async () => {
@@ -324,7 +318,7 @@ describe('an entry that matches a thread', () => {
     press('text-b', 'Add to it');
     await waitFor(() => expect(saidText()).toContain(NO_MATCH));
     expect(auto.asked('digest-continue')).toHaveLength(1);
-    await waitFor(() => expect(within(entry('text-b')).queryByTestId('auto-entry-continues')).toBeNull());
+    await waitFor(() => expect(within(entry('text-b')).getByRole('button', { name: 'Thread' })).toBeInTheDocument());
     expect(entry('text-b').getAttribute('data-state')).toBe('open');
     expect(within(entry('text-b')).getByRole('button', { name: 'Thread' })).toBeInTheDocument();
     expect(auto.asked('digest-continue')).toHaveLength(1);
