@@ -238,14 +238,35 @@ describe('the queue', () => {
     expect(entryIds()).toEqual(['meeting-committee', 'item-1', 'text-plots', 'text-b', 'text-c']);
   });
 
-  it('shows a closed entry as a title line and its words as plain text, and his note', async () => {
+  it('snoozes an open entry with an Auto preset and can bring it back from All', async () => {
+    const digest = day();
+    const top = digest.sections[1];
+    top.entries[0] = { ...top.entries[0], snoozedUntil: null };
+    await openQueue({ digests: { [DAY]: digest } });
+    const pointer = userEvent.setup();
+    const menu = async () => {
+      await pointer.click(within(entry('item-1')).getByRole('button', { name: 'Snooze entry' }));
+      return within(await screen.findByRole('menu'));
+    };
+    await pointer.click((await menu()).getByRole('menuitem', { name: /Tomorrow/ }));
+    await waitFor(() => expect(last('digest-snooze')).toMatchObject({ date: DAY, id: 'item-1', until: expect.any(Number) }));
+    expect(screen.queryByTestId('auto-entry-item-1')).toBeNull();
+    expect(screen.getByTestId('auto-queue-left')).toHaveTextContent('Left4');
+    fireEvent.click(screen.getByTestId('auto-queue-all'));
+    expect(within(entry('item-1')).getByText(/Snoozed until/)).toBeInTheDocument();
+    await pointer.click((await menu()).getByRole('menuitem', { name: 'Bring back' }));
+    await waitFor(() => expect(last('digest-snooze')).toEqual({ kind: 'digest-snooze', date: DAY, id: 'item-1', until: null }));
+    fireEvent.click(screen.getByTestId('auto-queue-left'));
+    expect(entry('item-1')).toBeInTheDocument();
+  });
+
+  it('keeps closed rows to one line and shows details on demand', async () => {
     await openQueue();
-    // A to-do: its title, then its detail in the quiet colour at the smaller size, cut to two lines by the page.
+    // Titled entries show their title, and meetings keep their time.
     expect(entry('item-1').querySelector('p')?.textContent).toBe('Order the trays');
     const words = within(entry('item-1')).getByTestId('auto-entry-words');
     expect(words.textContent).toBe('Two trays of 40 cells. See Beds.');
-    expect(words.className).toContain('line-clamp-2');
-    expect(words.className).toContain('text-foreground-tertiary');
+    expect(words.className).toContain('sr-only');
     // A meeting's words open with its name in bold: it is said once, and its time is at the row's right.
     expect(entry('meeting-committee').querySelector('p')?.textContent).toBe('Committee');
     expect(within(entry('meeting-committee')).getByTestId('auto-entry-time').textContent).toBe('10:00');
@@ -255,7 +276,8 @@ describe('the queue', () => {
     expect(within(entry('text-plots')).queryByRole('table')).toBeNull();
     expect(within(entry('text-plots')).getByTestId('auto-entry-words').textContent).toBe('Plot, Bed\n4, 2');
     expect(within(entry('text-plots')).getByTestId('auto-entry-words').className).toContain('text-foreground');
-    expect(within(entry('text-c')).getByTestId('auto-entry-note').textContent).toBe('Buy a new washer');
+    openEntry('text-c');
+    expect(within(entry('text-c')).getByRole('textbox', { name: 'Your note' })).toHaveValue('Buy a new washer');
     fireEvent.click(screen.getByTestId('auto-queue-all'));
     expect(entry('item-2').querySelector('p')?.textContent).toBe('High Book the inspection');
     // Opened, it reads whole: the table is drawn.

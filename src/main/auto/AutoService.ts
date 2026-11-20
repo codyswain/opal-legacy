@@ -163,6 +163,7 @@ function shape(kind: AutoRoute['kind'], data: unknown): unknown {
     case 'digest':
     case 'digest-archive':
     case 'digest-resolve':
+    case 'digest-snooze':
     case 'digest-note':
       return toDigest(body);
     case 'digests':

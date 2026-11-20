@@ -174,6 +174,8 @@ export function buildRequest(base: string, route: AutoRoute): BuiltRequest {
         ...(route.ids.length === 1 ? { id: route.ids[0] } : { ids: route.ids }),
         resolved: route.resolved,
       });
+    case 'digest-snooze':
+      return post(base, '/api/digest/snooze', { date: route.date, id: route.id, until: route.until });
     case 'digest-note':
       return post(base, '/api/digest/note', { date: route.date, id: route.id, text: route.text });
     case 'digest-thread':
@@ -286,6 +288,7 @@ export function validRoute(value: unknown): AutoRoute | null {
     case 'digest-archive':
       return validDate(route.date) && typeof route.archived === 'boolean' ? { kind: 'digest-archive', date: route.date, archived: route.archived } : null;
     case 'digest-resolve':
+    case 'digest-snooze':
     case 'digest-note':
     case 'digest-thread':
     case 'digest-continue':
@@ -355,6 +358,13 @@ function validDigestRoute(route: Fields): AutoRoute | null {
   }
   if (!validEntryId(route.id)) return null;
   const id = route.id;
+  if (route.kind === 'digest-snooze') {
+    const until = route.until;
+    if (until === null) return { kind: 'digest-snooze', date, id, until: null };
+    return (typeof until === 'number' && Number.isFinite(until) && until >= 1e9 && until <= 1e11)
+      ? { kind: 'digest-snooze', date, id, until }
+      : null;
+  }
   if (route.kind === 'digest-note') {
     return typeof route.text === 'string' && route.text.length <= NOTE_LIMIT && !route.text.includes('\0')
       ? { kind: 'digest-note', date, id, text: route.text.trim() }

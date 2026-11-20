@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, MoreHorizontal } from 'lucide-react';
 import type { AutoDigest, AutoDigestEntry } from '@/types/auto';
 import { useIsActivePane } from '@/renderer/features/disk-explorer/panes';
 import {
@@ -33,6 +33,7 @@ import {
   type QueueFilter,
   type QueueSection,
 } from '../model/digestModel';
+import { shortUntil, snoozeChoices } from '../model/listModel';
 import { DIGEST_QUEUE } from '../model/pane';
 import { keepPlace, placeIn, placeOf, queuePlace } from '../model/places';
 import { useAutoStore } from '../store/autoStore';
@@ -171,18 +172,10 @@ const cutTitle = (title: string): string => (title.length <= PROMPT_TITLE ? titl
 const matchOf = (entry: AutoDigestEntry) => (entry.state === 'open' ? entry.continues : null);
 
 /** "Continues: <title>", and "(snoozed)" for a thread that is put away until a time. */
-function ContinuesLine({ entry, whole = false }: { entry: AutoDigestEntry; whole?: boolean }) {
+function ContinuesLine({ entry }: { entry: AutoDigestEntry }) {
   const match = matchOf(entry);
   if (!match) return null;
   const snoozed = match.snoozed ? ' (snoozed)' : '';
-  if (!whole) {
-    return (
-      <p data-testid="auto-entry-continues" className="mt-0.5 truncate text-aside text-foreground-tertiary" title={`${match.title}${snoozed}`}>
-        Continues: {match.title}
-        {snoozed}
-      </p>
-    );
-  }
   // Above the open entry's box, in full, the title a way to read that thread first.
   return (
     <p data-testid="auto-entry-continues-open" className="mb-1.5 break-words text-aside text-foreground-tertiary">
@@ -265,7 +258,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   return (
     <div>
       {/* Enter was taken: his words leave the box and show on their way, until the thread opens. */}
-      <ContinuesLine entry={entry} whole />
+      <ContinuesLine entry={entry} />
       {sending && content ? (
         <div data-testid="auto-entry-pending" className="mb-2 ml-auto w-fit max-w-lg whitespace-pre-wrap break-words rounded-2xl bg-surface-active px-3.5 py-2 text-reply text-foreground opacity-60">
           <Attachments ids={images} />
@@ -366,6 +359,29 @@ function Act({ label, hint, onClick }: { label: string; hint: string; onClick: (
   );
 }
 
+function EntrySnooze({ date, entry }: { date: string; entry: AutoDigestEntry }) {
+  const [now, setNow] = React.useState(Date.now);
+  const snooze = (until: number | null): void => void useDigestStore.getState().snooze(date, entry.id, until);
+  return (
+    <Menu onOpenChange={(open) => { if (open) setNow(Date.now()); }}>
+      <MenuTrigger asChild>
+        <IconButton label="Snooze entry" onMouseDown={keepFocus}>
+          <Clock aria-hidden className="h-3.5 w-3.5" />
+        </IconButton>
+      </MenuTrigger>
+      <MenuContent align="end">
+        {entry.snoozedUntil != null ? <MenuItem onSelect={() => snooze(null)}>Bring back</MenuItem> : null}
+        {snoozeChoices(now).map(({ label, until, hint }) => (
+          <MenuItem key={label} onSelect={() => snooze(until)}>
+            <span>{label}</span>
+            <span className="ml-auto pl-4 text-foreground-tertiary">{hint}</span>
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
+
 /**
  * The menu of an entry that matches a thread: Add to it, and a new thread
  * of it after all. The row's column of actions has room for two words, so
@@ -398,7 +414,7 @@ interface EntryProps {
 }
 
 /**
- * One entry. Closed, it is a title line and at most two quiet lines. A click
+ * One entry. Closed, it is one line. A click
  * opens it in place to its whole text, his note, a drafted reply and a box.
  * "Thread" opens it with the caret in that box: a thread is made only once
  * he says what he wants done. One that became a thread shows that thread's
@@ -454,6 +470,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
       ) : (
         <Act label="Thread" hint="T" onClick={() => openBox(entry.id)} />
       )}
+      {entry.state === 'open' && entry.snoozedUntil !== undefined ? <EntrySnooze date={date} entry={entry} /> : null}
     </>
   );
   // An entry that opens is brought into view whole, its box included: the last one would open under the fold.
@@ -463,7 +480,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
   }, [open]);
 
   // Shown while the pointer or the keyboard is on the row, or the entry is open; not left up by a click once the pointer has gone.
-  const shows = open ? '' : 'group-hover:opacity-100 group-has-[[data-auto-entry]:focus-visible]:opacity-100';
+  const shows = open ? '' : 'group-hover:opacity-100 group-focus-within:opacity-100 group-has-[[data-auto-entry]:focus-visible]:opacity-100';
 
   return (
     <li
@@ -498,7 +515,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
           >
             {title || entry.priority || row.time ? (
               <p className="flex items-baseline gap-2 text-reply font-medium text-foreground">
-                <span className="min-w-0 flex-1">
+                <span className={cn("min-w-0 flex-1", !open && "truncate")}>
                   {entry.priority ? <span className="font-normal text-foreground-tertiary">{entry.priority} </span> : null}
                   {title}
                 </span>
@@ -513,17 +530,16 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
                 </div>
               ) : null
             ) : row.words ? (
-              // With a title, at most two quiet lines at the smaller size. With none, its words are the entry itself.
+              // Untitled entries use their first line as the label.
               <p
                 data-testid="auto-entry-words"
-                className={cn('whitespace-pre-line break-words', row.title ? 'mt-0.5 line-clamp-2 text-aside text-foreground-tertiary' : 'line-clamp-3 text-reply text-foreground')}
+                className={cn('whitespace-pre-line break-words', row.title ? 'sr-only' : 'line-clamp-1 text-reply text-foreground')}
               >
                 {row.words}
               </p>
             ) : null}
-            {!open ? <ContinuesLine entry={entry} /> : null}
-            {!open && entry.note ? (
-              <p data-testid="auto-entry-note" className="mt-1.5 line-clamp-2 border-l-2 border-foreground pl-3 text-ui text-foreground">{entry.note}</p>
+            {entry.snoozedUntil != null ? (
+              <p className={quiet}>Snoozed until {shortUntil(entry.snoozedUntil, Date.now())}</p>
             ) : null}
             {resolved ? (
               <p className={cn(quiet, 'mt-1')}>Resolved</p>
@@ -535,7 +551,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
         </RowMenu>
         {/* A column of its own at the row's right, so the actions never sit on the words. */}
         {roomy ? (
-          <div className="relative flex w-36 shrink-0 justify-end py-1.5 pr-1.5">
+          <div className="relative flex w-44 shrink-0 justify-end py-1.5 pr-1.5">
             {/* A meeting's time ends at the row's right edge, where "Resolve all" ends; the actions take its place while they show. */}
             {row.time && !open ? (
               <span data-testid="auto-entry-time" className={cn('absolute right-3 top-2.5 text-metadata tabular-nums text-foreground-tertiary', 'group-hover:invisible group-has-[[data-auto-entry]:focus-visible]:invisible')}>{row.time}</span>
@@ -547,7 +563,7 @@ function EntryRow({ entry, date, open, tabStop, roomy }: EntryProps) {
 
       {/* Too narrow for the column: a line under the words of the entry the pointer or the keyboard is on, or that is open. */}
       {roomy ? null : (
-        <div className={cn('items-center gap-0.5 px-1.5 pb-1.5', open ? 'flex' : 'hidden group-hover:flex group-has-[[data-auto-entry]:focus-visible]:flex')}>{actions}</div>
+        <div className={cn('items-center gap-0.5 px-1.5 pb-1.5', open ? 'flex' : 'hidden group-hover:flex group-focus-within:flex group-has-[[data-auto-entry]:focus-visible]:flex')}>{actions}</div>
       )}
 
       {open ? (
@@ -616,7 +632,7 @@ function Queue({ day, roomy }: { day: AutoDigest; roomy: boolean }) {
           </Button>
         ) : null}
         {/* Worked through, it can be put away: off the list until the next one. */}
-        {filter === 'left' && !day.archived ? (
+        {filter === 'left' && !day.archived && !day.sections.some((section) => section.entries.some((entry) => entry.snoozedUntil != null)) ? (
           <Button size="compact" variant="outline" data-testid="auto-digest-archive-done" onClick={() => void useDigestStore.getState().archive(day.date, true)}>
             Archive the digest
           </Button>
@@ -647,7 +663,7 @@ function Queue({ day, roomy }: { day: AutoDigest; roomy: boolean }) {
  * start a thread. Nothing here sends anything to anyone. Its header, its
  * section labels and its entries share the reading column's edges.
  */
-export function QueuePane() {
+export function QueuePane({ embedded = false }: { embedded?: boolean } = {}) {
   const day = useDigestStore(selectDay);
   const active = useIsActivePane();
   const status = useDigestStore((state) => state.status);
@@ -687,11 +703,11 @@ export function QueuePane() {
   // The queue opens with the keyboard on its first entry, as a thread opens with the caret in its box.
   const mounted = React.useRef(false);
   React.useEffect(() => {
-    if (active && (!mounted.current || (byKey() && !pane.current?.contains(document.activeElement)))) {
+    if (!embedded && active && (!mounted.current || (byKey() && !pane.current?.contains(document.activeElement)))) {
       useDigestStore.getState().requestFocus(QUEUE_FIRST);
     }
     mounted.current = true;
-  }, [active]);
+  }, [active, embedded]);
 
   // An entry an action asked to focus takes the keyboard once it is drawn; with none left, the queue's first word does.
   React.useLayoutEffect(() => {
@@ -714,13 +730,13 @@ export function QueuePane() {
   const restored = React.useRef<string | null>(null);
   React.useLayoutEffect(() => {
     const element = scroller.current;
-    if (!element || !date || restored.current === date) return;
+    if (embedded || !element || !date || restored.current === date) return;
     restored.current = date;
     element.scrollTop = placeOf(queuePlace(date))?.top ?? 0;
-  }, [date]);
+  }, [date, embedded]);
 
   /** Back to the sidebar, with the keyboard on the Digest row. */
-  const back = () => focusRowNow(DIGEST_QUEUE);
+  const back = () => { if (!embedded) focusRowNow(DIGEST_QUEUE); };
 
   /** The queue's own keys, from anywhere in it but a field: [ and ] step a day, A switches between Left and All. */
   const onPaneKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -804,7 +820,7 @@ export function QueuePane() {
       <div
         ref={scroller}
         data-testid="auto-queue"
-        className="auto-talk min-h-0 flex-1 overflow-y-auto"
+        className={cn('auto-talk min-h-0 flex-1', !embedded && 'overflow-y-auto')}
         onKeyDown={onKeyDown}
         onScroll={(event) => {
           if (date) keepPlace(queuePlace(date), placeIn(event.currentTarget));
