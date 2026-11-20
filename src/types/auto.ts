@@ -172,6 +172,7 @@ export interface AutoDigest {
   /** He put this day's digest away: it is off the list until the next one, and reads as before. */
   archived: boolean;
   sections: AutoDigestSection[];
+  dueSnoozes?: { date: string; entry: AutoDigestEntry }[];
 }
 
 /** The days that have a digest, newest first, and which of them he archived. */

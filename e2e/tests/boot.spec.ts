@@ -60,14 +60,14 @@ test.describe("with a vault", () => {
       const now = new Date();
       return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     });
-    // Daily makes a new day's page as a document.
+    // Note makes a new day's page as a document.
     const daily = path.join(root, "Library/daily", `${date}.mdo`);
     await expect
       .poll(() => page.evaluate(() => decodeURIComponent(window.location.hash)))
       .toContain(`file=${daily}`);
     expect(existsSync(daily)).toBe(true);
     await writeFile(daily, "Kept as written\n");
-    // The tab is named Daily too, so its close button also matches a loose name.
+    // The tab is named Note too, so its close button also matches a loose name.
     await page.getByRole("button", { name: "Note", exact: true }).click();
     await expect(page.getByText("Kept as written")).toBeVisible();
 
@@ -87,5 +87,11 @@ test.describe("with a vault", () => {
       success: true,
       data: { date, daily, log, entries: [{ time: "09:00", text: "Ran the digest.", kind: "routine run" }] },
     });
+    await page.getByRole("button", { name: "Daily", exact: true }).click();
+    const dashboard = page.getByTestId("files-daily");
+    await expect(dashboard.getByRole("region", { name: "Daily update" })).toContainText("Ran the digest.");
+    await expect(dashboard.getByRole("region", { name: "Documents" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Note" })).toBeVisible();
+    await expect(dashboard.getByText("Kept as written")).toHaveCount(0);
   });
 });
