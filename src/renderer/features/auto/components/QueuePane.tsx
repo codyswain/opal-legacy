@@ -55,15 +55,15 @@ const field =
 const ROOMY_WIDTH = 520;
 
 /** The entry's own row in the page. */
-const entryElement = (id: string): HTMLElement | null =>
-  document.querySelector<HTMLElement>(`[data-testid="auto-queue"] [data-entry-id="${id.replace(/["\\]/g, '')}"]`);
+const entryElement = (within: Element | null, id: string): HTMLElement | null =>
+  [...(within?.querySelectorAll<HTMLElement>('[data-entry-id]') ?? [])].find((row) => row.dataset.entryId === id) ?? null;
 
 /** Escape in a field of an open entry: the keyboard goes back to the entry's row. */
 const backToRow = (event: React.KeyboardEvent, id: string) => {
   if (event.key !== 'Escape' || event.nativeEvent.isComposing) return false;
   event.preventDefault();
   event.stopPropagation();
-  entryElement(id)?.focus();
+  entryElement(event.currentTarget.closest('[data-testid="auto-queue"]'), id)?.focus();
   return true;
 };
 
@@ -71,6 +71,7 @@ const backToRow = (event: React.KeyboardEvent, id: string) => {
 function NoteField({ entry }: { entry: AutoDigestEntry }) {
   const [typed, setTyped] = React.useState(entry.note);
   const [saving, setSaving] = React.useState(false);
+  const activePane = useIsActivePane();
   const wanted = useDigestStore((state) => state.noteWanted === entry.id);
   const area = React.useRef<HTMLTextAreaElement>(null);
   useGrow(area, typed, 0.3);
@@ -84,10 +85,10 @@ function NoteField({ entry }: { entry: AutoDigestEntry }) {
   }, [entry.note]);
   // `n` on the entry's row puts the caret here.
   React.useEffect(() => {
-    if (!wanted) return;
+    if (!wanted || !activePane) return;
     area.current?.focus();
     useDigestStore.setState({ noteWanted: null });
-  }, [wanted]);
+  }, [activePane, wanted]);
   const changed = typed.trim() !== entry.note;
   const save = (fromButton = false) => {
     if (!changed || saving) return;
@@ -96,7 +97,7 @@ function NoteField({ entry }: { entry: AutoDigestEntry }) {
       setSaving(false);
       if (took) setTyped(typed.trim());
       // The button goes once the note is saved: the keyboard goes to the entry it belongs to.
-      if (took && fromButton) entryElement(entry.id)?.focus();
+      if (took && fromButton) entryElement(area.current?.closest('[data-testid="auto-queue"]') ?? null, entry.id)?.focus();
     });
   };
   return (
@@ -213,6 +214,7 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   const key = wordsKey(date, entry.id);
   const words = useDigestStore((state) => state.words[key] ?? '');
   const notSent = useDigestStore((state) => state.notSent === key);
+  const activePane = useIsActivePane();
   const wanted = useDigestStore((state) => state.boxWanted === entry.id);
   const [sending, setSending] = React.useState(false);
   const images = useDigestStore((state) => state.images[key] ?? noImages);
@@ -228,10 +230,10 @@ function EntryBox({ entry, date }: { entry: AutoDigestEntry; date: string }) {
   useGrow(area, words, 0.3);
   // "Thread" on the entry, or T on its row, puts the caret here.
   React.useEffect(() => {
-    if (!wanted) return;
+    if (!wanted || !activePane) return;
     area.current?.focus();
     useDigestStore.setState({ boxWanted: null });
-  }, [wanted]);
+  }, [activePane, wanted]);
   const match = matchOf(entry);
   const modelKey = replyModelKey(date, entry);
   const picked = useDigestStore((state) => state.replyModels[modelKey]);
@@ -647,7 +649,7 @@ function Queue({ day, roomy }: { day: AutoDigest; roomy: boolean }) {
  * start a thread. Nothing here sends anything to anyone. Its header, its
  * section labels and its entries share the reading column's edges.
  */
-export function QueuePane() {
+export function QueuePane({ intro, title }: { intro?: React.ReactNode; title?: string } = {}) {
   const day = useDigestStore(selectDay);
   const active = useIsActivePane();
   const status = useDigestStore((state) => state.status);
@@ -672,7 +674,8 @@ export function QueuePane() {
   const older = day ? stepDay(day.date, days, true) : null;
   const newer = day ? stepDay(day.date, days, false) : null;
   const counts = day ? queueCounts(day) : null;
-  const date = day?.date ?? null;
+  const scrollKey = day ? queuePlace(intro ? `daily:${day.date}` : day.date) : null;
+  const dashboard = Boolean(intro);
 
   React.useLayoutEffect(() => {
     const target = pane.current;
@@ -687,25 +690,21 @@ export function QueuePane() {
   // The queue opens with the keyboard on its first entry, as a thread opens with the caret in its box.
   const mounted = React.useRef(false);
   React.useEffect(() => {
-    if (active && (!mounted.current || (byKey() && !pane.current?.contains(document.activeElement)))) {
+    if (active && !dashboard && (!mounted.current || (byKey() && !pane.current?.contains(document.activeElement)))) {
       useDigestStore.getState().requestFocus(QUEUE_FIRST);
     }
     mounted.current = true;
-  }, [active]);
+  }, [active, dashboard]);
 
   // An entry an action asked to focus takes the keyboard once it is drawn; with none left, the queue's first word does.
   React.useLayoutEffect(() => {
-    if (!focusEntry) return;
-    if (!active) {
-      useDigestStore.getState().requestFocus(null);
-      return;
-    }
+    if (!focusEntry || !active) return;
     // Not read yet: the request waits for the day.
     if (focusEntry === QUEUE_FIRST && !day && status === 'unknown') return;
     const element =
       focusEntry === QUEUE_FIRST ? pane.current?.querySelector<HTMLElement>('[data-auto-entry][tabindex="0"]')
       : focusEntry === QUEUE_TOP ? null
-      : entryElement(focusEntry);
+      : entryElement(pane.current, focusEntry);
     (element ?? pane.current?.querySelector<HTMLElement>('[data-testid="auto-queue-left"]'))?.focus();
     useDigestStore.getState().requestFocus(null);
   });
@@ -714,10 +713,10 @@ export function QueuePane() {
   const restored = React.useRef<string | null>(null);
   React.useLayoutEffect(() => {
     const element = scroller.current;
-    if (!element || !date || restored.current === date) return;
-    restored.current = date;
-    element.scrollTop = placeOf(queuePlace(date))?.top ?? 0;
-  }, [date]);
+    if (!element || !scrollKey || restored.current === scrollKey) return;
+    restored.current = scrollKey;
+    element.scrollTop = placeOf(scrollKey)?.top ?? 0;
+  }, [scrollKey]);
 
   /** Back to the sidebar, with the keyboard on the Digest row. */
   const back = () => focusRowNow(DIGEST_QUEUE);
@@ -763,7 +762,7 @@ export function QueuePane() {
         <div className="auto-column">
           <div className="flex h-header items-center gap-1">
             <h1 data-testid="auto-queue-day" className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
-              {day ? dayTitle(day.date) : 'Digest'}
+              {title ?? (day ? dayTitle(day.date) : 'Digest')}
             </h1>
             {/* At the far right, as on the phone: they stay put whatever the day is called, and sit away from the back arrow. */}
             {day ? (
@@ -807,10 +806,12 @@ export function QueuePane() {
         className="auto-talk min-h-0 flex-1 overflow-y-auto"
         onKeyDown={onKeyDown}
         onScroll={(event) => {
-          if (date) keepPlace(queuePlace(date), placeIn(event.currentTarget));
+          if (scrollKey) keepPlace(scrollKey, placeIn(event.currentTarget));
         }}
       >
         <div className="auto-column flex flex-col pb-6">
+          {intro}
+          {intro ? <h2 className="pb-1 pt-5 text-ui font-medium text-foreground">Digest queue</h2> : null}
           {day ? (
             // Each day has its own Tab stop: entries of different days share ids such as "item-1".
             <Queue key={day.date} day={day} roomy={roomy} />

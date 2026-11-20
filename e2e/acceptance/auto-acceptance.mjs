@@ -1239,7 +1239,7 @@ async function tour() {
     // A sidebar click while the Auto tab is in front goes to the tab that shows that page: the Auto tab stays what it is.
     const tabCount = () => page.locator('[data-testid="tab-strip"] [role="tab"]').count();
     const tabsBefore = await tabCount();
-    await page.getByTestId('workspace-sidebar').getByRole('button', { name: 'Daily', exact: true }).click();
+    await page.getByTestId('workspace-sidebar').getByRole('button', { name: 'Note', exact: true }).click();
     check('a sidebar click on Daily leaves the Auto tab alone and goes to the tab that shows it', await until(async () => (await page.getByTestId('tab-auto').count()) === 1 && (await page.getByTestId('tab-auto').getAttribute('aria-selected')) === 'false' && (await page.getByTestId('auto').count()) === 0) && (await tabCount()) === tabsBefore, `${tabsBefore} -> ${await tabCount()}`);
     await toAuto();
     check('coming back to the tab finds the thread where he left it', await until(async () => Math.abs((await talk.evaluate((element) => element.scrollTop)) - 120) < 4), String(await talk.evaluate((element) => element.scrollTop)));
@@ -1994,7 +1994,7 @@ async function tour() {
     await shot(52, 'list-scrolled');
     await listRows.evaluate((element) => { element.scrollTop = 60; });
     await wait(200);
-    await page.getByTestId('workspace-sidebar').getByRole('button', { name: 'Daily', exact: true }).click();
+    await page.getByTestId('workspace-sidebar').getByRole('button', { name: 'Note', exact: true }).click();
     await until(async () => (await page.getByTestId('auto').count()) === 0);
     await toAuto();
     check('the list keeps its place while the tab is left and come back to', await until(async () => Math.abs((await listRows.evaluate((element) => element.scrollTop)) - 60) < 2, 3_000), String(await listRows.evaluate((element) => element.scrollTop)));

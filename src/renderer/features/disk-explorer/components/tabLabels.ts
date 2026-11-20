@@ -35,7 +35,7 @@ export function vaultFolder(path: string, roots: readonly string[]): string {
 }
 
 /**
- * A tab's name. The stream of daily pages is "Daily" while its head is
+ * A tab's name. The stream of daily notes is "Note" while its head is
  * today's page; any other stack goes by its head's name, as the head opened
  * alone does. The Auto tab is named after what it shows, `autoName`.
  */
@@ -44,11 +44,12 @@ export function locationName(location: FilesLocation, today = localDate(), autoN
     switch (location.collection.kind) {
       case 'auto': return autoName;
       case 'digest': return 'Digest';
+      case 'daily': return 'Daily';
       case 'recent': return 'Recent';
     }
   }
   const path = location.file;
-  if (location.mode === 'stack' && location.kind === 'daily' && dailyHeadDate(path) === today) return 'Daily';
+  if (location.mode === 'stack' && location.kind === 'daily' && dailyHeadDate(path) === today) return 'Note';
   const name = basenameFsPath(path);
   return fileTreeLabel(name, classifyFile(name));
 }

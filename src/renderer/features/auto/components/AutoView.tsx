@@ -136,7 +136,11 @@ function Notice() {
 }
 
 /** The two Auto tabs share connection state. Only the visible thread subscribes to its replies. */
-export function AutoView({ digest = false }: { digest?: boolean }) {
+export function AutoView({ digest = false, queueIntro, queueTitle }: {
+  digest?: boolean;
+  queueIntro?: React.ReactNode;
+  queueTitle?: string;
+}) {
   const configured = useAutoStore((state) => state.configured);
   const address = useAutoStore((state) => state.address);
   const editing = useAutoStore((state) => state.editing);
@@ -155,7 +159,7 @@ export function AutoView({ digest = false }: { digest?: boolean }) {
       <MarkdownLinksContext.Provider value={links}>
         <Notice />
         <div className="flex min-h-0 flex-1">
-          {digest ? <QueuePane /> : openId === AWAY ? <AwayPane /> : <ThreadPane />}
+          {digest ? <QueuePane intro={queueIntro} title={queueTitle} /> : openId === AWAY ? <AwayPane /> : <ThreadPane />}
         </div>
         {/* With the sidebar not shown, what the last action did, and its Undo, show here instead. */}
         {sidebarShown || !active ? null : (
@@ -167,6 +171,17 @@ export function AutoView({ digest = false }: { digest?: boolean }) {
         )}
         <SnoozeDateHost />
       </MarkdownLinksContext.Provider>
+    );
+  }
+  if (queueIntro && (!configured || !address || editing || !loaded)) {
+    body = (
+      <div className="auto-talk min-h-0 flex-1 overflow-y-auto">
+        <div className="auto-column">
+          <h1 className="pt-4 text-ui-heading font-semibold">{queueTitle}</h1>
+          {queueIntro}
+        </div>
+        {body ? <div className="min-h-40">{body}</div> : null}
+      </div>
     );
   }
   return (

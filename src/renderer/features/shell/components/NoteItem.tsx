@@ -1,6 +1,6 @@
 import * as React from "react";
 import { toast } from "sonner";
-import { CalendarDays, Plus } from "lucide-react";
+import { BookOpen, Plus } from "lucide-react";
 import { addDays, dailyPageDate, dayName } from "@/renderer/features/day-sidebar/dayRule";
 import { useToday } from "@/renderer/features/day-sidebar/hooks/useDay";
 import { selectOpenedPath, useTabsStore } from "@/renderer/features/disk-explorer/store/tabsStore";
@@ -36,11 +36,11 @@ interface DailyItemProps {
 }
 
 /**
- * The Daily row opens the stream of daily pages at today's. The quiet "+"
+ * The Note row opens the stream of daily pages at today's. The quiet "+"
  * at its end, shown while the pointer or focus is in the sidebar, and a
  * right-click on the row make the page for tomorrow or for a picked day.
  */
-export function DailyItem({ onNavigate }: DailyItemProps) {
+export function NoteItem({ onNavigate }: DailyItemProps) {
   const { navigateFiles } = useShell();
   const today = useToday();
   const tomorrow = addDays(today, 1);
@@ -79,8 +79,8 @@ export function DailyItem({ onNavigate }: DailyItemProps) {
         <ContextMenuTrigger asChild>
           <div className="relative">
             <SidebarItem
-              icon={CalendarDays}
-              label="Daily"
+              icon={BookOpen}
+              label="Note"
               active={active}
               onActivate={(event) => goToDaily(openHowFor(event))}
             />

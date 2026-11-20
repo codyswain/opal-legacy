@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleDot, FileText, Folder, GitPullRequest, Newspaper, NotebookText, type LucideIcon } from 'lucide-react';
+import { CircleDot, FileText, Folder, GitPullRequest, NotebookText, type LucideIcon } from 'lucide-react';
 import { mondayOf, weekDates } from '@/common/touchedModel';
 import type { TouchedItem, TouchedKind, TouchedWeek } from '@/types/touched';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/renderer/shared/ui/ContextMenu';
@@ -24,8 +24,6 @@ export interface TouchedDay {
   /** 0 for Monday. */
   day: number;
   rows: TouchedItem[];
-  /** The day's digest file, linked as the first row; null for none. */
-  digest: string | null;
 }
 
 interface Tip {
@@ -39,8 +37,7 @@ const tipDate = (date: string) =>
   new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
 /**
- * The touched list under a daily page: a link to the day's digest, then the
- * most important things the day's agent turns worked on, each with the days
+ * The most important things the day's agent turns worked on, each with the days
  * of its week it was touched. A click opens the file the way a link in a page does, or the
  * URL in the browser.
  */
@@ -64,7 +61,6 @@ export const TouchedList = memo(function TouchedList({
     setMenuPath(row.dataset.touchedFile);
   };
   const dates = weekDates(touched.week.monday);
-  const { digest } = touched;
   const open = (item: TouchedItem, event: React.MouseEvent) => {
     event.preventDefault();
     if (item.path) openPath(item.path, event.metaKey || event.ctrlKey || event.button === 1);
@@ -95,17 +91,6 @@ export const TouchedList = memo(function TouchedList({
                 ))}
               </span>
             </div>
-          ) : null}
-          {digest ? (
-            <button
-              type="button"
-              className="opal-touched-row"
-              onClick={(event) => openPath(digest, event.metaKey || event.ctrlKey)}
-              onAuxClick={(event) => event.button === 1 && openPath(digest, true)}
-            >
-              <Newspaper aria-hidden className="opal-touched-icon" />
-              <span className="opal-touched-name">Digest</span>
-            </button>
           ) : null}
           {touched.rows.map((item) => {
             const Icon = ICONS[item.kind];
@@ -160,32 +145,7 @@ export const TouchedList = memo(function TouchedList({
 });
 
 /**
- * Pointer handlers for the stack's content: pointing at a touched row keeps
- * that item's rows on every day at full strength and dims the rest. They set
- * attributes on the page, so the stack does not render again.
- */
-export const touchedHover = {
-  onPointerOver(event: React.PointerEvent<HTMLElement>) {
-    const content = event.currentTarget;
-    const row = (event.target as Element).closest<HTMLElement>('.opal-touched-row');
-    const key = row?.dataset.touchedKey ?? null;
-    if ((content.dataset.touchedHover ?? null) === key) return;
-    if (key === null) delete content.dataset.touchedHover;
-    else content.dataset.touchedHover = key;
-    for (const each of content.querySelectorAll<HTMLElement>('.opal-touched-row')) {
-      each.toggleAttribute('data-match', key !== null && each.dataset.touchedKey === key);
-    }
-  },
-  onPointerLeave(event: React.PointerEvent<HTMLElement>) {
-    const content = event.currentTarget;
-    if (content.dataset.touchedHover === undefined) return;
-    delete content.dataset.touchedHover;
-    for (const each of content.querySelectorAll<HTMLElement>('.opal-touched-row[data-match]')) each.removeAttribute('data-match');
-  },
-};
-
-/**
- * The touched weeks of the daily pages a stack shows, by Monday, asked for
+ * The touched weeks of the requested days, by Monday, asked for
  * once each and again when the main process says a week changed.
  */
 export function useTouchedWeeks(root: string | null, dates: readonly string[]): ReadonlyMap<string, TouchedWeek> {

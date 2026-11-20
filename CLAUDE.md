@@ -1,8 +1,8 @@
 # Project: Opal
 
 A desktop app for reading and editing the Markdown pages in a folder on disk.
-Pages come first. There is no chat and no Today screen: "Daily" opens a
-stream of daily pages at the day's page (`Library/daily/YYYY-MM-DD.mdo`, or
+"Daily" shows the digest queue, recent activity and documents for the selected day.
+"Note" opens a stream of daily pages at the day's page (`Library/daily/YYYY-MM-DD.mdo`, or
 `.md` for older days and Obsidian's), the earlier ones below it and pages
 made for later days above it, creating the day's page as a `.mdo` from the
 vault's template when the date has none. A date with both files shows both,
@@ -36,8 +36,7 @@ not exist.
   (person notes the log links to, and meeting speakers who have one) and
   digest, and sends `vault:day-changed`. The parsing
   is in `src/common/dayModel.ts`
-- **Touched list:** each daily page in the stream shows, under its text, a
-  link to the day's digest and up to eight things the agent turns of that
+- **Touched list:** Daily shows up to eight things the agent turns of that
   day's log linked to, with a square per day of its week.
   `TouchedService` (`vault:touched-week`, `vault:touched-changed`) reads a
   week's logs through `DayService.logEntries`, plus the optional

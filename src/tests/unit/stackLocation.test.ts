@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   aloneLocation,
+  browseDaily,
   fileLocation,
   filesLocationKey,
   locationPath,
@@ -49,6 +50,15 @@ describe('stack locations', () => {
     expect(locationPath(stack)).toBe(TODAY);
   });
 
+  it('treats Daily as a separate built-in tab', () => {
+    const { location } = browseDaily();
+    expect(parseFilesLocation(serializeFilesLocation(location), [ROOT])).toEqual(location);
+    expect(locationName(location)).toBe('Daily');
+    useTabsStore.getState().open(location);
+    useTabsStore.getState().open(fileLocation(NOTE));
+    expect(useTabsStore.getState().tabs).toHaveLength(2);
+  });
+
   it('refuses unknown kinds and heads outside the opened folders', () => {
     expect(parseFilesLocation(`?mode=stack&kind=folder&file=${encodeURIComponent(TODAY)}`, [ROOT])).toBeNull();
     expect(parseFilesLocation(`?mode=stack&kind=daily&file=${encodeURIComponent('/Elsewhere/2026-10-29.md')}`, [ROOT])).toBeNull();
@@ -86,14 +96,14 @@ describe('stack locations', () => {
     expect(locationName(stackLocation('chat', card))).toBe('sf-site-one');
   });
 
-  it('name the daily stream "Daily" while its head is today, and by its date after', () => {
-    expect(locationName(stackLocation('daily', TODAY), '2026-10-29')).toBe('Daily');
+  it('name the daily stream "Note" while its head is today, and by its date after', () => {
+    expect(locationName(stackLocation('daily', TODAY), '2026-10-29')).toBe('Note');
     expect(locationName(stackLocation('daily', TODAY), '2026-10-30')).toBe('2026-10-29');
     expect(locationName(fileLocation(TODAY), '2026-10-29')).toBe('2026-10-29');
     expect(tabLabels([stackLocation('daily', OCT_25), fileLocation(OCT_25)], [ROOT]).map((label) => label.name)).toEqual(['2026-10-25', '2026-10-25']);
     // A day made as a document is named the same way, never with its extension.
     const document = TODAY.replace(/\.md$/, '.mdo');
-    expect(locationName(stackLocation('daily', document), '2026-10-29')).toBe('Daily');
+    expect(locationName(stackLocation('daily', document), '2026-10-29')).toBe('Note');
     expect(locationName(stackLocation('daily', document), '2026-10-30')).toBe('2026-10-29');
     expect(locationName(fileLocation(document), '2026-10-29')).toBe('2026-10-29');
   });

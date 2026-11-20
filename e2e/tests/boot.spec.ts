@@ -68,7 +68,7 @@ test.describe("with a vault", () => {
     expect(existsSync(daily)).toBe(true);
     await writeFile(daily, "Kept as written\n");
     // The tab is named Daily too, so its close button also matches a loose name.
-    await page.getByRole("button", { name: "Daily", exact: true }).click();
+    await page.getByRole("button", { name: "Note", exact: true }).click();
     await expect(page.getByText("Kept as written")).toBeVisible();
 
     const log = path.join(root, "Library/logs", `${date} log.md`);
