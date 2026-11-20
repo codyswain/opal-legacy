@@ -225,20 +225,19 @@ describe('the list', () => {
     const ids = [...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'));
     // What waits on him, then what is new to him (an unread reply, a thread back from snooze), then the rest.
     expect(ids).toEqual(['beds', 'seeds', 'trellis', 'bread', 'inspect']);
-    expect(within(row('beds')).getByText('Which wood for the frames?')).toBeInTheDocument();
+    expect(within(row('beds')).getByRole('img', { name: 'Waits on you' })).toBeInTheDocument();
     // No line of counts in the sidebar: the heading's count and the rows say it. A thread nobody has started says so.
     expect(screen.queryByTestId('auto-summary')).toBeNull();
     expect(screen.getByTestId('auto-count').textContent).toBe('3');
     expect(within(row('inspect')).getByTestId('auto-not-started').textContent).toBe('Not started');
-    // The dot before a title, as on the phone: an unread reply, or a thread back from snooze. No other row has one.
+    // The dot at the end of a row: an unread reply, or a thread back from snooze. No other row has one.
     expect(within(row('seeds')).getByRole('img', { name: 'Unread' })).toBeInTheDocument();
     expect(within(row('trellis')).getByRole('img', { name: 'Back from snooze' })).toBeInTheDocument();
     expect(within(row('bread')).queryByRole('img')).toBeNull();
-    expect(row('trellis').textContent).toMatch(/Back \d/);
-    // Only the rows the heading's count takes in carry a heavier title: a question, something new. A thread nobody
+    // Only something new carries a heavier title. A question is the yellow dot at a normal weight; a thread nobody
     // has started keeps its second line and a normal title.
     const weight = (id: string) => (within(row(id)).getByText(new RegExp(`^${useAutoStore.getState().threads.find((thread) => thread.id === id)?.title}$`)).className.match(/font-(semibold|sidebar-label)/) ?? [])[1];
-    expect(['beds', 'seeds', 'trellis', 'inspect', 'bread'].map(weight)).toEqual(['semibold', 'semibold', 'semibold', 'sidebar-label', 'sidebar-label']);
+    expect(['beds', 'seeds', 'trellis', 'inspect', 'bread'].map(weight)).toEqual(['sidebar-label', 'semibold', 'semibold', 'sidebar-label', 'sidebar-label']);
     expect(screen.getByTestId('auto-count').textContent).toBe(String(['beds', 'seeds', 'trellis'].length));
     // A row is one line, two when the thread needs him: the first words of a reply are left out of the sidebar.
     expect(row('inspect').textContent).not.toContain('The committee walks the plots.');
@@ -247,19 +246,19 @@ describe('the list', () => {
     expect(screen.queryByTestId('auto-row-labels')).toBeNull();
   });
 
-  it('says "Your move" on a thread that is his to act on, as words and never as a button', async () => {
+  it('marks a thread that is his to act on with the yellow dot alone, never its words or a button', async () => {
     const NOTE = autoThread('note', { title: 'Club note', last: 'Drafted the note.', yours: 'Read the note and send it to the club' });
     await open({ threads: [BREAD, NOTE] });
-    const line = within(row('note')).getByTestId('auto-yours');
-    expect(line.textContent).toBe('Your move: Read the note and send it to the club');
-    expect(line.closest('button')).toBe(within(row('note')).getAllByRole('button')[0]);
+    expect(within(row('note')).queryByTestId('auto-yours')).toBeNull();
+    expect(row('note').textContent).not.toContain('Your move');
+    expect(within(row('note')).getByRole('img', { name: 'Waits on you' })).toBeInTheDocument();
     expect(within(row('note')).getAllByRole('button').slice(1).map((button) => button.getAttribute('aria-label') ?? button.textContent).filter((name) => /move|send/i.test(name ?? ''))).toEqual([]);
     // It stays where his order has it: only a question or something new lifts a row.
     expect([...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'))).toEqual(['bread', 'note']);
     expect(screen.getByTestId('auto-count').textContent).toBe('1');
     // Auto takes it back when the thread moves on.
     act(() => auto.list({ kind: 'thread', thread: { ...NOTE, yours: '' } }));
-    expect(within(row('note')).queryByTestId('auto-yours')).toBeNull();
+    expect(within(row('note')).queryByRole('img', { name: 'Waits on you' })).toBeNull();
     expect(screen.queryByTestId('auto-count')).toBeNull();
   });
 
@@ -279,14 +278,12 @@ describe('the list', () => {
       ],
     });
     const lines = (id: string) => within(row(id)).getAllByRole('button')[0].children.length;
-    expect(['bread', 'ask', 'mine', 'broke'].map(lines)).toEqual([1, 2, 2, 2]);
-    expect(row('ask').textContent).toContain('Which bed?');
-    expect(row('mine').textContent).toContain('Your move: Read it');
+    // A question or his move is the yellow dot alone; only a failure keeps a second line.
+    expect(['bread', 'ask', 'mine', 'broke'].map(lines)).toEqual([1, 1, 1, 2]);
+    expect(row('ask').textContent).not.toContain('Which bed?');
+    expect(row('mine').textContent).not.toContain('Your move');
     expect(row('broke').textContent).toContain('Failed: it stopped');
-    // A row with no time gives its title the room: the time's slot holds only the time, and on hover or focus the
-    // first line fades out under the actions, as far in as they reach.
-    const slot = (id: string) => within(row(id)).getAllByRole('button')[0].querySelector('.tabular-nums') as HTMLElement;
-    expect(slot('broke').getAttribute('style')).toBeNull();
+    // On hover or focus the first line fades out under the actions, as far in as they reach.
     expect(row('broke').querySelector('.auto-row-line')).not.toBeNull();
     expect(row('broke').style.getPropertyValue('--auto-row-hide')).toBe('3rem');
   });
@@ -294,7 +291,8 @@ describe('the list', () => {
   it('shows a send he is asked to allow on its row as a waiting thread, with its title and nothing to press', async () => {
     await open({ threads: [BREAD, autoThread('swap', { title: 'Seed swap', status: 'waiting', ask: { id: 'g1', kind: 'grant', text: 'Send this Slack message to Robin?', options: [], question: null } })] });
     expect([...screen.getByTestId('auto-list').querySelectorAll('[data-thread-id]')].map((element) => element.getAttribute('data-thread-id'))).toEqual(['swap', 'bread']);
-    expect(within(row('swap')).getByText('Send this Slack message to Robin?')).toBeInTheDocument();
+    expect(within(row('swap')).queryByText('Send this Slack message to Robin?')).toBeNull();
+    expect(within(row('swap')).getByRole('img', { name: 'Waits on you' })).toBeInTheDocument();
     expect(within(row('swap')).getAllByRole('button').slice(1).map((button) => button.getAttribute('aria-label') ?? button.textContent).filter((name) => /allow|yes|send/i.test(name ?? ''))).toEqual([]);
     // A number picks nothing on it: it has no options.
     fireEvent.keyDown(within(row('swap')).getAllByRole('button')[0], { key: '1' });
