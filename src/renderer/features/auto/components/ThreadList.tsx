@@ -87,14 +87,16 @@ function RowStatus({ thread, current, className }: { thread: AutoThread; current
 
 /**
  * The line under a row's title in the sidebar, only when there is something
- * he must see: the question it asks, "Your move: ...", "Not started", why it
- * failed, or who replied to a wait. Words, never a button.
+ * he must see: "Not started", why it failed, or who replied to a wait. Words,
+ * never a button. A question or his move is the yellow dot alone, and the
+ * thread says what (Cody, 2026-11-19: "when it's waiting for something from
+ * me I don't want to see that in the sidebar that's too much").
  */
 function NeedsLine({ thread }: { thread: AutoThread }) {
   const line = needsLine(thread);
-  if (!line) return null;
-  const testId = line.kind === 'yours' ? 'auto-yours' : line.kind === 'idle' ? 'auto-not-started' : line.kind === 'back' ? 'auto-wait-back' : undefined;
-  const quiet = line.kind === 'ask' || line.kind === 'failed';
+  if (!line || line.kind === 'ask' || line.kind === 'yours') return null;
+  const testId = line.kind === 'idle' ? 'auto-not-started' : line.kind === 'back' ? 'auto-wait-back' : undefined;
+  const quiet = line.kind === 'failed';
   return (
     <span data-testid={testId} data-line={line.kind} className={cn('mt-0.5 line-clamp-2 break-words text-control', underTitle, quiet ? 'text-foreground-secondary' : 'text-foreground')}>
       {line.text}
